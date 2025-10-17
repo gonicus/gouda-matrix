@@ -32,5 +32,6 @@ fn main() {
     
         stdout().write_all(&serialized.len().to_le_bytes()).expect("error writing size");
         stdout().write_all(&serialized).expect("error writing string");
+        stdout().flush().expect("error flushing stdout");
     }
 }
