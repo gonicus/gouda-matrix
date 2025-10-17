@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package messages;
+
+message GreetRequest {
+  int32 x = 1;
+  int32 y = 2;
+  string prename = 3;
+  string surname = 4;
+}
+
+message GreetResponse {
+  int64 result = 1;
+  string greeting = 2;
+}
