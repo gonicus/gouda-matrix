@@ -6,15 +6,21 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::messages::GreetResponse;
 
-type Writer = dyn AsyncWrite + Send + Unpin;
+pub type Writer = dyn AsyncWrite + Send + Unpin;
 
 #[derive(Debug)]
 pub enum OutputTask {
     GreetResponse(Box<GreetResponse>),
 }
 
+/// The OutputProcessor is responsible to write data synchronously to the specified output.
+/// This prevents multiple processes from writing data at the same time.
+/// The output can be any object that implements the `AsyncWrite` trait, as well as `Send` and `Unpin`.
+/// This is typically a socket or network stream.
 pub struct OutputProcessor {
+    /// Where to write the resulting data.
     writer: BufWriter<Box<Writer>>,
+    /// Receiver of tasks that should be executed.
     task_receiver: UnboundedReceiver<OutputTask>,
 }
 
@@ -26,6 +32,9 @@ impl OutputProcessor {
         }
     }
 
+    /// Spawns an asynchronous Tokio task and starts the output processor to wait for tasks and write
+    /// its data to the `self.writer`.
+    /// This method is executed until the program ends.
     pub fn run(mut self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");

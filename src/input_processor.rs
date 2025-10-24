@@ -5,10 +5,15 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::executor::ExecutorTask;
 use crate::messages::GreetRequest;
 
-type Reader = dyn AsyncRead + Send + Unpin;
+pub type Reader = dyn AsyncRead + Send + Unpin;
 
+/// The InputProcessor is responsible to read and decode data from the specified input.
+/// The input can be any object that implements the `AsyncRead` trait, as well as `Send` and `Unpin`.
+/// This is typically a socket or network stream.
 pub struct InputProcessor {
+    /// From where to read and decode input.
     reader: BufReader<Box<Reader>>,
+    /// Where to send the decoded input.
     executor_sender: UnboundedSender<ExecutorTask>,
 }
 
@@ -20,6 +25,8 @@ impl InputProcessor {
         }
     }
 
+    /// Spawns an asynchronous tokio task and starts the input processor to wait for input to decode.
+    /// This method is executed until the program ends.
     pub fn run(mut self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             loop {
