@@ -44,30 +44,21 @@ impl OutputProcessor {
                 log::debug!("Writing greet response...");
 
                 let serialized = response.encode_to_vec();
-                let mut data = serialized.len().to_le_bytes().to_vec();
+                let size = serialized.len().to_le_bytes().to_vec();
 
-                data.extend(serialized);
-
-                log::debug!("Writing data: {data:?}");
+                log::debug!("Writing size: {}", serialized.len());
 
                 self.writer
-                    .write_all(&data)
+                    .write_all(&size)
                     .await
-                    .expect("Error writing data");
+                    .expect("error writing size");
 
-                // log::debug!("Writing size: {}", serialized.len());
+                log::debug!("Writing response: {serialized:?}");
 
-                // self.writer
-                //     .write_all(&size)
-                //     .await
-                //     .expect("error writing size");
-
-                // log::debug!("Writing response: {serialized:?}");
-
-                // self.writer
-                //     .write_all(&serialized)
-                //     .await
-                //     .expect("error writing response");
+                self.writer
+                    .write_all(&serialized)
+                    .await
+                    .expect("error writing response");
 
                 log::debug!("Flushing writer");
 
