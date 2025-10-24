@@ -6,9 +6,12 @@ edition = "2024"
 [dependencies]
 prost = "0.14"
 bytes = "1.10"
-matrix-sdk = "0.14.0"
 tokio = { version = "1.48.0", default-features = false, features = ["rt-multi-thread", "io-std", "io-util"] }
+interprocess = { version = "2.2", default-features = false, features = ["tokio"] }
+
 url = "2.5.7"
+matrix-sdk = "0.14.0"
+
 log = "0.4"
 log4rs = "1.4"
 

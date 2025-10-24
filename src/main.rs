@@ -4,7 +4,11 @@ mod messages;
 mod output_processor;
 
 use executor::Executor;
+
 use input_processor::InputProcessor;
+use interprocess::local_socket::GenericFilePath;
+use interprocess::local_socket::tokio::Stream;
+use interprocess::local_socket::tokio::prelude::*;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -19,23 +23,34 @@ const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
 async fn main() {
     setup_logging();
 
+    let socket_name = std::env::args().nth(1).expect("No socket name specified");
+
+    let socket_name = socket_name
+        .to_fs_name::<GenericFilePath>()
+        .expect("Error creating socket name");
+
+    log::debug!("Waiting for local socket connection at '{socket_name:?}'");
+
+    let conn = Stream::connect(socket_name)
+        .await
+        .expect("Error connecting to socket");
+
+    log::debug!("Successfully connected to local socket");
+
+    let (recv, sender) = conn.split();
+
     let (executor_tx, executor_rx) = mpsc::unbounded_channel();
     let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-    let input_processor = InputProcessor::new(Box::new(tokio::io::stdin()), executor_tx);
+    let input_processor = InputProcessor::new(Box::new(recv), executor_tx);
     let executor = Executor::new(executor_rx, output_tx);
-    let output_processor = OutputProcessor::new(Box::new(tokio::io::stdout()), output_rx);
+    let output_processor = OutputProcessor::new(Box::new(sender), output_rx);
 
     let input_handle = input_processor.run();
     let executor_handle = executor.run();
     let output_handle = output_processor.run();
 
-    let (input_res, executor_res, output_res) =
-        tokio::join!(input_handle, executor_handle, output_handle);
-
-    input_res.unwrap();
-    executor_res.unwrap();
-    output_res.unwrap();
+    tokio::try_join!(input_handle, executor_handle, output_handle).unwrap();
 }
 
 fn setup_logging() {
