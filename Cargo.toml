@@ -1,19 +1,31 @@
-[package]
-name = "matrix-headless-client"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+  "crates/*",
+]
+resolver = "2"
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+
+[workspace.dependencies]
+mrhc_core = { path = "crates/mrhc_core" }
+mrhc_matrix_adapter = { path = "crates/mrhc_matrix_adapter" }
+mrhc_proto = { path = "crates/mrhc_proto" }
+
 prost = "0.14"
-bytes = "1.10"
-tokio = { version = "1.48.0", default-features = false, features = ["rt-multi-thread", "io-std", "io-util"] }
+prost-build = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }
+bytes = "1.10"
+
+tokio = { version = "1.48.0", default-features = false, features = [
+  "rt-multi-thread",
+  "io-std",
+  "io-util",
+  "macros",
+] }
 
 url = "2.5.7"
 matrix-sdk = "0.14.0"
 
 log = "0.4"
 log4rs = "1.4"
-
-[build-dependencies]
-prost-build = "0.14"

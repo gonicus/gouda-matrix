@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::messages::GreetResponse;
+use mrhc_proto::GreetResponse;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 

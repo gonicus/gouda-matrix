@@ -1,0 +1,11 @@
+[package]
+name = "mrhc_proto"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[dependencies]
+prost.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true

@@ -1,0 +1,8 @@
+[package]
+name = "mrhc_matrix_adapter"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[dependencies]
+mrhc_core.workspace = true
