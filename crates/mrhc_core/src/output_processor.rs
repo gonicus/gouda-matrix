@@ -1,16 +1,16 @@
+use std::fmt::Debug;
+
 use prost::Message;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use mrhc_proto::GreetResponse;
-
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
 #[derive(Debug)]
 pub enum OutputTask {
-    GreetResponse(Box<GreetResponse>),
+    ProtoMessage(Box<mrhc_proto::chat::FromClientContainer>),
 }
 
 /// The OutputProcessor is responsible to write data synchronously to the specified output.
@@ -49,8 +49,8 @@ impl OutputProcessor {
 
     async fn process_task(&mut self, task: OutputTask) {
         match task {
-            OutputTask::GreetResponse(response) => {
-                log::debug!("Writing greet response...");
+            OutputTask::ProtoMessage(response) => {
+                log::debug!("Writing proto message...");
 
                 let serialized = response.encode_to_vec();
                 let size = serialized.len().to_le_bytes().to_vec();
@@ -74,7 +74,7 @@ impl OutputProcessor {
                 self.writer.flush().await.expect("error flushing writer");
 
                 log::debug!("Finished writing response");
-            }
+            },
         }
     }
 }

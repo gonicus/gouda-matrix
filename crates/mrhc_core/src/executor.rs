@@ -1,12 +1,13 @@
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use mrhc_proto::{GreetRequest, GreetResponse};
+use mrhc_proto::chat::to_client_container::Content as ToClientContent;
+use mrhc_proto::chat::ToClientContainer;
 
 use crate::output_processor::OutputTask;
 
 #[derive(Debug)]
 pub enum ExecutorTask {
-    GreetRequest(Box<GreetRequest>),
+    ToClientContainer(Box<ToClientContainer>),
 }
 
 /// The executor is responsible for receiving decoded messages from the input and executing the corresponding tasks
@@ -45,15 +46,17 @@ impl Executor {
 
     async fn process_task(&mut self, task: ExecutorTask) {
         match task {
-            ExecutorTask::GreetRequest(request) => {
-                let response = GreetResponse {
-                    result: request.x as i64 + request.y as i64,
-                    greeting: format!("Hallo, {} {}", request.prename, request.surname),
-                };
-                self.output_sender
-                    .send(OutputTask::GreetResponse(Box::new(response)))
-                    .expect("error sending output event");
+            ExecutorTask::ToClientContainer(container) => {
+                let content = container
+                    .content
+                    .expect("Received client container without content");
+
+                self.process_request(container.tag, content).await;
             }
         }
+    }
+
+    async fn process_request(&mut self, tag: u64, content: ToClientContent) {
+        todo!();
     }
 }
