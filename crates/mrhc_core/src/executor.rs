@@ -1,6 +1,7 @@
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::messages::{GreetRequest, GreetResponse};
+use mrhc_proto::{GreetRequest, GreetResponse};
+
 use crate::output_processor::OutputTask;
 
 #[derive(Debug)]

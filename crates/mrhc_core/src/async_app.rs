@@ -1,8 +1,8 @@
 use tokio::sync::mpsc;
 
+use crate::executor::Executor;
 use crate::input_processor::{InputProcessor, Reader};
 use crate::output_processor::{OutputProcessor, Writer};
-use crate::executor::Executor;
 
 pub struct AsyncApp {
     input_processor: InputProcessor,

@@ -1,0 +1,20 @@
+[package]
+name = "matrix_headless_client"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "matrix-headless-client"
+path = "src/main.rs"
+
+[dependencies]
+mrhc_core.workspace = true
+mrhc_matrix_adapter.workspace = true
+
+tokio.workspace = true
+
+interprocess.workspace = true
+
+log.workspace = true
+log4rs.workspace = true

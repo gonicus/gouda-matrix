@@ -2,8 +2,9 @@ use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 
+use mrhc_proto::GreetRequest;
+
 use crate::executor::ExecutorTask;
-use crate::messages::GreetRequest;
 
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
