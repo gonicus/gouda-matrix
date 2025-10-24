@@ -1,0 +1,3 @@
+[submodule "protos"]
+	path = protos
+	url = git@gitlab.intranet.gonicus.de:gossip/protos.git

@@ -2,7 +2,7 @@ use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 
-use mrhc_proto::GreetRequest;
+use mrhc_proto::chat::ToClientContainer;
 
 use crate::executor::ExecutorTask;
 
@@ -44,7 +44,7 @@ impl InputProcessor {
                 log::debug!("Sending event to executor...");
 
                 self.executor_sender
-                    .send(ExecutorTask::GreetRequest(Box::new(request)))
+                    .send(ExecutorTask::ToClientContainer(Box::new(request)))
                     .expect("error sending executor event");
 
                 log::debug!("Successfully send event to executor");
@@ -59,15 +59,17 @@ async fn read_size(reader: &mut Reader) -> u64 {
         .read_exact(&mut buf)
         .await
         .expect("error reading size");
+
     u64::from_le_bytes(buf)
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> GreetRequest {
+async fn read_request(reader: &mut Reader, len: u64) -> ToClientContainer {
     let mut buf = vec![0; len as usize];
     reader
         .read_exact(&mut buf)
         .await
         .expect("error reading buffer of size {len}");
-    GreetRequest::decode(&mut std::io::Cursor::new(&buf as &[u8]))
+
+    ToClientContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
         .expect("error decoding greet request")
 }
