@@ -1,9 +1,11 @@
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use mrhc_proto::chat::from_client_container::Content as FromClientContent;
 use mrhc_proto::chat::to_client_container::Content as ToClientContent;
-use mrhc_proto::chat::ToClientContainer;
+use mrhc_proto::chat::{FromClientContainer, ToClientContainer};
 
 use crate::output_processor::OutputTask;
+use crate::Client;
 
 #[derive(Debug)]
 pub enum ExecutorTask {
@@ -13,6 +15,8 @@ pub enum ExecutorTask {
 /// The executor is responsible for receiving decoded messages from the input and executing the corresponding tasks
 /// using the client. The resulting data is then send to the output processor.
 pub struct Executor {
+    /// The client to be used to execute incoming tasks.
+    client: Box<dyn Client>,
     /// Receiver for tasks to be executed.
     task_receiver: UnboundedReceiver<ExecutorTask>,
     /// Where to send the resulting output tasks.
@@ -21,10 +25,12 @@ pub struct Executor {
 
 impl Executor {
     pub fn new(
+        client: Box<dyn Client>,
         task_receiver: UnboundedReceiver<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
         Self {
+            client,
             task_receiver,
             output_sender,
         }
@@ -57,6 +63,24 @@ impl Executor {
     }
 
     async fn process_request(&mut self, tag: u64, content: ToClientContent) {
+        match content {
+            ToClientContent::CapabilityRequest(_) => {
+                let capabilities = self.client.get_capabilities().await;
+                self.send_response(tag, FromClientContent::CapabilityResponse(capabilities));
+            }
+            _ => todo!(),
+        }
         todo!();
+    }
+
+    fn send_response(&self, tag: u64, content: FromClientContent) {
+        let container = FromClientContainer {
+            tag,
+            content: Some(content),
+        };
+
+        self.output_sender
+            .send(OutputTask::ProtoMessage(Box::new(container)))
+            .expect("Error sending message to output processor");
     }
 }

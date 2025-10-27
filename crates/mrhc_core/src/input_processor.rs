@@ -71,5 +71,5 @@ async fn read_request(reader: &mut Reader, len: u64) -> ToClientContainer {
         .expect("error reading buffer of size {len}");
 
     ToClientContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
-        .expect("error decoding greet request")
+        .expect("error decoding ToClientContainer")
 }
