@@ -7,7 +7,7 @@ use mrhc_proto::chat::{FromClientContainer, ToClientContainer};
 use crate::output_processor::OutputTask;
 use crate::Client;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ExecutorTask {
     /// Exits the executor, resulting in the `Executor::run` method being stopped.
     Exit,
@@ -40,8 +40,8 @@ impl Executor {
     }
 
     /// Spawns an asynchronous tokio task and starts the executor to wait for events to execute.
-    /// This method is executed until the program ends.
-    pub fn run(mut self) -> tokio::task::JoinHandle<()> {
+    /// This method is executed until an `ExecutorTask::Exit` is received.
+    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -55,6 +55,8 @@ impl Executor {
 
                 self.process_task(task).await;
             }
+
+            self
         })
     }
 
@@ -80,7 +82,6 @@ impl Executor {
             }
             _ => todo!(),
         }
-        todo!();
     }
 
     fn send_response(&self, tag: u64, content: FromClientContent) {
@@ -92,5 +93,68 @@ impl Executor {
         self.output_sender
             .send(OutputTask::ProtoMessage(Box::new(container)))
             .expect("Error sending message to output processor");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use mrhc_proto::chat::from_client_container::Content as FromClientContent;
+    use mrhc_proto::chat::to_client_container::Content as ToClientContent;
+    use mrhc_proto::chat::{CapabilityRequest, CapabilityResponse};
+
+    use super::*;
+    use crate::test_utils::ClientMock;
+
+    fn create_executor_task(tag: u64, content: ToClientContent) -> ExecutorTask {
+        ExecutorTask::ToClientContainer(Box::new(ToClientContainer {
+            tag,
+            content: Some(content),
+        }))
+    }
+
+    fn create_output_task(tag: u64, content: FromClientContent) -> OutputTask {
+        OutputTask::ProtoMessage(Box::new(FromClientContainer {
+            tag,
+            content: Some(content),
+        }))
+    }
+
+    #[tokio::test]
+    async fn test_executor_run() {
+        // Arrange
+        let client = ClientMock::new();
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        let request = ToClientContent::CapabilityRequest(CapabilityRequest::default());
+        let response = FromClientContent::CapabilityResponse(CapabilityResponse::default());
+
+        // Act
+        executor_tx
+            .send(create_executor_task(12, request.clone()))
+            .unwrap();
+
+        executor_tx.send(create_executor_task(13, request)).unwrap();
+
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_capabilities_called_n(2);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(12, response.clone())
+        );
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(13, response)
+        );
     }
 }

@@ -6,14 +6,16 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use mrhc_proto::chat::FromClientContainer;
+
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OutputTask {
     /// Exits the output processor, resulting in the `OutputProcessor::run` method being stopped.
     Exit,
     /// Sends some response or event to the receiving half.
-    ProtoMessage(Box<mrhc_proto::chat::FromClientContainer>),
+    ProtoMessage(Box<FromClientContainer>),
 }
 
 /// The OutputProcessor is responsible to write data synchronously to the specified output.
@@ -37,8 +39,8 @@ impl OutputProcessor {
 
     /// Spawns an asynchronous Tokio task and starts the output processor to wait for tasks and write
     /// its data to the `self.writer`.
-    /// This method is executed until the program ends.
-    pub fn run(mut self) -> tokio::task::JoinHandle<()> {
+    /// This method is executed until an `OutputTask::Exit` is received.
+    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -52,6 +54,8 @@ impl OutputProcessor {
 
                 self.process_task(task).await;
             }
+
+            self
         })
     }
 
@@ -86,5 +90,61 @@ impl OutputProcessor {
                 log::debug!("Finished writing response");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use mrhc_proto::chat::from_client_container::Content as FromClientContent;
+    use mrhc_proto::chat::{CapabilityResponse, FromClientContainer};
+
+    use crate::test_utils;
+
+    use super::*;
+
+    fn create_output_task(tag: u64, content: FromClientContent) -> OutputTask {
+        OutputTask::ProtoMessage(Box::new(FromClientContainer {
+            tag,
+            content: Some(content),
+        }))
+    }
+
+    #[tokio::test]
+    async fn test_output_processor_run() {
+        // Arrange
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
+        let (writer, output) = test_utils::WriterMock::new();
+
+        let output_processor = OutputProcessor::new(Box::new(writer), output_rx);
+
+        let request = FromClientContent::CapabilityResponse(CapabilityResponse::default());
+
+        #[rustfmt::skip]
+        let expected_response =  [
+            // Size
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Repsonse 1 (tag: 5)
+            0x08, 0x05, 0x1A, 0x00,
+            // Size
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Response 2 (tag: 6)
+            0x08, 0x06, 0x1A, 0x00
+        ];
+
+        // Act
+        output_tx
+            .send(create_output_task(5, request.clone()))
+            .unwrap();
+        output_tx.send(create_output_task(6, request)).unwrap();
+        output_tx.send(OutputTask::Exit).unwrap();
+
+        output_processor.run().await.unwrap();
+
+        // Assert
+        let output = output.lock().unwrap();
+        let bytes = output.clone().into_inner();
+        assert_eq!(expected_response, bytes.as_ref());
     }
 }
