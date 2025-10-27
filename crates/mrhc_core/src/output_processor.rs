@@ -74,7 +74,7 @@ impl OutputProcessor {
                 self.writer.flush().await.expect("error flushing writer");
 
                 log::debug!("Finished writing response");
-            },
+            }
         }
     }
 }
