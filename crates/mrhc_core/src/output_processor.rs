@@ -10,6 +10,9 @@ pub type Writer = dyn AsyncWrite + Send + Unpin;
 
 #[derive(Debug)]
 pub enum OutputTask {
+    /// Exits the output processor, resulting in the `OutputProcessor::run` method being stopped.
+    Exit,
+    /// Sends some response or event to the receiving half.
     ProtoMessage(Box<mrhc_proto::chat::FromClientContainer>),
 }
 
@@ -42,6 +45,11 @@ impl OutputProcessor {
             while let Some(task) = self.task_receiver.recv().await {
                 log::debug!("Received task: {task:?}");
 
+                if matches!(task, OutputTask::Exit) {
+                    log::info!("Exiting as an exit event was received");
+                    break;
+                }
+
                 self.process_task(task).await;
             }
         })
@@ -49,6 +57,8 @@ impl OutputProcessor {
 
     async fn process_task(&mut self, task: OutputTask) {
         match task {
+            // OutputTask::Exit is handled by the `Self::run` method.
+            OutputTask::Exit => (),
             OutputTask::ProtoMessage(response) => {
                 log::debug!("Writing proto message...");
 

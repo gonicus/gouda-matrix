@@ -17,7 +17,7 @@ impl AsyncApp {
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         Self {
-            input_processor: InputProcessor::new(reader, executor_tx),
+            input_processor: InputProcessor::new(reader, executor_tx, output_tx.clone()),
             executor: Executor::new(client, executor_rx, output_tx),
             output_processor: OutputProcessor::new(writer, output_rx),
         }

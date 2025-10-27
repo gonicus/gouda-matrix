@@ -9,6 +9,9 @@ use crate::Client;
 
 #[derive(Debug)]
 pub enum ExecutorTask {
+    /// Exits the executor, resulting in the `Executor::run` method being stopped.
+    Exit,
+    /// Executes some request send to this client.
     ToClientContainer(Box<ToClientContainer>),
 }
 
@@ -45,6 +48,11 @@ impl Executor {
             while let Some(task) = self.task_receiver.recv().await {
                 log::debug!("Received task: {task:?}");
 
+                if matches!(task, ExecutorTask::Exit) {
+                    log::info!("Exiting as an exit event was received");
+                    break;
+                }
+
                 self.process_task(task).await;
             }
         })
@@ -52,6 +60,8 @@ impl Executor {
 
     async fn process_task(&mut self, task: ExecutorTask) {
         match task {
+            // ExecutorTask::Exit is handled by the `Self::run` method
+            ExecutorTask::Exit => (),
             ExecutorTask::ToClientContainer(container) => {
                 let content = container
                     .content
