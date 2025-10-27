@@ -5,6 +5,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use mrhc_proto::chat::ToClientContainer;
 
 use crate::executor::ExecutorTask;
+use crate::output_processor::OutputTask;
 
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
@@ -16,13 +17,20 @@ pub struct InputProcessor {
     reader: BufReader<Box<Reader>>,
     /// Where to send the decoded input.
     executor_sender: UnboundedSender<ExecutorTask>,
+    /// Where to send output. This is currently only used when reaching an EOF.
+    output_sender: UnboundedSender<OutputTask>,
 }
 
 impl InputProcessor {
-    pub fn new(reader: Box<Reader>, executor_sender: UnboundedSender<ExecutorTask>) -> Self {
+    pub fn new(
+        reader: Box<Reader>,
+        executor_sender: UnboundedSender<ExecutorTask>,
+        output_sender: UnboundedSender<OutputTask>,
+    ) -> Self {
         Self {
             reader: BufReader::new(reader),
             executor_sender,
+            output_sender,
         }
     }
 
@@ -33,34 +41,54 @@ impl InputProcessor {
             loop {
                 log::debug!("Waiting for input...");
 
-                let size = read_size(&mut self.reader).await;
+                match read_size(&mut self.reader).await {
+                    Ok(size) => {
+                        log::debug!("Read size: {size}");
 
-                log::debug!("Read size: {size}");
+                        let request = read_request(&mut self.reader, size).await;
 
-                let request = read_request(&mut self.reader, size).await;
+                        log::debug!("Read request: {request:?}");
 
-                log::debug!("Read request: {request:?}");
+                        log::debug!("Sending event to executor...");
 
-                log::debug!("Sending event to executor...");
+                        self.executor_sender
+                            .send(ExecutorTask::ToClientContainer(Box::new(request)))
+                            .expect("error sending executor event");
 
-                self.executor_sender
-                    .send(ExecutorTask::ToClientContainer(Box::new(request)))
-                    .expect("error sending executor event");
-
-                log::debug!("Successfully send event to executor");
+                        log::debug!("Successfully send event to executor");
+                    }
+                    Err(err) => {
+                        if err.kind() == tokio::io::ErrorKind::UnexpectedEof {
+                            log::info!("Exiting as an EOF was received on the input reader");
+                            self.exit();
+                            break;
+                        } else {
+                            panic!("Received io error: {err}");
+                        }
+                    }
+                }
             }
         })
     }
+
+    fn exit(&mut self) {
+        log::debug!("Sending exit task to executor");
+        self.executor_sender
+            .send(ExecutorTask::Exit)
+            .expect("Error sending exit event to executor");
+
+        log::debug!("Sending exit task to output processor");
+        self.output_sender
+            .send(OutputTask::Exit)
+            .expect("Error sending exit event to output processor");
+    }
 }
 
-async fn read_size(reader: &mut Reader) -> u64 {
+async fn read_size(reader: &mut Reader) -> Result<u64, tokio::io::Error> {
     let mut buf = [0; 8];
-    reader
-        .read_exact(&mut buf)
-        .await
-        .expect("error reading size");
+    reader.read_exact(&mut buf).await?;
 
-    u64::from_le_bytes(buf)
+    Ok(u64::from_le_bytes(buf))
 }
 
 async fn read_request(reader: &mut Reader, len: u64) -> ToClientContainer {
