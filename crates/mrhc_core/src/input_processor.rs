@@ -36,7 +36,7 @@ impl InputProcessor {
 
     /// Spawns an asynchronous tokio task and starts the input processor to wait for input to decode.
     /// This method is executed until the program ends.
-    pub fn run(mut self) -> tokio::task::JoinHandle<()> {
+    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             loop {
                 log::debug!("Waiting for input...");
@@ -68,6 +68,8 @@ impl InputProcessor {
                     }
                 }
             }
+
+            self
         })
     }
 
@@ -100,4 +102,110 @@ async fn read_request(reader: &mut Reader, len: u64) -> ToClientContainer {
 
     ToClientContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
         .expect("error decoding ToClientContainer")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use tokio::sync::mpsc;
+
+    use mrhc_proto::chat::to_client_container::Content as ToCLientContent;
+    use mrhc_proto::chat::LoginRequest;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_read_size() {
+        let data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let result = read_size(&mut data.as_ref()).await.unwrap();
+        assert_eq!(result, 693857);
+    }
+
+    #[tokio::test]
+    async fn test_read_size_early_eof() {
+        let data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
+        let result = read_size(&mut data.as_ref()).await;
+        assert_eq!(
+            result.unwrap_err().kind(),
+            tokio::io::ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_request() {
+        let data: &'static [u8] = &[
+            0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
+            0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
+            0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
+        ];
+
+        let expected = ToClientContainer {
+            tag: 87,
+            content: Some(ToCLientContent::LoginRequest(LoginRequest {
+                user_id: "test-user".to_owned(),
+                backend_url: Some("http://test.backend".to_owned()),
+            })),
+        };
+
+        let result = read_request(&mut data.as_ref(), data.len() as u64).await;
+
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "early eof")]
+    async fn test_read_request_early_eof() {
+        let data: &'static [u8] = &[
+            0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
+            0x72, 0x12,
+        ];
+        let _ = read_request(&mut data.as_ref(), 36).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "buffer underflow")]
+    async fn test_read_request_decode_error() {
+        let data: &'static [u8] = &[
+            0x12, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
+            0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
+            0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
+        ];
+
+        let _ = read_request(&mut data.as_ref(), data.len() as u64).await;
+    }
+
+    #[tokio::test]
+    async fn test_input_processor_run() {
+        // Arrange
+        #[rustfmt::skip]
+        let data: &'static [u8] = &[
+            // Size
+            0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Request
+            0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
+            0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
+            0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
+        ];
+
+        let expected = ExecutorTask::ToClientContainer(Box::new(ToClientContainer {
+            tag: 87,
+            content: Some(ToCLientContent::LoginRequest(LoginRequest {
+                user_id: "test-user".to_owned(),
+                backend_url: Some("http://test.backend".to_owned()),
+            })),
+        }));
+
+        let (executor_tx, mut executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+        let input_processor =
+            InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
+
+        // Act
+        input_processor.run().await.unwrap();
+
+        // Assert
+        assert_eq!(executor_rx.recv().await.unwrap(), expected);
+        assert_eq!(executor_rx.recv().await.unwrap(), ExecutorTask::Exit);
+        assert_eq!(output_rx.recv().await.unwrap(), OutputTask::Exit);
+    }
 }
