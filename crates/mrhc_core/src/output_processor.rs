@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use mrhc_proto::chat::FromClientContainer;
+use mrhc_proto::chat::ResponseContainer;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -15,7 +15,7 @@ pub enum OutputTask {
     /// Exits the output processor, resulting in the `OutputProcessor::run` method being stopped.
     Exit,
     /// Sends some response or event to the receiving half.
-    ProtoMessage(Box<FromClientContainer>),
+    Response(Box<ResponseContainer>),
 }
 
 /// The OutputProcessor is responsible to write data synchronously to the specified output.
@@ -63,7 +63,7 @@ impl OutputProcessor {
         match task {
             // OutputTask::Exit is handled by the `Self::run` method.
             OutputTask::Exit => (),
-            OutputTask::ProtoMessage(response) => {
+            OutputTask::Response(response) => {
                 log::debug!("Writing proto message...");
 
                 let serialized = response.encode_to_vec();
@@ -97,15 +97,15 @@ impl OutputProcessor {
 mod tests {
     use tokio::sync::mpsc;
 
-    use mrhc_proto::chat::from_client_container::Content as FromClientContent;
-    use mrhc_proto::chat::{CapabilityResponse, FromClientContainer};
+    use mrhc_proto::chat::response_container::Content as ResponseContent;
+    use mrhc_proto::chat::{CapabilityResponse, ResponseContainer};
 
     use crate::test_utils;
 
     use super::*;
 
-    fn create_output_task(tag: u64, content: FromClientContent) -> OutputTask {
-        OutputTask::ProtoMessage(Box::new(FromClientContainer {
+    fn create_output_task(tag: u64, content: ResponseContent) -> OutputTask {
+        OutputTask::Response(Box::new(ResponseContainer {
             tag,
             content: Some(content),
         }))
@@ -119,7 +119,7 @@ mod tests {
 
         let output_processor = OutputProcessor::new(Box::new(writer), output_rx);
 
-        let request = FromClientContent::CapabilityResponse(CapabilityResponse::default());
+        let request = ResponseContent::CapabilityResponse(CapabilityResponse::default());
 
         #[rustfmt::skip]
         let expected_response =  [
