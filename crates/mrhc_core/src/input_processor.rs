@@ -109,7 +109,7 @@ mod tests {
     use std::io::Cursor;
     use tokio::sync::mpsc;
 
-    use mrhc_proto::chat::to_client_container::Content as ToCLientContent;
+    use mrhc_proto::chat::to_client_container::Content as ToClientContent;
     use mrhc_proto::chat::LoginRequest;
 
     use super::*;
@@ -141,7 +141,7 @@ mod tests {
 
         let expected = ToClientContainer {
             tag: 87,
-            content: Some(ToCLientContent::LoginRequest(LoginRequest {
+            content: Some(ToClientContent::LoginRequest(LoginRequest {
                 user_id: "test-user".to_owned(),
                 backend_url: Some("http://test.backend".to_owned()),
             })),
@@ -189,7 +189,7 @@ mod tests {
 
         let expected = ExecutorTask::ToClientContainer(Box::new(ToClientContainer {
             tag: 87,
-            content: Some(ToCLientContent::LoginRequest(LoginRequest {
+            content: Some(ToClientContent::LoginRequest(LoginRequest {
                 user_id: "test-user".to_owned(),
                 backend_url: Some("http://test.backend".to_owned()),
             })),
