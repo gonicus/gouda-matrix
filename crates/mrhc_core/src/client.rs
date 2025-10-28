@@ -1,11 +1,14 @@
 use async_trait::async_trait;
 use std::any::Any;
 
-use mrhc_proto::chat::CapabilityResponse;
+use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse};
+
+use crate::Result;
 
 #[async_trait]
 pub trait Client: Send {
     async fn get_capabilities(&mut self) -> CapabilityResponse;
+    async fn login_request(&mut self, request: LoginRequest) -> Result<LoginResponse>;
 
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:

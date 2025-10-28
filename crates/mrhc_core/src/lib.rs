@@ -9,3 +9,5 @@ pub mod test_utils;
 
 pub use async_app::AsyncApp;
 pub use client::Client;
+
+pub type Result<T> = std::result::Result<T, mrhc_proto::chat::Error>;
