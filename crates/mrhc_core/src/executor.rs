@@ -1,8 +1,8 @@
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use mrhc_proto::chat::from_client_container::Content as FromClientContent;
-use mrhc_proto::chat::to_client_container::Content as ToClientContent;
-use mrhc_proto::chat::{FromClientContainer, ToClientContainer};
+use mrhc_proto::chat::request_container::Content as RequestContent;
+use mrhc_proto::chat::response_container::Content as ResponseContent;
+use mrhc_proto::chat::{RequestContainer, ResponseContainer};
 
 use crate::output_processor::OutputTask;
 use crate::Client;
@@ -13,7 +13,7 @@ pub enum ExecutorTask {
     /// Exits the executor, resulting in the `Executor::run` method being stopped.
     Exit,
     /// Executes some request send to this client.
-    ToClientContainer(Box<ToClientContainer>),
+    Request(Box<RequestContainer>),
 }
 
 /// The executor is responsible for receiving decoded messages from the input and executing the corresponding tasks
@@ -65,7 +65,7 @@ impl Executor {
         match task {
             // ExecutorTask::Exit is handled by the `Self::run` method
             ExecutorTask::Exit => (),
-            ExecutorTask::ToClientContainer(container) => {
+            ExecutorTask::Request(container) => {
                 let content = container
                     .content
                     .expect("Received client container without content");
@@ -75,30 +75,30 @@ impl Executor {
         }
     }
 
-    async fn process_request(&mut self, tag: u64, content: ToClientContent) {
+    async fn process_request(&mut self, tag: u64, content: RequestContent) {
         match content {
-            ToClientContent::CapabilityRequest(_) => {
+            RequestContent::CapabilityRequest(_) => {
                 let capabilities = self.client.get_capabilities().await;
-                self.send_response(tag, Ok(FromClientContent::CapabilityResponse(capabilities)));
+                self.send_response(tag, Ok(ResponseContent::CapabilityResponse(capabilities)));
             }
-            ToClientContent::LoginRequest(request) => {
+            RequestContent::LoginRequest(request) => {
                 let result = self.client.login_request(request).await;
-                self.send_response(tag, result.map(FromClientContent::LoginResponse));
+                self.send_response(tag, result.map(ResponseContent::LoginResponse));
             }
             _ => todo!(),
         }
     }
 
-    fn send_response(&self, tag: u64, content: Result<FromClientContent>) {
+    fn send_response(&self, tag: u64, content: Result<ResponseContent>) {
         let content = match content {
             Ok(c) => Some(c),
-            Err(err) => Some(FromClientContent::Error(err)),
+            Err(err) => Some(ResponseContent::Error(err)),
         };
 
-        let container = FromClientContainer { tag, content };
+        let container = ResponseContainer { tag, content };
 
         self.output_sender
-            .send(OutputTask::ProtoMessage(Box::new(container)))
+            .send(OutputTask::Response(Box::new(container)))
             .expect("Error sending message to output processor");
     }
 }
@@ -108,8 +108,8 @@ mod tests {
     use tokio::sync::mpsc;
 
     use mrhc_proto::chat::error::ErrorType;
-    use mrhc_proto::chat::from_client_container::Content as FromClientContent;
-    use mrhc_proto::chat::to_client_container::Content as ToClientContent;
+    use mrhc_proto::chat::request_container::Content as RequestContent;
+    use mrhc_proto::chat::response_container::Content as ResponseContent;
     use mrhc_proto::chat::{
         CapabilityRequest, CapabilityResponse, Error, LoginRequest, LoginResponse,
     };
@@ -117,15 +117,15 @@ mod tests {
     use super::*;
     use crate::test_utils::ClientMock;
 
-    fn create_executor_task(tag: u64, content: ToClientContent) -> ExecutorTask {
-        ExecutorTask::ToClientContainer(Box::new(ToClientContainer {
+    fn create_executor_task(tag: u64, content: RequestContent) -> ExecutorTask {
+        ExecutorTask::Request(Box::new(RequestContainer {
             tag,
             content: Some(content),
         }))
     }
 
-    fn create_output_task(tag: u64, content: FromClientContent) -> OutputTask {
-        OutputTask::ProtoMessage(Box::new(FromClientContainer {
+    fn create_output_task(tag: u64, content: ResponseContent) -> OutputTask {
+        OutputTask::Response(Box::new(ResponseContainer {
             tag,
             content: Some(content),
         }))
@@ -140,8 +140,8 @@ mod tests {
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
-        let request = ToClientContent::CapabilityRequest(CapabilityRequest::default());
-        let response = FromClientContent::CapabilityResponse(CapabilityResponse::default());
+        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
+        let response = ResponseContent::CapabilityResponse(CapabilityResponse::default());
 
         // Act
         executor_tx
@@ -171,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn test_capability_request() {
         // Arrange
-        let request = ToClientContent::CapabilityRequest(CapabilityRequest::default());
+        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
         let response = CapabilityResponse {
             direct_rooms: true,
             group_rooms: false,
@@ -200,14 +200,14 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, FromClientContent::CapabilityResponse(response))
+            create_output_task(2, ResponseContent::CapabilityResponse(response))
         );
     }
 
     #[tokio::test]
     async fn test_login_request() {
         // Arrange
-        let request = ToClientContent::LoginRequest(LoginRequest::default());
+        let request = RequestContent::LoginRequest(LoginRequest::default());
         let response = LoginResponse {
             login_url: "https://example.org/test/login/url".to_owned(),
         };
@@ -234,14 +234,14 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, FromClientContent::LoginResponse(response))
+            create_output_task(2, ResponseContent::LoginResponse(response))
         );
     }
 
     #[tokio::test]
     async fn test_login_request_err() {
         // Arrange
-        let request = ToClientContent::LoginRequest(LoginRequest::default());
+        let request = RequestContent::LoginRequest(LoginRequest::default());
         let response = Error {
             r#type: ErrorType::Unknown as i32,
             error_string: Some("Test error".to_owned()),
@@ -269,7 +269,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, FromClientContent::Error(response))
+            create_output_task(2, ResponseContent::Error(response))
         );
     }
 }

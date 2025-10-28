@@ -2,7 +2,7 @@ use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 
-use mrhc_proto::chat::ToClientContainer;
+use mrhc_proto::chat::RequestContainer;
 
 use crate::executor::ExecutorTask;
 use crate::output_processor::OutputTask;
@@ -52,7 +52,7 @@ impl InputProcessor {
                         log::debug!("Sending event to executor...");
 
                         self.executor_sender
-                            .send(ExecutorTask::ToClientContainer(Box::new(request)))
+                            .send(ExecutorTask::Request(Box::new(request)))
                             .expect("error sending executor event");
 
                         log::debug!("Successfully send event to executor");
@@ -93,15 +93,15 @@ async fn read_size(reader: &mut Reader) -> Result<u64, tokio::io::Error> {
     Ok(u64::from_le_bytes(buf))
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> ToClientContainer {
+async fn read_request(reader: &mut Reader, len: u64) -> RequestContainer {
     let mut buf = vec![0; len as usize];
     reader
         .read_exact(&mut buf)
         .await
         .expect("error reading buffer of size {len}");
 
-    ToClientContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
-        .expect("error decoding ToClientContainer")
+    RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
+        .expect("error decoding RequestContainer")
 }
 
 #[cfg(test)]
@@ -109,7 +109,7 @@ mod tests {
     use std::io::Cursor;
     use tokio::sync::mpsc;
 
-    use mrhc_proto::chat::to_client_container::Content as ToClientContent;
+    use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::LoginRequest;
 
     use super::*;
@@ -139,9 +139,9 @@ mod tests {
             0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
         ];
 
-        let expected = ToClientContainer {
+        let expected = RequestContainer {
             tag: 87,
-            content: Some(ToClientContent::LoginRequest(LoginRequest {
+            content: Some(RequestContent::LoginRequest(LoginRequest {
                 user_id: "test-user".to_owned(),
                 backend_url: Some("http://test.backend".to_owned()),
             })),
@@ -187,9 +187,9 @@ mod tests {
             0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
         ];
 
-        let expected = ExecutorTask::ToClientContainer(Box::new(ToClientContainer {
+        let expected = ExecutorTask::Request(Box::new(RequestContainer {
             tag: 87,
-            content: Some(ToClientContent::LoginRequest(LoginRequest {
+            content: Some(RequestContent::LoginRequest(LoginRequest {
                 user_id: "test-user".to_owned(),
                 backend_url: Some("http://test.backend".to_owned()),
             })),
