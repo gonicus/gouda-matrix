@@ -8,4 +8,13 @@ publish = false
 mrhc_proto.workspace = true
 mrhc_core.workspace = true
 
+tokio.workspace = true
 async-trait.workspace = true
+
+matrix-sdk.workspace = true
+url.workspace = true
+
+log.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

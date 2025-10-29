@@ -1,3 +1,4 @@
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use mrhc_proto::chat::request_container::Content as RequestContent;
@@ -29,10 +30,25 @@ pub struct Executor {
 
 impl Executor {
     pub fn new(
-        client: Box<dyn Client>,
+        mut client: Box<dyn Client>,
         task_receiver: UnboundedReceiver<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
+        let (client_tx, mut client_rx) = mpsc::unbounded_channel::<ResponseContainer>();
+
+        // This is used so we can convert response containers received from the client output sender
+        // to an output task for the output sender.
+        let converter_sender = output_sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = client_rx.recv().await {
+                converter_sender
+                    .send(OutputTask::Response(Box::new(event)))
+                    .expect("Error sending task to output processor");
+            }
+        });
+
+        client.set_output_sender(client_tx);
+
         Self {
             client,
             task_receiver,
@@ -111,7 +127,7 @@ mod tests {
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
     use mrhc_proto::chat::{
-        CapabilityRequest, CapabilityResponse, Error, LoginRequest, LoginResponse,
+        CapabilityRequest, CapabilityResponse, Error, LoginRequest, LoginResponse, StatusUpdate,
     };
 
     use super::*;
@@ -165,6 +181,41 @@ mod tests {
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(13, response)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_client_output_sender() {
+        // Arrange
+        let mut client = ClientMock::new();
+
+        let response_a = ResponseContent::StatusUpdate(StatusUpdate { code: 1 });
+        let response_b = ResponseContent::StatusUpdate(StatusUpdate { code: 2 });
+
+        client.queue_output_event(ResponseContainer {
+            tag: 5,
+            content: Some(response_a.clone()),
+        });
+        client.queue_output_event(ResponseContainer {
+            tag: 6,
+            content: Some(response_b.clone()),
+        });
+
+        let (_, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        // Act
+        let _ = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Assert
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(5, response_a)
+        );
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(6, response_b)
         );
     }
 

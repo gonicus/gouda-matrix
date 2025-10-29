@@ -1,8 +1,14 @@
-use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse};
+use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse, ResponseContainer};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{Client, Result};
 
 pub struct ClientMock {
+    /// Sender to the output processor.
+    pub output_sender: Option<UnboundedSender<ResponseContainer>>,
+    /// Events sent to the output once `Self::output_sender` is set.
+    pub queued_output_events: Vec<ResponseContainer>,
+
     /// The result returned from the `Self::get_capabilities` method.
     pub get_capabilities_response: CapabilityResponse,
     /// How many times the `Self::get_capabilities` method was called.
@@ -17,6 +23,9 @@ pub struct ClientMock {
 impl Default for ClientMock {
     fn default() -> Self {
         Self {
+            output_sender: None,
+            queued_output_events: Vec::new(),
+
             get_capabilities_response: CapabilityResponse::default(),
             get_capabilities_call_count: 0,
 
@@ -31,6 +40,10 @@ impl ClientMock {
         Self::default()
     }
 
+    pub fn queue_output_event(&mut self, container: ResponseContainer) {
+        self.queued_output_events.push(container);
+    }
+
     pub fn assert_login_request_called_n(&self, n: u32) {
         assert!(self.login_request_call_count == n)
     }
@@ -42,6 +55,14 @@ impl ClientMock {
 
 #[async_trait::async_trait]
 impl Client for ClientMock {
+    fn set_output_sender(&mut self, sender: UnboundedSender<ResponseContainer>) {
+        self.output_sender = Some(sender.clone());
+        let events = std::mem::take(&mut self.queued_output_events);
+        for event in events {
+            sender.send(event).unwrap();
+        }
+    }
+
     async fn get_capabilities(&mut self) -> CapabilityResponse {
         self.get_capabilities_call_count += 1;
         self.get_capabilities_response.clone()
