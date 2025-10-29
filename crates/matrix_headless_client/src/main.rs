@@ -17,7 +17,7 @@ async fn main() {
     setup_logging();
     let (recv, send) = connect_socket().await;
 
-    let client = mrhc_matrix_adapter::MatrixClient;
+    let client = mrhc_matrix_adapter::MatrixClient::new();
     let app = AsyncApp::new(Box::new(client), Box::new(recv), Box::new(send));
 
     app.run().await

@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 use std::any::Any;
+use tokio::sync::mpsc::UnboundedSender;
 
-use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse};
+use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse, ResponseContainer};
 
 use crate::Result;
 
 #[async_trait]
 pub trait Client: Send {
+    fn set_output_sender(&mut self, sender: UnboundedSender<ResponseContainer>);
+
     async fn get_capabilities(&mut self) -> CapabilityResponse;
     async fn login_request(&mut self, request: LoginRequest) -> Result<LoginResponse>;
 

@@ -26,7 +26,9 @@ tokio = { version = "1.48.0", default-features = false, features = [
 async-trait = "0.1"
 
 url = "2.5.7"
-matrix-sdk = "0.14.0"
+matrix-sdk = { version = "0.14.0", features = [
+  "sso-login"
+] }
 
 log = "0.4"
 log4rs = "1.4"
