@@ -22,6 +22,7 @@ tokio = { version = "1.48.0", default-features = false, features = [
   "io-std",
   "io-util",
   "macros",
+  "sync",
 ] }
 async-trait = "0.1"
 
