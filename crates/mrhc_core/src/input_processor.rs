@@ -110,7 +110,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use mrhc_proto::chat::request_container::Content as RequestContent;
-    use mrhc_proto::chat::LoginRequest;
+    use mrhc_proto::chat::InitializationRequest;
 
     use super::*;
 
@@ -134,17 +134,17 @@ mod tests {
     #[tokio::test]
     async fn test_read_request() {
         let data: &'static [u8] = &[
-            0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
-            0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
-            0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
+            0x08, 0x57, 0x4A, 0x15, 0x0A, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x74,
+            0x65, 0x73, 0x74, 0x2E, 0x62, 0x61, 0x63, 0x6B, 0x65, 0x6E, 0x64,
         ];
 
         let expected = RequestContainer {
             tag: 87,
-            content: Some(RequestContent::LoginRequest(LoginRequest {
-                user_id: "test-user".to_owned(),
-                backend_url: Some("http://test.backend".to_owned()),
-            })),
+            content: Some(RequestContent::InitializationRequest(
+                InitializationRequest {
+                    backend_url: "http://test.backend".to_owned(),
+                },
+            )),
         };
 
         let result = read_request(&mut data.as_ref(), data.len() as u64).await;
@@ -176,23 +176,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_input_processor_run() {
-        // Arrange
         #[rustfmt::skip]
         let data: &'static [u8] = &[
             // Size
-            0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // Request
-            0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
-            0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
-            0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
+            0x08, 0x57, 0x4A, 0x15, 0x0A, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x74,
+            0x65, 0x73, 0x74, 0x2E, 0x62, 0x61, 0x63, 0x6B, 0x65, 0x6E, 0x64,
         ];
 
         let expected = ExecutorTask::Request(Box::new(RequestContainer {
             tag: 87,
-            content: Some(RequestContent::LoginRequest(LoginRequest {
-                user_id: "test-user".to_owned(),
-                backend_url: Some("http://test.backend".to_owned()),
-            })),
+            content: Some(RequestContent::InitializationRequest(
+                InitializationRequest {
+                    backend_url: "http://test.backend".to_owned(),
+                },
+            )),
         }));
 
         let (executor_tx, mut executor_rx) = mpsc::unbounded_channel();
