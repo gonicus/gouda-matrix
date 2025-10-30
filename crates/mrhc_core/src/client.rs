@@ -2,16 +2,87 @@ use async_trait::async_trait;
 use std::any::Any;
 use tokio::sync::mpsc::UnboundedSender;
 
-use mrhc_proto::chat::{CapabilityResponse, LoginRequest, LoginResponse, ResponseContainer};
+use mrhc_proto::chat::error::ErrorType;
+use mrhc_proto::chat::response_container::Content as ResponseContent;
+use mrhc_proto::chat::*;
 
+use crate::output_processor::OutputTask;
 use crate::Result;
+
+#[inline]
+fn not_implemented_error<T>() -> Result<T> {
+    Err(Error {
+        r#type: ErrorType::NotImplemented as i32,
+        error_string: Some("The requested feature is not implemented by the client".to_owned()),
+    })
+}
+
+#[derive(Clone)]
+pub struct ClientContext {
+    output_sender: UnboundedSender<OutputTask>,
+}
+
+impl ClientContext {
+    pub fn new(output_sender: UnboundedSender<OutputTask>) -> Self {
+        Self { output_sender }
+    }
+
+    pub fn send_response(&mut self, tag: u64, content: ResponseContent) {
+        self.output_sender
+            .send(OutputTask::Response(Box::new(ResponseContainer {
+                tag,
+                content: Some(content),
+            })))
+            .expect("Receiver of the output sender dropped");
+    }
+
+    pub fn send_event(&mut self, content: ResponseContent) {
+        self.output_sender
+            .send(OutputTask::Response(Box::new(ResponseContainer {
+                tag: 0,
+                content: Some(content),
+            })))
+            .expect("Receiver of the output sender dropped");
+    }
+}
 
 #[async_trait]
 pub trait Client: Send {
-    fn set_output_sender(&mut self, sender: UnboundedSender<ResponseContainer>);
+    async fn get_capabilities(&mut self, ctx: ClientContext) -> Result<CapabilityResponse>;
 
-    async fn get_capabilities(&mut self) -> CapabilityResponse;
-    async fn login_request(&mut self, request: LoginRequest) -> Result<LoginResponse>;
+    async fn initialize(
+        &mut self,
+        ctx: ClientContext,
+        request: InitializationRequest,
+    ) -> Result<StatusUpdate>;
+
+    async fn get_login_flows(&mut self, ctx: ClientContext) -> Result<LoginFlowsResponse>;
+
+    #[allow(unused_variables)]
+    async fn login_username_password(
+        &mut self,
+        ctx: ClientContext,
+        request: UsernamePasswordLoginRequest,
+    ) -> Result<StatusUpdate> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn login_sso(
+        &mut self,
+        ctx: ClientContext,
+        request: SsoLoginRequest,
+    ) -> Result<SsoLoginResponse> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn get_identity_providers(
+        &mut self,
+        ctx: ClientContext,
+    ) -> Result<IdentityProvidersResponse> {
+        not_implemented_error()
+    }
 
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:

@@ -1,4 +1,3 @@
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use mrhc_proto::chat::request_container::Content as RequestContent;
@@ -6,8 +5,8 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{RequestContainer, ResponseContainer};
 
 use crate::output_processor::OutputTask;
-use crate::Client;
 use crate::Result;
+use crate::{Client, ClientContext};
 
 #[derive(Debug, PartialEq)]
 pub enum ExecutorTask {
@@ -30,25 +29,10 @@ pub struct Executor {
 
 impl Executor {
     pub fn new(
-        mut client: Box<dyn Client>,
+        client: Box<dyn Client>,
         task_receiver: UnboundedReceiver<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
-        let (client_tx, mut client_rx) = mpsc::unbounded_channel::<ResponseContainer>();
-
-        // This is used so we can convert response containers received from the client output sender
-        // to an output task for the output sender.
-        let converter_sender = output_sender.clone();
-        tokio::spawn(async move {
-            while let Some(event) = client_rx.recv().await {
-                converter_sender
-                    .send(OutputTask::Response(Box::new(event)))
-                    .expect("Error sending task to output processor");
-            }
-        });
-
-        client.set_output_sender(client_tx);
-
         Self {
             client,
             task_receiver,
@@ -92,14 +76,32 @@ impl Executor {
     }
 
     async fn process_request(&mut self, tag: u64, content: RequestContent) {
+        let ctx = ClientContext::new(self.output_sender.clone());
+
         match content {
             RequestContent::CapabilityRequest(_) => {
-                let capabilities = self.client.get_capabilities().await;
-                self.send_response(tag, Ok(ResponseContent::CapabilityResponse(capabilities)));
+                let result = self.client.get_capabilities(ctx).await;
+                self.send_response(tag, result.map(ResponseContent::CapabilityResponse));
             }
-            RequestContent::LoginRequest(request) => {
-                let result = self.client.login_request(request).await;
-                self.send_response(tag, result.map(ResponseContent::LoginResponse));
+            RequestContent::InitializationRequest(request) => {
+                let result = self.client.initialize(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::StatusUpdate));
+            }
+            RequestContent::LoginFlowsRequest(_) => {
+                let result = self.client.get_login_flows(ctx).await;
+                self.send_response(tag, result.map(ResponseContent::LoginFlowsResponse));
+            }
+            RequestContent::UsernamePasswordLoginRequest(request) => {
+                let result = self.client.login_username_password(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::StatusUpdate));
+            }
+            RequestContent::SsoLoginRequest(request) => {
+                let result = self.client.login_sso(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::SsoLoginResponse));
+            }
+            RequestContent::IdentityProvidersRequest(_) => {
+                let result = self.client.get_identity_providers(ctx).await;
+                self.send_response(tag, result.map(ResponseContent::IdentityProvidersResponse));
             }
             _ => todo!(),
         }
@@ -126,9 +128,7 @@ mod tests {
     use mrhc_proto::chat::error::ErrorType;
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
-    use mrhc_proto::chat::{
-        CapabilityRequest, CapabilityResponse, Error, LoginRequest, LoginResponse, StatusUpdate,
-    };
+    use mrhc_proto::chat::*;
 
     use super::*;
     use crate::test_utils::ClientMock;
@@ -182,41 +182,48 @@ mod tests {
             output_rx.recv().await.unwrap(),
             create_output_task(13, response)
         );
+        assert!(output_rx.is_empty())
     }
 
     #[tokio::test]
-    async fn test_client_output_sender() {
+    async fn test_client_context() {
         // Arrange
-        let mut client = ClientMock::new();
+        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
 
-        let response_a = ResponseContent::StatusUpdate(StatusUpdate { code: 1 });
-        let response_b = ResponseContent::StatusUpdate(StatusUpdate { code: 2 });
+        let client = ClientMock::default();
 
-        client.queue_output_event(ResponseContainer {
-            tag: 5,
-            content: Some(response_a.clone()),
-        });
-        client.queue_output_event(ResponseContainer {
-            tag: 6,
-            content: Some(response_b.clone()),
-        });
-
-        let (_, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
         // Act
-        let _ = Executor::new(Box::new(client), executor_rx, output_tx);
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
 
         // Assert
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(5, response_a)
-        );
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        let mut ctx = client.received_ctx.clone().unwrap();
+
+        // Verify that the client context has received the correct output sender.
+        // Since we cannot directly compare the receivers of the senders, we send an event and expect it to
+        // be received by the correct output receiver.
+        ctx.send_event(ResponseContent::Error(Error::default()));
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(6, response_b)
+            create_output_task(
+                2,
+                ResponseContent::CapabilityResponse(CapabilityResponse::default())
+            )
         );
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(0, ResponseContent::Error(Error::default()))
+        );
+        assert!(output_rx.is_empty())
     }
 
     #[tokio::test]
@@ -230,7 +237,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            get_capabilities_response: response.clone(),
+            get_capabilities_response: Ok(response.clone()),
             ..Default::default()
         };
 
@@ -253,53 +260,20 @@ mod tests {
             output_rx.recv().await.unwrap(),
             create_output_task(2, ResponseContent::CapabilityResponse(response))
         );
+        assert!(output_rx.is_empty())
     }
 
     #[tokio::test]
-    async fn test_login_request() {
+    async fn test_capability_request_err() {
         // Arrange
-        let request = RequestContent::LoginRequest(LoginRequest::default());
-        let response = LoginResponse {
-            login_url: "https://example.org/test/login/url".to_owned(),
-        };
-
-        let client = ClientMock {
-            login_request_response: Ok(response.clone()),
-            ..Default::default()
-        };
-
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
-
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
-
-        // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor.run().await.unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_login_request_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::LoginResponse(response))
-        );
-    }
-
-    #[tokio::test]
-    async fn test_login_request_err() {
-        // Arrange
-        let request = RequestContent::LoginRequest(LoginRequest::default());
+        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
         let response = Error {
             r#type: ErrorType::Unknown as i32,
             error_string: Some("Test error".to_owned()),
         };
 
         let client = ClientMock {
-            login_request_response: Err(response.clone()),
+            get_capabilities_response: Err(response.clone()),
             ..Default::default()
         };
 
@@ -316,11 +290,372 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_login_request_called_n(1);
+        client.assert_get_capabilities_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(2, ResponseContent::Error(response))
         );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_initialization_request() {
+        // Arrange
+        let request = RequestContent::InitializationRequest(InitializationRequest::default());
+        let response = StatusUpdate {
+            code: status_update::StatusCode::Connected as i32,
+        };
+
+        let client = ClientMock {
+            initialize_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_initialize_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::StatusUpdate(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_initialization_request_err() {
+        // Arrange
+        let request = RequestContent::InitializationRequest(InitializationRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            initialize_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_initialize_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_login_flow_request() {
+        // Arrange
+        let request = RequestContent::LoginFlowsRequest(LoginFlowsRequest::default());
+        let response = LoginFlowsResponse {
+            login_flows: vec![
+                login_flows_response::LoginFlow::UsernamePassword as i32,
+                login_flows_response::LoginFlow::Sso as i32,
+            ],
+        };
+
+        let client = ClientMock {
+            get_login_flows_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_login_flows_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::LoginFlowsResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_login_flow_request_err() {
+        // Arrange
+        let request = RequestContent::LoginFlowsRequest(LoginFlowsRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            get_login_flows_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_login_flows_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_username_password_login_request() {
+        // Arrange
+        let request =
+            RequestContent::UsernamePasswordLoginRequest(UsernamePasswordLoginRequest::default());
+        let response = StatusUpdate {
+            code: status_update::StatusCode::LoggedIn as i32,
+        };
+
+        let client = ClientMock {
+            login_username_password_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_login_username_password_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::StatusUpdate(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_username_password_login_request_err() {
+        // Arrange
+        let request =
+            RequestContent::UsernamePasswordLoginRequest(UsernamePasswordLoginRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            login_username_password_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_login_username_password_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_sso_login_request() {
+        // Arrange
+        let request = RequestContent::SsoLoginRequest(SsoLoginRequest::default());
+        let response = SsoLoginResponse {
+            login_url: "https://some.backend".to_owned(),
+        };
+
+        let client = ClientMock {
+            login_sso_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_login_sso_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::SsoLoginResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_sso_login_request_err() {
+        // Arrange
+        let request = RequestContent::SsoLoginRequest(SsoLoginRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            login_sso_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_login_sso_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_identity_providers_request() {
+        // Arrange
+        let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
+        let response = IdentityProvidersResponse {
+            identity_providers: vec!["idp1.example.com".to_owned(), "idp2.example.com".to_owned()],
+        };
+
+        let client = ClientMock {
+            get_identity_providers_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_identity_providers_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::IdentityProvidersResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_identity_providers_request_err() {
+        // Arrange
+        let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            get_identity_providers_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_identity_providers_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
     }
 }

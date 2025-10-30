@@ -8,7 +8,7 @@ mod output_processor;
 pub mod test_utils;
 
 pub use async_app::AsyncApp;
-pub use client::Client;
+pub use client::{Client, ClientContext};
 
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
@@ -22,9 +22,9 @@ pub fn create_error(ty: ErrorType) -> Error {
     }
 }
 
-pub fn create_error_msg(ty: ErrorType, msg: String) -> Error {
+pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {
     Error {
         r#type: ty as i32,
-        error_string: Some(msg),
+        error_string: Some(msg.to_string()),
     }
 }
