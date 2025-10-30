@@ -37,10 +37,13 @@ fn setup_logging() {
     // Build final config
     let config = Config::builder()
         .appender(Appender::builder().build("file", Box::new(file)))
-        .build(Root::builder().appender("file").build(LOG_LEVEL))
-        .unwrap();
+        .build(Root::builder().appender("file").build(LOG_LEVEL));
 
-    log4rs::init_config(config).unwrap();
+    // Ignore any errors in the logging configuration. We don't want the client to fail to start if,
+    // for example, we can't open the log file.
+    if let Ok(cfg) = config {
+        let _ = log4rs::init_config(cfg);
+    }
 }
 
 async fn connect_socket() -> (RecvHalf, SendHalf) {
