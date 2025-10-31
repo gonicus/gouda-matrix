@@ -12,6 +12,7 @@ tokio.workspace = true
 async-trait.workspace = true
 
 matrix-sdk.workspace = true
+matrix-sdk-base.workspace = true
 url.workspace = true
 
 log.workspace = true

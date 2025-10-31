@@ -21,6 +21,9 @@ pub struct ClientMock {
     pub get_identity_providers_response: Result<IdentityProvidersResponse>,
     pub get_identity_providers_call_count: u32,
 
+    pub get_rooms_response: Result<RoomListResponse>,
+    pub get_rooms_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -44,6 +47,9 @@ impl Default for ClientMock {
 
             get_identity_providers_response: Ok(IdentityProvidersResponse::default()),
             get_identity_providers_call_count: 0,
+
+            get_rooms_response: Ok(RoomListResponse::default()),
+            get_rooms_call_count: 0,
 
             received_ctx: None,
         }
@@ -77,6 +83,10 @@ impl ClientMock {
 
     pub fn assert_get_identity_providers_called_n(&self, n: u32) {
         assert!(self.get_identity_providers_call_count == n);
+    }
+
+    pub fn assert_get_rooms_called_n(&self, n: u32) {
+        assert!(self.get_rooms_call_count == n);
     }
 }
 
@@ -131,6 +141,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.get_identity_providers_call_count += 1;
         self.get_identity_providers_response.clone()
+    }
+
+    async fn get_rooms(
+        &mut self,
+        ctx: ClientContext,
+        _request: RoomListRequest,
+    ) -> Result<RoomListResponse> {
+        self.received_ctx = Some(ctx);
+        self.get_rooms_call_count += 1;
+        self.get_rooms_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
