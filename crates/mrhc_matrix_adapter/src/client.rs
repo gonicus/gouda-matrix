@@ -18,11 +18,18 @@ use crate::rooms;
 // TODO: Make configurable inside the initialization request
 const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";
 
+struct InitializedData {
+    // The initialized matrix client.
+    pub client: Client,
+    // The path where to store shared data between this client and the application.
+    pub data_root_path: String,
+}
+
 #[derive(Default)]
 pub struct MatrixClient {
     // The inner matrix client. If `None`, the client has not yet been initialized
     // using `Self::initialize`.
-    client: Option<Client>,
+    initialized_data: Option<InitializedData>,
     // Contains cached identity providers. The idps are cached when `Self::get_login_flows` is called,
     // as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
@@ -37,10 +44,11 @@ impl MatrixClient {
     /// An error is returned if the client has not yet been initialized.
     #[inline]
     fn get_client(&self) -> Result<&Client> {
-        self.client.as_ref().ok_or(Error {
+        let data = self.initialized_data.as_ref().ok_or(Error {
             r#type: ErrorType::NotInitialized as i32,
             error_string: Some("The client has not been initialized".to_owned()),
-        })
+        })?;
+        Ok(&data.client)
     }
 
     /// Returns the client if it was initialized with `Self::initialize` and logged in with
@@ -84,7 +92,12 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
 
-        self.client = Some(client);
+        let data = InitializedData {
+            client,
+            data_root_path: request.data_root_path,
+        };
+
+        self.initialized_data = Some(data);
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::Connected as i32,
