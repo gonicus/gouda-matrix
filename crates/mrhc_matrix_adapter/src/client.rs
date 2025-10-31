@@ -1,9 +1,6 @@
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk::event_handler::Ctx;
-use matrix_sdk::ruma::events::room::message::SyncRoomMessageEvent;
 use matrix_sdk::Client;
-use matrix_sdk::RoomMemberships;
 use matrix_sdk_base::RoomStateFilter;
 use url::Url;
 
@@ -15,12 +12,19 @@ use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
+use crate::login;
+use crate::rooms;
+
 // TODO: Make configurable inside the initialization request
 const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";
 
 #[derive(Default)]
 pub struct MatrixClient {
+    // The inner matrix client. If `None`, the client has not yet been initialized
+    // using `Self::initialize`.
     client: Option<Client>,
+    // Contains cached identity providers. The idps are cached when `Self::get_login_flows` is called,
+    // as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
 }
 
@@ -29,6 +33,8 @@ impl MatrixClient {
         Self::default()
     }
 
+    /// Returns the client if it has been initialized with `Self::initialize`.
+    /// An error is returned if the client has not yet been initialized.
     #[inline]
     fn get_client(&self) -> Result<&Client> {
         self.client.as_ref().ok_or(Error {
@@ -37,9 +43,13 @@ impl MatrixClient {
         })
     }
 
+    /// Returns the client if it was initialized with `Self::initialize` and logged in with
+    /// either `Self::login_sso` or `Self::login_username_password`.
+    /// An error is returned if the client is not yet initialized or is not currently logged in.
     #[inline]
     fn get_client_logged_in(&self) -> Result<&Client> {
         let client = self.get_client()?;
+
         if client.matrix_auth().logged_in() {
             Ok(client)
         } else {
@@ -90,10 +100,7 @@ impl ClientAbstraction for MatrixClient {
             .matrix_auth()
             .get_login_types()
             .await
-            .map_err(|err| Error {
-                r#type: ErrorType::Network as i32,
-                error_string: Some(err.to_string()),
-            })?;
+            .map_err(|err| create_error_msg(ErrorType::Network, err))?;
 
         let mut response = LoginFlowsResponse::default();
 
@@ -103,6 +110,8 @@ impl ClientAbstraction for MatrixClient {
                     response.push_login_flows(login_flows_response::LoginFlow::UsernamePassword)
                 }
                 MatrixLoginType::Sso(sso) => {
+                    // We already have access to the available identity providers and store them in the cache so
+                    // that `Self::get identity_providers` does not have to retrieve them again.
                     let idps = sso
                         .identity_providers
                         .iter()
@@ -121,7 +130,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_username_password(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: UsernamePasswordLoginRequest,
     ) -> Result<StatusUpdate> {
         let client = self.get_client()?;
@@ -132,12 +141,21 @@ impl ClientAbstraction for MatrixClient {
             .initial_device_display_name(INITIAL_DEVICE_DISPLAY_NAME)
             .await;
 
-        match result {
-            Ok(_) => Ok(StatusUpdate {
-                code: status_update::StatusCode::LoggedIn as i32,
-            }),
-            Err(err) => Err(create_error_msg(ErrorType::Authorization, err)),
+        if let Err(err) = result {
+            return Err(create_error_msg(ErrorType::Authorization, err));
         }
+
+        log::info!("Successfully logged in as {:?}", client.user_id());
+        log::info!("Waiting for initial sync to finish");
+
+        let sync_settings = SyncSettings::new();
+
+        login::initial_sync(&client, sync_settings.clone()).await?;
+        login::start_background_sync(ctx, client.clone(), sync_settings);
+
+        Ok(StatusUpdate {
+            code: status_update::StatusCode::LoggedIn as i32,
+        })
     }
 
     async fn login_sso(
@@ -147,6 +165,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<SsoLoginResponse> {
         let client = self.get_client()?;
 
+        // Create a channel so we can receive the login url from the async closure
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         let mut login_builder = client.matrix_auth().login_sso(|url| async move {
@@ -165,50 +184,28 @@ impl ClientAbstraction for MatrixClient {
         // Spawn a tokio task which waits for the successful login in order to send a status update
         // to the application.
         tokio::spawn(async move {
-            match login_builder.await {
-                Ok(_) => (),
-                Err(err) => {
-                    ctx.send_event(ResponseContent::Error(create_error_msg(
-                        ErrorType::Authorization,
-                        err,
-                    )));
-                    return;
-                }
+            if let Err(err) = login_builder.await {
+                ctx.send_error_msg(ErrorType::Authorization, err);
             }
 
             log::info!("Successfully logged in as {:?}", client.user_id());
-
             log::info!("Waiting for initial sync");
 
-            if let Err(err) = client.sync_once(SyncSettings::new()).await {
-                ctx.send_event(ResponseContent::Error(create_error_msg(
-                    ErrorType::Unknown,
-                    err,
-                )));
+            let sync_settings = SyncSettings::new();
 
-                return;
+            if let Err(err) = login::initial_sync(&client, sync_settings.clone()).await {
+                ctx.send_error_msg(ErrorType::Unknown, err.error_string());
             }
-
-            log::info!("Successfully synced client");
 
             ctx.send_event(ResponseContent::StatusUpdate(StatusUpdate {
                 code: status_update::StatusCode::LoggedIn as i32,
             }));
 
-            client.add_event_handler_context(ctx.clone());
-            client.add_event_handler(event_handler);
-
-            tokio::spawn(async move {
-                if let Err(err) = client.sync(SyncSettings::new()).await {
-                    // TODO: Check for error type
-                    ctx.send_event(ResponseContent::Error(create_error_msg(
-                        ErrorType::Unknown,
-                        err,
-                    )));
-                }
-            });
+            login::start_background_sync(ctx, client.clone(), sync_settings);
         });
 
+        // Wait until the asynchronous closure sends the received login URL, so
+        // we can return it to the application.
         let login_url = rx.await.map_err(|_| create_error(ErrorType::Unknown))?;
 
         Ok(SsoLoginResponse { login_url })
@@ -216,39 +213,26 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_identity_providers(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
     ) -> Result<IdentityProvidersResponse> {
-        use matrix_sdk::ruma::api::client::session::get_login_types::v3::LoginType as MatrixLoginType;
-
-        let client = self.get_client()?;
-
+        // Check if the idps have been retrieved before
         if let Some(idps) = &self.cached_idps {
             return Ok(IdentityProvidersResponse {
                 identity_providers: idps.clone(),
             });
         }
 
-        let login_types = client
-            .matrix_auth()
-            .get_login_types()
-            .await
-            .map_err(|err| Error {
-                r#type: ErrorType::Network as i32,
-                error_string: Some(err.to_string()),
-            })?;
+        // We can use the `Self::get_login_flows` method to retrieve the idps as it saves them to the cache.
+        // This method would ultimately only fetch the login flows too.
+        let _ = self.get_login_flows(ctx).await?;
 
-        let mut idps = Vec::new();
-
-        for flow in &login_types.flows {
-            if let MatrixLoginType::Sso(sso) = flow {
-                idps = sso
-                    .identity_providers
-                    .iter()
-                    .map(|idp| idp.id.to_owned())
-                    .collect();
-                break;
-            }
-        }
+        // If there is still nothing in the cache, no idps are available or single sign-on is not supported
+        // by the server. In this case we can just return an empty list.
+        let idps = if let Some(idps) = &self.cached_idps {
+            idps.clone()
+        } else {
+            Vec::new()
+        };
 
         Ok(IdentityProvidersResponse {
             identity_providers: idps,
@@ -275,12 +259,10 @@ impl ClientAbstraction for MatrixClient {
                 | RoomStateFilter::BANNED;
         }
 
-        let rooms = client.rooms_filtered(filter);
-
         let mut result = Vec::new();
 
-        for room in rooms {
-            result.push(convert_room(room).await?);
+        for room in client.rooms_filtered(filter) {
+            result.push(rooms::convert_to_proto(room).await?);
         }
 
         Ok(RoomListResponse { room_list: result })
@@ -289,49 +271,4 @@ impl ClientAbstraction for MatrixClient {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-async fn event_handler(ev: SyncRoomMessageEvent, _ctx: Ctx<ClientContext>) {
-    log::info!("Received event: {ev:?}");
-
-    // ctx.clone()
-    //     .send_event(ResponseContent::StatusUpdate(StatusUpdate { code: 1 }));
-}
-
-async fn convert_room(room: matrix_sdk::Room) -> Result<Room> {
-    let display_name = room
-        .display_name()
-        .await
-        .unwrap_or(matrix_sdk::RoomDisplayName::Empty);
-
-    let display_name = if matches!(display_name, matrix_sdk::RoomDisplayName::Empty) {
-        None
-    } else {
-        Some(display_name.to_string())
-    };
-
-    Ok(Room {
-        room_id: room.room_id().to_string(),
-        display_name,
-        participant_list: get_room_members(room).await?,
-    })
-}
-
-async fn get_room_members(room: matrix_sdk::Room) -> Result<Vec<Buddy>> {
-    // TODO:proper error type
-    let members = room
-        .members(RoomMemberships::JOIN)
-        .await
-        .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
-
-    let mut result = Vec::new();
-
-    for member in members {
-        result.push(Buddy {
-            buddy_id: member.user_id().to_string(),
-            display_name: Some(member.name().to_owned()),
-        })
-    }
-
-    Ok(result)
 }

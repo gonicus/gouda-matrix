@@ -7,7 +7,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
 use crate::output_processor::OutputTask;
-use crate::Result;
+use crate::{create_error_msg, Result};
 
 #[inline]
 fn not_implemented_error<T>() -> Result<T> {
@@ -41,6 +41,15 @@ impl ClientContext {
             .send(OutputTask::Response(Box::new(ResponseContainer {
                 tag: 0,
                 content: Some(content),
+            })))
+            .expect("Receiver of the output sender dropped");
+    }
+
+    pub fn send_error_msg<M: std::fmt::Display>(&mut self, ty: ErrorType, msg: M) {
+        self.output_sender
+            .send(OutputTask::Response(Box::new(ResponseContainer {
+                tag: 0,
+                content: Some(ResponseContent::Error(create_error_msg(ty, msg))),
             })))
             .expect("Receiver of the output sender dropped");
     }
