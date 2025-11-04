@@ -74,8 +74,10 @@ impl ClientAbstraction for MatrixClient {
     async fn get_capabilities(&mut self, _ctx: ClientContext) -> Result<CapabilityResponse> {
         Ok(CapabilityResponse {
             direct_rooms: false,
-            group_rooms: false,
-            sub_threads: false,
+            group_rooms: true,
+            sub_threads: true,
+            user_search: true,
+            invitations: true,
             mime_types: Vec::new(),
         })
     }
@@ -163,7 +165,7 @@ impl ClientAbstraction for MatrixClient {
 
         let sync_settings = SyncSettings::new();
 
-        login::initial_sync(&client, sync_settings.clone()).await?;
+        login::initial_sync(client, sync_settings.clone()).await?;
         login::start_background_sync(ctx, client.clone(), sync_settings);
 
         Ok(StatusUpdate {

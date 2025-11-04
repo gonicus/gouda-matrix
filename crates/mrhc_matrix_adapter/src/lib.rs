@@ -5,5 +5,6 @@ mod client;
 mod events;
 mod login;
 mod rooms;
+mod utils;
 
 pub use client::MatrixClient;
