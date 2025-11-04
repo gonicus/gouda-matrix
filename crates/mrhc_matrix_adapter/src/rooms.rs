@@ -1,9 +1,11 @@
-use matrix_sdk::RoomMemberships;
+use std::collections::HashMap;
 
 use mrhc_core::create_error_msg;
 use mrhc_core::Result;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::*;
+
+use crate::utils;
 
 pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     let display_name = room
@@ -20,24 +22,24 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
-        participant_list: get_room_members(&room).await?,
+        user_id_list: get_room_members(&room).await?,
     })
 }
 
-async fn get_room_members(room: &matrix_sdk::Room) -> Result<Vec<Buddy>> {
+async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
     // TODO:proper error type
     let members = room
-        .members(RoomMemberships::JOIN)
+        .members(matrix_sdk::RoomMemberships::JOIN)
         .await
         .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
 
-    let mut result = Vec::new();
+    let mut result: HashMap<String, i32> = HashMap::new();
 
     for member in members {
-        result.push(Buddy {
-            buddy_id: member.user_id().to_string(),
-            display_name: Some(member.name().to_owned()),
-        })
+        result.insert(
+            member.user_id().to_string(),
+            utils::membership_state_to_user_room_state(member.membership()) as i32,
+        );
     }
 
     Ok(result)

@@ -127,6 +127,8 @@ impl Executor {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use tokio::sync::mpsc;
 
     use mrhc_proto::chat::error::ErrorType;
@@ -672,21 +674,19 @@ mod tests {
                 Room {
                     room_id: "room-1".to_owned(),
                     display_name: Some("Test Room 1".to_owned()),
-                    participant_list: vec![
-                        Buddy {
-                            buddy_id: "buddy-1".to_owned(),
-                            display_name: Some("Max Mustermann".to_owned()),
-                        },
-                        Buddy {
-                            buddy_id: "buddy-2".to_owned(),
-                            display_name: Some("Hildegard Müller".to_owned()),
-                        },
-                    ],
+                    user_id_list: HashMap::from([
+                        ("user-1".to_owned(), UserRoomState::Joined as i32),
+                        ("user-2".to_owned(), UserRoomState::Knocked as i32),
+                        ("user-3".to_owned(), UserRoomState::Banned as i32),
+                    ]),
                 },
                 Room {
                     room_id: "room-2".to_owned(),
-                    display_name: None,
-                    participant_list: Vec::new(),
+                    display_name: Some("Test Room 2".to_owned()),
+                    user_id_list: HashMap::from([
+                        ("user-1".to_owned(), UserRoomState::Joined as i32),
+                        ("user-4".to_owned(), UserRoomState::Joined as i32),
+                    ]),
                 },
             ],
         };
