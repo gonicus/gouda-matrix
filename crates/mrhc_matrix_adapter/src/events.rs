@@ -32,7 +32,7 @@ pub async fn event_handler(
                     message_id: Some(event.event_id.to_string()),
                     room_id: room.room_id().to_string(),
                     sender_id: event.sender.to_string(),
-                    timestamp: event.origin_server_ts.as_secs().into(),
+                    timestamp: event.origin_server_ts.get().into(),
                     mime_type: "text/plain".to_owned(),
                     content: text_content.body,
                     related_message_id: None,
