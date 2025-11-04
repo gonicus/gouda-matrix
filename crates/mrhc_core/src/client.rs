@@ -111,6 +111,8 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse>;
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

@@ -27,6 +27,9 @@ pub struct ClientMock {
     pub send_message_response: Result<SendMessageResponse>,
     pub send_message_call_count: u32,
 
+    pub get_users_response: Result<UserListResponse>,
+    pub get_users_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -56,6 +59,9 @@ impl Default for ClientMock {
 
             send_message_response: Ok(SendMessageResponse::default()),
             send_message_call_count: 0,
+
+            get_users_response: Ok(UserListResponse::default()),
+            get_users_call_count: 0,
 
             received_ctx: None,
         }
@@ -97,6 +103,10 @@ impl ClientMock {
 
     pub fn assert_send_message_called_n(&self, n: u32) {
         assert!(self.send_message_call_count == n);
+    }
+
+    pub fn assert_get_users_called_n(&self, n: u32) {
+        assert!(self.get_users_call_count == n);
     }
 }
 
@@ -171,6 +181,12 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.send_message_call_count += 1;
         self.send_message_response.clone()
+    }
+
+    async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse> {
+        self.received_ctx = Some(ctx);
+        self.get_users_call_count += 1;
+        self.get_users_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
