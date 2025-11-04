@@ -102,6 +102,15 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    #[allow(unused_variables)]
+    async fn send_message(
+        &mut self,
+        ctx: ClientContext,
+        request: Message,
+    ) -> Result<SendMessageResponse> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore
