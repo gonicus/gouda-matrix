@@ -2,9 +2,9 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::sync::SyncResponse;
 use matrix_sdk::Client;
 
-use mrhc_core::{create_error_msg, ClientContext, Result};
-use mrhc_proto::chat::error::ErrorType;
+use mrhc_core::{ClientContext, Result};
 
+use crate::errors;
 use crate::events::event_handler;
 
 /// Performs a single synchronization on the client, blocking the current thread until
@@ -15,7 +15,7 @@ pub async fn initial_sync(client: &Client, sync_settings: SyncSettings) -> Resul
     let result = client
         .sync_once(sync_settings)
         .await
-        .map_err(|err| create_error_msg(ErrorType::Unknown, err));
+        .map_err(|err| errors::convert_matrix_sdk_error(err));
 
     log::info!("Initial sync finished");
 
@@ -35,7 +35,7 @@ pub fn start_background_sync(mut ctx: ClientContext, client: Client, sync_settin
 
         // TOKO: check if it makes sense to restart the sync.
         if let Err(err) = result {
-            ctx.send_error_msg(ErrorType::Unknown, err);
+            ctx.send_error(errors::convert_matrix_sdk_error(err));
         }
     });
 }

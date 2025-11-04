@@ -7,7 +7,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
 use crate::output_processor::OutputTask;
-use crate::{create_error_msg, Result};
+use crate::Result;
 
 #[inline]
 fn not_implemented_error<T>() -> Result<T> {
@@ -27,31 +27,28 @@ impl ClientContext {
         Self { output_sender }
     }
 
-    pub fn send_response(&mut self, tag: u64, content: ResponseContent) {
+    /// Helper method to send a response container to the output processor.
+    #[inline]
+    fn send_to_output(&mut self, re: ResponseContainer) {
         self.output_sender
-            .send(OutputTask::Response(Box::new(ResponseContainer {
-                tag,
-                content: Some(content),
-            })))
+            .send(OutputTask::Response(Box::new(re)))
             .expect("Receiver of the output sender dropped");
     }
 
+    /// Sends an event to the receiving half.
     pub fn send_event(&mut self, content: ResponseContent) {
-        self.output_sender
-            .send(OutputTask::Response(Box::new(ResponseContainer {
-                tag: 0,
-                content: Some(content),
-            })))
-            .expect("Receiver of the output sender dropped");
+        self.send_to_output(ResponseContainer {
+            tag: 0,
+            content: Some(content),
+        });
     }
 
-    pub fn send_error_msg<M: std::fmt::Display>(&mut self, ty: ErrorType, msg: M) {
-        self.output_sender
-            .send(OutputTask::Response(Box::new(ResponseContainer {
-                tag: 0,
-                content: Some(ResponseContent::Error(create_error_msg(ty, msg))),
-            })))
-            .expect("Receiver of the output sender dropped");
+    /// Sends an error event to the receiving half.
+    pub fn send_error(&mut self, err: Error) {
+        self.send_to_output(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(err)),
+        });
     }
 }
 
