@@ -3,6 +3,7 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::RoomId;
 use matrix_sdk::Client;
+use matrix_sdk::RoomMemberships;
 use matrix_sdk_base::RoomStateFilter;
 use url::Url;
 
@@ -310,6 +311,40 @@ impl ClientAbstraction for MatrixClient {
         Ok(SendMessageResponse {
             message_id: re.event_id.to_string(),
         })
+    }
+
+    async fn get_users(&mut self, _ctx: ClientContext) -> Result<UserListResponse> {
+        let client = self.get_client_logged_in()?;
+
+        // It is not possible to retrieve all known users using the matrix-sdk.
+        // As a workaround, we retrieve all rooms and get their members.
+        let rooms = client.rooms();
+
+        let mut result: Vec<User> = Vec::new();
+
+        for room in rooms {
+            let members = room
+                .members(RoomMemberships::all())
+                .await
+                .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
+
+            for member in members {
+                // Skip duplicates
+                if result
+                    .iter()
+                    .any(|m| m.user_id == *member.user_id())
+                {
+                    continue;
+                }
+
+                result.push(User {
+                    user_id: member.user_id().to_string(),
+                    display_name: member.display_name().map(str::to_string),
+                });
+            }
+        }
+
+        Ok(UserListResponse { user_list: result })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
