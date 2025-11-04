@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+use matrix_sdk::ruma::RoomId;
 use matrix_sdk::Client;
 use matrix_sdk_base::RoomStateFilter;
 use url::Url;
 
 use mrhc_core::Client as ClientAbstraction;
 use mrhc_core::ClientContext;
-use mrhc_core::Result;
-use mrhc_core::{create_error, create_error_msg};
+use mrhc_core::{create_error, create_error_msg, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
@@ -281,6 +282,34 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(RoomListResponse { room_list: result })
+    }
+
+    async fn send_message(
+        &mut self,
+        _ctx: ClientContext,
+        request: Message,
+    ) -> Result<SendMessageResponse> {
+        let client = self.get_client_logged_in()?;
+
+        // TODO: Proper error type
+        let room_id = <&RoomId>::try_from(request.room_id.as_str())
+            .map_err(|_| create_error_msg(ErrorType::Unknown, "Invalid room id"))?;
+
+        // TODO: Proper error type
+        let room = client
+            .get_room(room_id)
+            .ok_or(create_error_msg(ErrorType::Unknown, "Room not found"))?;
+
+        let event = RoomMessageEventContent::text_plain(request.content);
+
+        let re = room
+            .send(event)
+            .await
+            .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
+
+        Ok(SendMessageResponse {
+            message_id: re.event_id.to_string(),
+        })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
