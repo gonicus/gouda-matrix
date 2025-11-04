@@ -224,7 +224,7 @@ mod tests {
         // Verify that the client context has received the correct output sender.
         // Since we cannot directly compare the receivers of the senders, we send an event and expect it to
         // be received by the correct output receiver.
-        ctx.send_event(ResponseContent::Error(Error::default()));
+        ctx.send_error(Error::default());
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

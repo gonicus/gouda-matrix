@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use mrhc_core::create_error_msg;
 use mrhc_core::Result;
-use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::*;
 
+use crate::errors;
 use crate::utils;
 
 pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
@@ -27,11 +26,10 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
 }
 
 async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
-    // TODO:proper error type
     let members = room
         .members(matrix_sdk::RoomMemberships::JOIN)
         .await
-        .map_err(|err| create_error_msg(ErrorType::Unknown, err))?;
+        .map_err(|err| errors::convert_matrix_sdk_error(err))?;
 
     let mut result: HashMap<String, i32> = HashMap::new();
 

@@ -2,6 +2,7 @@
 #![deny(clippy::expect_used)]
 
 mod client;
+mod errors;
 mod events;
 mod login;
 mod rooms;
