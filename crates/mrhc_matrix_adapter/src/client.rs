@@ -287,6 +287,10 @@ impl ClientAbstraction for MatrixClient {
         let mut result = Vec::new();
 
         for room in client.rooms_filtered(filter) {
+            if room.is_space() {
+                continue;
+            }
+
             result.push(rooms::convert_to_proto(room).await?);
         }
 
