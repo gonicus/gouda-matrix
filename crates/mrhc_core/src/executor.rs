@@ -687,6 +687,7 @@ mod tests {
                         ("user-2".to_owned(), UserRoomState::Knocked as i32),
                         ("user-3".to_owned(), UserRoomState::Banned as i32),
                     ]),
+                    space_id: Vec::new(),
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -695,6 +696,7 @@ mod tests {
                         ("user-1".to_owned(), UserRoomState::Joined as i32),
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
                     ]),
+                    space_id: Vec::new(),
                 },
             ],
         };

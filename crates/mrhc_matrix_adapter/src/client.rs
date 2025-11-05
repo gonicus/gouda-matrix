@@ -25,6 +25,7 @@ struct InitializedData {
     // The initialized matrix client.
     pub client: Client,
     // The path where to store shared data between this client and the application.
+    #[allow(dead_code)] // TODO: Remove this once the data_root_path is used
     pub data_root_path: String,
 }
 
@@ -81,6 +82,7 @@ impl ClientAbstraction for MatrixClient {
             sub_threads: true,
             user_search: true,
             invitations: true,
+            spaces: false,
             mime_types: Vec::new(),
         })
     }
@@ -95,7 +97,7 @@ impl ClientAbstraction for MatrixClient {
 
         let client = Client::new(homeserver_url)
             .await
-            .map_err(|err| errors::convert_client_build_error(err))?;
+            .map_err(errors::convert_client_build_error)?;
 
         let data = InitializedData {
             client,
@@ -203,9 +205,7 @@ impl ClientAbstraction for MatrixClient {
         // to the application.
         tokio::spawn(async move {
             if let Err(err) = login_builder.await {
-                ctx.send_error(errors::convert_matrix_sdk_error(
-                    err,
-                ));
+                ctx.send_error(errors::convert_matrix_sdk_error(err));
             }
 
             log::info!("Successfully logged in as {:?}", client.user_id());
@@ -316,7 +316,7 @@ impl ClientAbstraction for MatrixClient {
         let re = room
             .send(event)
             .await
-            .map_err(|err| errors::convert_matrix_sdk_error(err))?;
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         Ok(SendMessageResponse {
             message_id: re.event_id.to_string(),
@@ -336,7 +336,7 @@ impl ClientAbstraction for MatrixClient {
             let members = room
                 .members(RoomMemberships::all())
                 .await
-                .map_err(|err| errors::convert_matrix_sdk_error(err))?;
+                .map_err(errors::convert_matrix_sdk_error)?;
 
             for member in members {
                 // Skip duplicates
