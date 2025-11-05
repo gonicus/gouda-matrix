@@ -22,6 +22,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         room_id: room.room_id().to_string(),
         display_name,
         user_id_list: get_room_members(&room).await?,
+        space_id: Vec::new(),
     })
 }
 
@@ -29,7 +30,7 @@ async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32
     let members = room
         .members(matrix_sdk::RoomMemberships::JOIN)
         .await
-        .map_err(|err| errors::convert_matrix_sdk_error(err))?;
+        .map_err(errors::convert_matrix_sdk_error)?;
 
     let mut result: HashMap<String, i32> = HashMap::new();
 

@@ -15,7 +15,7 @@ pub async fn initial_sync(client: &Client, sync_settings: SyncSettings) -> Resul
     let result = client
         .sync_once(sync_settings)
         .await
-        .map_err(|err| errors::convert_matrix_sdk_error(err));
+        .map_err(errors::convert_matrix_sdk_error);
 
     log::info!("Initial sync finished");
 
