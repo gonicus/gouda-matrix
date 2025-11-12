@@ -2,10 +2,11 @@
 #![deny(clippy::expect_used)]
 
 mod client;
+mod crypto;
 mod errors;
 mod events;
-mod login;
 mod rooms;
+mod session;
 mod utils;
 
 pub use client::MatrixClient;

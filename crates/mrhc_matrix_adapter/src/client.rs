@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
@@ -15,27 +17,31 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
 use crate::errors;
-use crate::login;
 use crate::rooms;
+use crate::session;
+use crate::session::Session;
 
 // TODO: Make configurable inside the initialization request
 const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";
 
+#[derive(Clone)]
 struct InitializedData {
-    // The initialized matrix client.
+    /// The initialized matrix client.
     pub client: Client,
-    // The path where to store shared data between this client and the application.
-    #[allow(dead_code)] // TODO: Remove this once the data_root_path is used
-    pub data_root_path: String,
+
+    /// The file where the current session metadata is stored.
+    pub session_file: PathBuf,
+    /// The passphrase used to encrypt the session data.
+    pub session_passphrase: String,
 }
 
 #[derive(Default)]
 pub struct MatrixClient {
-    // The inner matrix client. If `None`, the client has not yet been initialized
-    // using `Self::initialize`.
+    /// The inner matrix client. If `None`, the client has not yet been initialized
+    /// using `Self::initialize`.
     initialized_data: Option<InitializedData>,
-    // Contains cached identity providers. The idps are cached when `Self::get_login_flows` is called,
-    // as this method already retrieves the available idps.
+    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows` is called,
+    /// as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
 }
 
@@ -48,11 +54,18 @@ impl MatrixClient {
     /// An error is returned if the client has not yet been initialized.
     #[inline]
     fn get_client(&self) -> Result<&Client> {
+        Ok(&self.get_intialized_data()?.client)
+    }
+
+    /// Returns the initialized data if it has been initialized with `Self::initialize`.
+    /// An error is returned if the client has not yet been initialized.
+    #[inline]
+    fn get_intialized_data(&self) -> Result<&InitializedData> {
         let data = self.initialized_data.as_ref().ok_or(Error {
             r#type: ErrorType::NotInitialized as i32,
             error_string: Some("The client has not been initialized".to_owned()),
         })?;
-        Ok(&data.client)
+        Ok(data)
     }
 
     /// Returns the client if it was initialized with `Self::initialize` and logged in with
@@ -71,6 +84,23 @@ impl MatrixClient {
             ))
         }
     }
+
+    /// Builds the `self.initialized_data` with the given values.
+    #[inline]
+    fn initialize_data(
+        &mut self,
+        request: InitializationRequest,
+        client: Client,
+        session_file: PathBuf,
+    ) {
+        let data = InitializedData {
+            client,
+            session_file,
+            session_passphrase: request.encryption_secret,
+        };
+
+        self.initialized_data = Some(data);
+    }
 }
 
 #[async_trait]
@@ -83,28 +113,57 @@ impl ClientAbstraction for MatrixClient {
             user_search: true,
             invitations: true,
             spaces: false,
-            mime_types: Vec::new(),
+            mime_types: vec!["text/plain".to_owned()],
         })
     }
 
     async fn initialize(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: InitializationRequest,
     ) -> Result<StatusUpdate> {
         let homeserver_url = Url::parse(&request.backend_url)
             .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
 
-        let client = Client::new(homeserver_url)
-            .await
-            .map_err(errors::convert_client_build_error)?;
+        let session_dir = PathBuf::from(&request.data_root_path).join("session_data");
+        let session_file = session_dir.join("session");
+        let session_passphrase = request.encryption_secret.clone();
 
-        let data = InitializedData {
-            client,
-            data_root_path: request.data_root_path,
-        };
+        if session_file.exists() {
+            let result = session::restore_session(
+                &homeserver_url,
+                session_file.clone(),
+                session_passphrase.clone(),
+                &session_dir,
+                &request.persistent_storage_secret,
+            )
+            .await;
 
-        self.initialized_data = Some(data);
+            match result {
+                Ok((client, mut session)) => {
+                    self.initialize_data(request, client.clone(), session_file.clone());
+
+                    let sync_settings = SyncSettings::new();
+
+                    session.initial_sync(&client, sync_settings.clone()).await?;
+                    session.start_background_sync(ctx, client, sync_settings)?;
+
+                    return Ok(StatusUpdate {
+                        code: status_update::StatusCode::LoggedIn as i32,
+                    });
+                }
+                Err(err) => log::error!("Error restoring session: {err:?}"),
+            }
+        }
+
+        let client = session::build_client(
+            &homeserver_url,
+            &session_dir,
+            &request.persistent_storage_secret,
+        )
+        .await?;
+
+        self.initialize_data(request, client, session_file);
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::Connected as i32,
@@ -153,7 +212,19 @@ impl ClientAbstraction for MatrixClient {
         ctx: ClientContext,
         request: UsernamePasswordLoginRequest,
     ) -> Result<StatusUpdate> {
-        let client = self.get_client()?;
+        let InitializedData {
+            client,
+            session_file,
+            session_passphrase,
+            ..
+        } = self.get_intialized_data()?;
+
+        if client.matrix_auth().logged_in() {
+            return Err(errors::create_error_msg(
+                ErrorType::Authorization,
+                "Client is already logged in",
+            ));
+        }
 
         let result = client
             .matrix_auth()
@@ -166,12 +237,18 @@ impl ClientAbstraction for MatrixClient {
         }
 
         log::info!("Successfully logged in as {:?}", client.user_id());
-        log::info!("Waiting for initial sync to finish");
+
+        let mut session = Session::new(
+            &client,
+            session_file.to_path_buf(),
+            session_passphrase.clone(),
+        )?;
+        session.save().await?;
 
         let sync_settings = SyncSettings::new();
 
-        login::initial_sync(client, sync_settings.clone()).await?;
-        login::start_background_sync(ctx, client.clone(), sync_settings);
+        session.initial_sync(client, sync_settings.clone()).await?;
+        session.start_background_sync(ctx, client.clone(), sync_settings)?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -183,23 +260,40 @@ impl ClientAbstraction for MatrixClient {
         mut ctx: ClientContext,
         request: SsoLoginRequest,
     ) -> Result<SsoLoginResponse> {
-        let client = self.get_client()?;
+        let InitializedData {
+            client,
+            session_file,
+            session_passphrase,
+            ..
+        } = self.get_intialized_data()?;
+
+        if client.matrix_auth().logged_in() {
+            return Err(errors::create_error_msg(
+                ErrorType::Authorization,
+                "Client is already logged in",
+            ));
+        }
 
         // Create a channel so we can receive the login url from the async closure
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        let mut login_builder = client.matrix_auth().login_sso(|url| async move {
-            #[allow(clippy::expect_used)]
-            tx.send(url).expect("Receiver of the login url dropped");
-            Ok(())
-        });
+        let mut login_builder = client
+            .matrix_auth()
+            .login_sso(|url| async move {
+                #[allow(clippy::expect_used)]
+                tx.send(url).expect("Receiver of the login url dropped");
+                Ok(())
+            })
+            .initial_device_display_name(INITIAL_DEVICE_DISPLAY_NAME);
 
         if let Some(idp) = request.identity_provider {
             login_builder = login_builder.identity_provider_id(&idp);
         }
 
-        // Clone the client so we can move it into the tokio task
+        // Clone the data so we can move it into the tokio task
         let client = client.clone();
+        let session_file = session_file.clone();
+        let session_passphrase = session_passphrase.clone();
 
         // Spawn a tokio task which waits for the successful login in order to send a status update
         // to the application.
@@ -209,28 +303,40 @@ impl ClientAbstraction for MatrixClient {
             }
 
             log::info!("Successfully logged in as {:?}", client.user_id());
-            log::info!("Waiting for initial sync");
+
+            let Ok(mut session) = Session::new(&client, session_file, session_passphrase) else {
+                ctx.send_error(errors::create_unknown("Error creating session"));
+                return;
+            };
+
+            if let Err(err) = session.save().await {
+                ctx.send_error(err);
+                return;
+            }
 
             let sync_settings = SyncSettings::new();
 
-            if let Err(err) = login::initial_sync(&client, sync_settings.clone()).await {
+            if let Err(err) = session.initial_sync(&client, sync_settings.clone()).await {
                 ctx.send_error(err);
+                return;
             }
+
+            if let Err(_) =
+                session.start_background_sync(ctx.clone(), client.clone(), sync_settings)
+            {
+                ctx.send_error(errors::create_unknown("Error starting backround sync"));
+                return;
+            };
 
             ctx.send_event(ResponseContent::StatusUpdate(StatusUpdate {
                 code: status_update::StatusCode::LoggedIn as i32,
             }));
-
-            login::start_background_sync(ctx, client.clone(), sync_settings);
         });
 
         // Wait until the asynchronous closure sends the received login URL, so
         // we can return it to the application.
         let login_url = rx.await.map_err(|_| {
-            errors::create_error_msg(
-                ErrorType::Unknown,
-                "InternalError: Sender of the login url dropped",
-            )
+            errors::create_unknown("InternalError: Sender of the login url dropped")
         })?;
 
         Ok(SsoLoginResponse { login_url })

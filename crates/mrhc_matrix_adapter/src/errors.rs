@@ -19,6 +19,10 @@ pub fn create_error(ty: ErrorType) -> Error {
     }
 }
 
+pub fn create_unknown<M: std::fmt::Display>(msg: M) -> Error {
+    create_error_msg(ErrorType::Unknown, msg)
+}
+
 /// Converts a `matrix_sdk::Error` to a new chat error.
 pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
     match err {
