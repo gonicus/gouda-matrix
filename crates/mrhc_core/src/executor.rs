@@ -115,7 +115,7 @@ impl Executor {
                 let result = self.client.get_users(ctx).await;
                 self.send_response(tag, result.map(ResponseContent::UserListResponse));
             }
-            _ => todo!(),
+            _ => todo!("Request: {content:?} is currently not implemented"),
         }
     }
 

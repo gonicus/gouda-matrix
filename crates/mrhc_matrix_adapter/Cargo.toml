@@ -15,6 +15,12 @@ matrix-sdk.workspace = true
 matrix-sdk-base.workspace = true
 url.workspace = true
 
+aes-gcm.workspace = true
+argon2.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+
 log.workspace = true
 
 [dev-dependencies]
