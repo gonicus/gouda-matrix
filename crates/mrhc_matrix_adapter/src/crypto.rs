@@ -36,7 +36,7 @@ pub fn derive_key(passphrase: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
 
 /// Encrypts the given data using AES 256 GCM with the provided 32 bytes key.
 /// Returns a byte vector, the first 12 bytes of which contain the generated nonce,
-/// followed by the decrypted data.
+/// followed by the encrypted data.
 pub fn encrypt(data: Vec<u8>, key: &[u8; 32]) -> Result<Vec<u8>> {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
@@ -52,7 +52,7 @@ pub fn encrypt(data: Vec<u8>, key: &[u8; 32]) -> Result<Vec<u8>> {
 }
 
 /// Decryptes the given data using AES 256 GCM with the provided 32 bytes key.
-/// Returns a byte vector containing the encrypted data.
+/// Returns a byte vector containing the decrypted data.
 /// Expects the nonce to be the first 12 bytes.
 pub async fn decrypt<R: AsyncReadExt + Unpin>(mut reader: R, key: &[u8; 32]) -> Result<Vec<u8>> {
     let mut nonce = [0; 12];

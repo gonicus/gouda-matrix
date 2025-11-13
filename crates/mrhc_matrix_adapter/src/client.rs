@@ -54,13 +54,13 @@ impl MatrixClient {
     /// An error is returned if the client has not yet been initialized.
     #[inline]
     fn get_client(&self) -> Result<&Client> {
-        Ok(&self.get_intialized_data()?.client)
+        Ok(&self.get_initialized_data()?.client)
     }
 
     /// Returns the initialized data if it has been initialized with `Self::initialize`.
     /// An error is returned if the client has not yet been initialized.
     #[inline]
-    fn get_intialized_data(&self) -> Result<&InitializedData> {
+    fn get_initialized_data(&self) -> Result<&InitializedData> {
         let data = self.initialized_data.as_ref().ok_or(Error {
             r#type: ErrorType::NotInitialized as i32,
             error_string: Some("The client has not been initialized".to_owned()),
@@ -217,7 +217,7 @@ impl ClientAbstraction for MatrixClient {
             session_file,
             session_passphrase,
             ..
-        } = self.get_intialized_data()?;
+        } = self.get_initialized_data()?;
 
         if client.matrix_auth().logged_in() {
             return Err(errors::create_error_msg(
@@ -265,7 +265,7 @@ impl ClientAbstraction for MatrixClient {
             session_file,
             session_passphrase,
             ..
-        } = self.get_intialized_data()?;
+        } = self.get_initialized_data()?;
 
         if client.matrix_auth().logged_in() {
             return Err(errors::create_error_msg(
@@ -324,7 +324,7 @@ impl ClientAbstraction for MatrixClient {
             if let Err(_) =
                 session.start_background_sync(ctx.clone(), client.clone(), sync_settings)
             {
-                ctx.send_error(errors::create_unknown("Error starting backround sync"));
+                ctx.send_error(errors::create_unknown("Error starting background sync"));
                 return;
             };
 

@@ -21,7 +21,7 @@ pub async fn event_handler(
         return;
     };
 
-    // TODO: Support related_messag_id
+    // TODO: Support related_message_id
     // TODO: Support is_pinned
     // TODO: Support other mime types
 
