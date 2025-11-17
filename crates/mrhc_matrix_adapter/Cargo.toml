@@ -24,4 +24,9 @@ serde_json.workspace = true
 log.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { version = "1.48.0", default-features = false, features = [
+  "rt-multi-thread",
+  "io-std",
+  "io-util",
+  "macros",
+] }
