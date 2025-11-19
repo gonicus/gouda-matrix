@@ -208,5 +208,9 @@ pub async fn build_client(homeserver: &Url, db_dir: &Path, db_passphrase: &str) 
         .await
         .map_err(errors::convert_client_build_error)?;
 
+    if let Err(_) = client.event_cache().subscribe() {
+        log::error!("Error subscribing to event cache");
+    }
+
     Ok(client)
 }
