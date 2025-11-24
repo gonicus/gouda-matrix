@@ -18,11 +18,15 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         Some(display_name.to_string())
     };
 
+    // TODO: Implement is_public and unread_count
+
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
         user_id_list: get_room_members(&room).await?,
         space_id: Vec::new(),
+        is_public: false,
+        unread_count: 0,
     })
 }
 
