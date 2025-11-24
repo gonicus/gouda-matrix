@@ -202,13 +202,13 @@ pub async fn restore_session(
 /// Builds and configures a matrix client.
 pub async fn build_client(homeserver: &Url, db_dir: &Path, db_passphrase: &str) -> Result<Client> {
     let client = Client::builder()
-        .homeserver_url(&homeserver)
-        .sqlite_store(&db_dir, Some(db_passphrase))
+        .homeserver_url(homeserver)
+        .sqlite_store(db_dir, Some(db_passphrase))
         .build()
         .await
         .map_err(errors::convert_client_build_error)?;
 
-    if let Err(_) = client.event_cache().subscribe() {
+    if client.event_cache().subscribe().is_err() {
         log::error!("Error subscribing to event cache");
     }
 
