@@ -23,9 +23,9 @@ use mrhc_proto::chat::{CapabilityRequest, CapabilityResponse};
 use mrhc_proto::chat::{IdentityProvidersRequest, IdentityProvidersResponse};
 use mrhc_proto::chat::{InitializationRequest, StatusUpdate};
 use mrhc_proto::chat::{LoginFlowsRequest, LoginFlowsResponse};
-use mrhc_proto::chat::{SendMessageRequest, SendMessageResponse};
 use mrhc_proto::chat::{RequestContainer, ResponseContainer};
 use mrhc_proto::chat::{RoomListRequest, RoomListResponse};
+use mrhc_proto::chat::{SendMessageRequest, SendMessageResponse};
 use mrhc_proto::chat::{SsoLoginRequest, SsoLoginResponse};
 use mrhc_proto::chat::{UserListRequest, UserListResponse};
 

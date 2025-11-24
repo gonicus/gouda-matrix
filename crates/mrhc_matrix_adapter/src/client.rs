@@ -241,7 +241,7 @@ impl ClientAbstraction for MatrixClient {
         log::info!("Successfully logged in as {:?}", client.user_id());
 
         let mut session = Session::new(
-            &client,
+            client,
             session_file.to_path_buf(),
             session_passphrase.clone(),
         )?;
@@ -323,8 +323,9 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            if let Err(_) =
-                session.start_background_sync(ctx.clone(), client.clone(), sync_settings)
+            if session
+                .start_background_sync(ctx.clone(), client.clone(), sync_settings)
+                .is_err()
             {
                 ctx.send_error(errors::create_unknown("Error starting background sync"));
                 return;
