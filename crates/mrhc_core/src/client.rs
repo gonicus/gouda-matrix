@@ -103,7 +103,7 @@ pub trait Client: Send {
     async fn send_message(
         &mut self,
         ctx: ClientContext,
-        request: Message,
+        request: SendMessageRequest,
     ) -> Result<SendMessageResponse> {
         not_implemented_error()
     }

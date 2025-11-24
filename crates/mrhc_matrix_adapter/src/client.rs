@@ -113,6 +113,8 @@ impl ClientAbstraction for MatrixClient {
             user_search: true,
             invitations: true,
             spaces: false,
+            client_verification: true,
+            user_presence: true,
             mime_types: vec!["text/plain".to_owned()],
         })
     }
@@ -406,7 +408,7 @@ impl ClientAbstraction for MatrixClient {
     async fn send_message(
         &mut self,
         _ctx: ClientContext,
-        request: Message,
+        request: SendMessageRequest,
     ) -> Result<SendMessageResponse> {
         let client = self.get_client_logged_in()?;
 
@@ -450,9 +452,12 @@ impl ClientAbstraction for MatrixClient {
                     continue;
                 }
 
+                // TODO: Presence state
+
                 result.push(User {
                     user_id: member.user_id().to_string(),
                     display_name: member.display_name().map(str::to_string),
+                    presence_state: None,
                 });
             }
         }

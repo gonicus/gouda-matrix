@@ -176,7 +176,7 @@ impl Client for ClientMock {
     async fn send_message(
         &mut self,
         ctx: ClientContext,
-        _request: Message,
+        _request: SendMessageRequest,
     ) -> Result<SendMessageResponse> {
         self.received_ctx = Some(ctx);
         self.send_message_call_count += 1;

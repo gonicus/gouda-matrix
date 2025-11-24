@@ -23,7 +23,7 @@ use mrhc_proto::chat::{CapabilityRequest, CapabilityResponse};
 use mrhc_proto::chat::{IdentityProvidersRequest, IdentityProvidersResponse};
 use mrhc_proto::chat::{InitializationRequest, StatusUpdate};
 use mrhc_proto::chat::{LoginFlowsRequest, LoginFlowsResponse};
-use mrhc_proto::chat::{Message as ChatMessage, SendMessageResponse};
+use mrhc_proto::chat::{SendMessageRequest, SendMessageResponse};
 use mrhc_proto::chat::{RequestContainer, ResponseContainer};
 use mrhc_proto::chat::{RoomListRequest, RoomListResponse};
 use mrhc_proto::chat::{SsoLoginRequest, SsoLoginResponse};
@@ -158,6 +158,8 @@ async fn test_capability_request_on_success() {
         user_search: true,
         invitations: true,
         spaces: false,
+        client_verification: true,
+        user_presence: true,
         mime_types: Vec::new(),
     };
 
@@ -753,7 +755,9 @@ async fn test_send_message_request_on_success() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SendMessageRequest(ChatMessage::default())),
+        content: Some(RequestContent::SendMessageRequest(
+            SendMessageRequest::default(),
+        )),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
@@ -796,7 +800,9 @@ async fn test_send_message_request_on_error() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SendMessageRequest(ChatMessage::default())),
+        content: Some(RequestContent::SendMessageRequest(
+            SendMessageRequest::default(),
+        )),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
@@ -829,14 +835,17 @@ async fn test_get_user_list_on_success() {
             User {
                 user_id: "@tick:example.org".to_string(),
                 display_name: Some("Tick".to_string()),
+                presence_state: None,
             },
             User {
                 user_id: "@trick:example".to_string(),
                 display_name: Some("Trick".to_string()),
+                presence_state: None,
             },
             User {
                 user_id: "@track:example".to_string(),
                 display_name: Some("Track".to_string()),
+                presence_state: None,
             },
         ],
     };

@@ -688,6 +688,8 @@ mod tests {
                         ("user-3".to_owned(), UserRoomState::Banned as i32),
                     ]),
                     space_id: Vec::new(),
+                    is_public: false,
+                    unread_count: 0,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -697,6 +699,8 @@ mod tests {
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
                     ]),
                     space_id: Vec::new(),
+                    is_public: false,
+                    unread_count: 0,
                 },
             ],
         };
@@ -767,7 +771,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_message_request() {
         // Arrange
-        let request = RequestContent::SendMessageRequest(Message::default());
+        let request = RequestContent::SendMessageRequest(SendMessageRequest::default());
         let response = SendMessageResponse {
             message_id: "some-message-123".to_owned(),
         };
@@ -802,7 +806,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_message_request_err() {
         // Arrange
-        let request = RequestContent::SendMessageRequest(Message::default());
+        let request = RequestContent::SendMessageRequest(SendMessageRequest::default());
         let response = Error {
             r#type: ErrorType::Unknown as i32,
             error_string: Some("Test error".to_owned()),
