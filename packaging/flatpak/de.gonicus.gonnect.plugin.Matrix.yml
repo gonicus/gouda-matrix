@@ -1,0 +1,44 @@
+id: de.gonicus.gonnect.plugin.Matrix
+runtime: de.gonicus.gonnect
+runtime-version: 'stable'
+branch: "2"
+
+sdk: org.kde.Sdk//6.10
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+build-extension: true
+separate-locales: false
+
+build-options:
+  prefix: /app/plugins/matrix
+  prepend-path: /app/plugins/matrix
+
+command: matrix-headless-client
+
+modules:
+  - name: matrix-headless-client
+    buildsystem: simple
+
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/matrix-headless-client/cargo
+        CARGO_NET_OFFLINE: 'true'
+
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo build --offline --release --all-features
+      - install -Dm0755 target/release/matrix-headless-client ${FLATPAK_DEST}/bin/matrix-headless-client
+      - install -Dm0644 ${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+
+    sources:
+      - type: dir
+        path: ../..
+      - type: file
+        path: de.gonicus.gonnect.plugin.Matrix.metainfo.xml
+      #- type: archive
+      #  url: https://github.com/gonicus/headless-matrix-client.git
+      #  tag: "v1.0.0"
+      #  commit "0284b00219cee734e3f6ee2cd6be2bd8004c3cf2"
+      - cargo-sources.yml
