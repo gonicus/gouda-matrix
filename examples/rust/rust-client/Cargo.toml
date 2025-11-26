@@ -1,0 +1,16 @@
+[package]
+name = "rust-client"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+interprocess.workspace = true
+mrhc_proto.workspace = true
+prost.workspace = true
+subprocess = "0.2.9"
+strum = "0.27.2"
+strum_macros = "0.27.2"
+uuid = { version = "1.18.1", features = ["v4"] }
+serde = { workspace = true, features = ["derive"]}
+serde_json.workspace = true
+text_io = "0.1.13"
