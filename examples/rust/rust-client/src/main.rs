@@ -10,7 +10,6 @@ use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions};
 use interprocess::local_socket::{RecvHalf, SendHalf};
 
-use mrhc_proto::chat::Message as ChatMessage;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::*;
 
@@ -254,7 +253,7 @@ fn run_send_message(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf
 
     let request_obj = RequestContainer {
         tag: 0,
-        content: Some(RequestContent::SendMessageRequest(ChatMessage {
+        content: Some(RequestContent::SendMessageRequest(SendMessageRequest {
             room_id: cfg.room_id,
             content: cfg.content,
             ..Default::default()
