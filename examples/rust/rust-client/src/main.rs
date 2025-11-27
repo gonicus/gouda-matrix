@@ -39,36 +39,11 @@ enum Action {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
-    initialization_request: InitializationRequestConfig,
-    sso_login_request: SsoLoginRequestConfig,
-    room_list_request: RoomListRequestConfig,
-    send_message_request: SendMessageRequestConfig,
+    initialization_request: InitializationRequest,
+    sso_login_request: SsoLoginRequest,
+    room_list_request: RoomListRequest,
+    send_message_request: SendMessageRequest,
     listen: ListenConfig,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct InitializationRequestConfig {
-    backend_url: String,
-    data_root_path: String,
-    persistent_storage_secret: String,
-    encryption_secret: String,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct SsoLoginRequestConfig {
-    identity_provider: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct RoomListRequestConfig {
-    include_joined: bool,
-    include_unjoined: bool,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct SendMessageRequestConfig {
-    room_id: String,
-    content: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -151,17 +126,10 @@ fn run_capabilities(_config: Config, recver: &mut RecvHalf, sender: &mut SendHal
 }
 
 fn run_initialize(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
-    let cfg = config.initialization_request;
-
     let request_obj = RequestContainer {
         tag: 0,
         content: Some(RequestContent::InitializationRequest(
-            InitializationRequest {
-                backend_url: cfg.backend_url,
-                data_root_path: cfg.data_root_path,
-                persistent_storage_secret: cfg.persistent_storage_secret,
-                encryption_secret: cfg.encryption_secret,
-            },
+            config.initialization_request,
         )),
     };
 
@@ -201,13 +169,9 @@ fn run_identity_providers(_config: Config, recver: &mut RecvHalf, sender: &mut S
 }
 
 fn run_login_sso(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
-    let cfg = config.sso_login_request;
-
     let request_obj = RequestContainer {
         tag: 0,
-        content: Some(RequestContent::SsoLoginRequest(SsoLoginRequest {
-            identity_provider: cfg.identity_provider,
-        })),
+        content: Some(RequestContent::SsoLoginRequest(config.sso_login_request)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -218,14 +182,9 @@ fn run_login_sso(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
 }
 
 fn run_room_list(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
-    let cfg: RoomListRequestConfig = config.room_list_request;
-
     let request_obj = RequestContainer {
         tag: 0,
-        content: Some(RequestContent::RoomListRequest(RoomListRequest {
-            include_joined: cfg.include_joined,
-            include_unjoined: cfg.include_unjoined,
-        })),
+        content: Some(RequestContent::RoomListRequest(config.room_list_request)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -249,15 +208,11 @@ fn run_user_list(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) 
 }
 
 fn run_send_message(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
-    let cfg = config.send_message_request;
-
     let request_obj = RequestContainer {
         tag: 0,
-        content: Some(RequestContent::SendMessageRequest(SendMessageRequest {
-            room_id: cfg.room_id,
-            content: cfg.content,
-            ..Default::default()
-        })),
+        content: Some(RequestContent::SendMessageRequest(
+            config.send_message_request,
+        )),
     };
 
     let request_data = request_from_proto(&request_obj);

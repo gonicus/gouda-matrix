@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 prost.workspace = true
+serde.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true
