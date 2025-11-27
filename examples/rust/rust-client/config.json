@@ -14,7 +14,8 @@
   },
   "send_message_request": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
-    "content": "Hallo YAMA"
+    "content": "Hallo YAMA",
+    "mime_type": "text/plain"
   },
   "listen": {
     "n_events": 1
