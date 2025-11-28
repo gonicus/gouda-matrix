@@ -1,18 +1,18 @@
 {
-  "initialization_request": {
+  "initialize": {
     "backend_url": "https://matrix.gonicus.de",
     "data_root_path": "/tmp/gonnect",
     "persistent_storage_secret": "secret123",
     "encryption_secret": "secret123"
   },
-  "sso_login_request": {
+  "login-sso": {
     "identity_provider": null
   },
-  "room_list_request": {
+  "room-list": {
     "include_joined": true,
     "include_unjoined": false
   },
-  "send_message_request": {
+  "send-message": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
     "content": "Hallo YAMA",
     "mime_type": "text/plain"
