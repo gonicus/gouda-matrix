@@ -14,35 +14,27 @@ use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::*;
 
 #[derive(Debug, EnumString, Display)]
+#[strum(serialize_all = "kebab-case")]
 enum Action {
-    #[strum(serialize = "capabilities")]
     Capabilities,
-    #[strum(serialize = "initialize")]
     Initialize,
-    #[strum(serialize = "login-flows")]
     LoginFlows,
-    #[strum(serialize = "identity-providers")]
     IdentityProviders,
-    #[strum(serialize = "login-sso")]
     LoginSso,
-    #[strum(serialize = "room-list")]
     RoomList,
-    #[strum(serialize = "user-list")]
     UserList,
-    #[strum(serialize = "send-message")]
     SendMessage,
-    #[strum(serialize = "listen")]
     Listen,
-    #[strum(serialize = "exit")]
     Exit,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Config {
-    initialization_request: InitializationRequest,
-    sso_login_request: SsoLoginRequest,
-    room_list_request: RoomListRequest,
-    send_message_request: SendMessageRequest,
+    initialize: InitializationRequest,
+    login_sso: SsoLoginRequest,
+    room_list: RoomListRequest,
+    send_message: SendMessageRequest,
     listen: ListenConfig,
 }
 
@@ -112,9 +104,9 @@ fn request_from_proto<T: Message>(request_obj: &T) -> Vec<u8> {
     request_data
 }
 
-fn run_capabilities(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_capabilities(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
+        tag,
         content: Some(RequestContent::CapabilityRequest(CapabilityRequest {})),
     };
 
@@ -125,12 +117,10 @@ fn run_capabilities(_config: Config, recver: &mut RecvHalf, sender: &mut SendHal
     println!("{:#?}", response_data);
 }
 
-fn run_initialize(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_initialize(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
-        content: Some(RequestContent::InitializationRequest(
-            config.initialization_request,
-        )),
+        tag,
+        content: Some(RequestContent::InitializationRequest(config.initialize)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -140,9 +130,9 @@ fn run_initialize(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) 
     println!("{:#?}", response_data)
 }
 
-fn run_login_flows(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_login_flows(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
+        tag,
         content: Some(RequestContent::LoginFlowsRequest(LoginFlowsRequest {})),
     };
 
@@ -153,9 +143,9 @@ fn run_login_flows(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf
     println!("{:#?}", response_data);
 }
 
-fn run_identity_providers(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_identity_providers(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
+        tag,
         content: Some(RequestContent::IdentityProvidersRequest(
             IdentityProvidersRequest {},
         )),
@@ -168,10 +158,10 @@ fn run_identity_providers(_config: Config, recver: &mut RecvHalf, sender: &mut S
     println!("{:#?}", response_data);
 }
 
-fn run_login_sso(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_login_sso(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
-        content: Some(RequestContent::SsoLoginRequest(config.sso_login_request)),
+        tag,
+        content: Some(RequestContent::SsoLoginRequest(config.login_sso)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -181,10 +171,10 @@ fn run_login_sso(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     println!("{:#?}", response_data);
 }
 
-fn run_room_list(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_room_list(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
-        content: Some(RequestContent::RoomListRequest(config.room_list_request)),
+        tag,
+        content: Some(RequestContent::RoomListRequest(config.room_list)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -194,9 +184,9 @@ fn run_room_list(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     println!("{:#?}", response_data);
 }
 
-fn run_user_list(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_user_list(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
+        tag,
         content: Some(RequestContent::UserListRequest(UserListRequest {})),
     };
 
@@ -207,12 +197,10 @@ fn run_user_list(_config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) 
     println!("{:#?}", response_data);
 }
 
-fn run_send_message(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+fn run_send_message(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
-        tag: 0,
-        content: Some(RequestContent::SendMessageRequest(
-            config.send_message_request,
-        )),
+        tag,
+        content: Some(RequestContent::SendMessageRequest(config.send_message)),
     };
 
     let request_data = request_from_proto(&request_obj);
@@ -238,11 +226,9 @@ fn main() {
     let (mut recver, mut sender) = setup_conn().expect("Error setting up socket connection");
 
     let mut config: Config;
-    loop {
-        // read config file
-        let contents = fs::read_to_string("config.json").expect("Error reading config file");
-        config = serde_json::from_str(&contents).expect("Error parsing config file");
+    let mut tag: u64 = 0;
 
+    loop {
         print!("action: ");
         let inp: String = text_io::read!();
         // let action: Action = inp.parse().unwrap;
@@ -254,15 +240,23 @@ fn main() {
             }
         };
 
+        // read config file
+        let contents = fs::read_to_string("config.json").expect("Error reading config file");
+        config = serde_json::from_str(&contents).expect("Error parsing config file");
+
+        tag += 1;
+
         match action {
-            Action::Capabilities => run_capabilities(config, &mut recver, &mut sender),
-            Action::Initialize => run_initialize(config, &mut recver, &mut sender),
-            Action::LoginFlows => run_login_flows(config, &mut recver, &mut sender),
-            Action::IdentityProviders => run_identity_providers(config, &mut recver, &mut sender),
-            Action::LoginSso => run_login_sso(config, &mut recver, &mut sender),
-            Action::RoomList => run_room_list(config, &mut recver, &mut sender),
-            Action::UserList => run_user_list(config, &mut recver, &mut sender),
-            Action::SendMessage => run_send_message(config, &mut recver, &mut sender),
+            Action::Capabilities => run_capabilities(tag, config, &mut recver, &mut sender),
+            Action::Initialize => run_initialize(tag, config, &mut recver, &mut sender),
+            Action::LoginFlows => run_login_flows(tag, config, &mut recver, &mut sender),
+            Action::IdentityProviders => {
+                run_identity_providers(tag, config, &mut recver, &mut sender)
+            }
+            Action::LoginSso => run_login_sso(tag, config, &mut recver, &mut sender),
+            Action::RoomList => run_room_list(tag, config, &mut recver, &mut sender),
+            Action::UserList => run_user_list(tag, config, &mut recver, &mut sender),
+            Action::SendMessage => run_send_message(tag, config, &mut recver, &mut sender),
             Action::Listen => run_listen(config, &mut recver, &mut sender),
             Action::Exit => break,
         }
