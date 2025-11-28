@@ -6,11 +6,15 @@ use interprocess::local_socket::tokio::{RecvHalf, SendHalf};
 use interprocess::local_socket::GenericFilePath;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Root};
+use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 
 const LOG_FILE: &str = "matrix_client.log";
-const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
+
+/// The log level for our own crates.
+const LOG_LEVEL_CUSTOM: LevelFilter = LevelFilter::Debug;
+/// The log level for all other crates.
+const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Warn;
 
 #[tokio::main]
 async fn main() {
@@ -37,13 +41,22 @@ fn setup_logging() {
     // Build final config
     let config = Config::builder()
         .appender(Appender::builder().build("file", Box::new(file)))
-        .build(Root::builder().appender("file").build(LOG_LEVEL));
+        .logger(setup_custom_logger("mrhc_core"))
+        .logger(setup_custom_logger("mrhc_matrix_adapter"))
+        .logger(setup_custom_logger("matrix_headless_client"))
+        .build(Root::builder().appender("file").build(LOG_LEVEL_OTHERS));
 
     // Ignore any errors in the logging configuration. We don't want the client to fail to start if,
     // for example, we can't open the log file.
     if let Ok(cfg) = config {
         let _ = log4rs::init_config(cfg);
     }
+}
+
+fn setup_custom_logger(name: &str) -> Logger {
+    Logger::builder()
+        .appender("file")
+        .build(name, LOG_LEVEL_CUSTOM)
 }
 
 async fn connect_socket() -> (RecvHalf, SendHalf) {
