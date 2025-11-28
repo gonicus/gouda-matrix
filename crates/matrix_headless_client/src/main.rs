@@ -56,6 +56,7 @@ fn setup_logging() {
 fn setup_custom_logger(name: &str) -> Logger {
     Logger::builder()
         .appender("file")
+        .additive(false)
         .build(name, LOG_LEVEL_CUSTOM)
 }
 
