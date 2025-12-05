@@ -98,7 +98,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use mrhc_proto::chat::response_container::Content as ResponseContent;
-    use mrhc_proto::chat::{CapabilityResponse, ResponseContainer};
+    use mrhc_proto::chat::{IdentityProvidersResponse, ResponseContainer, StatusUpdate};
 
     use crate::test_utils;
 
@@ -119,25 +119,28 @@ mod tests {
 
         let output_processor = OutputProcessor::new(Box::new(writer), output_rx);
 
-        let request = ResponseContent::CapabilityResponse(CapabilityResponse::default());
+        let response_1 = ResponseContent::IdentityProvidersResponse(IdentityProvidersResponse {
+            identity_providers: vec!["idp-1".to_owned(), "idp-2".to_owned()],
+        });
+
+        let response_2 = ResponseContent::StatusUpdate(StatusUpdate { code: 23 });
 
         #[rustfmt::skip]
-        let expected_response =  [
+        let expected_response = [
             // Size
-            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // Response 1 (tag: 5)
-            0x08, 0x05, 0x1A, 0x00,
+            0x08, 0x05, 0x7A, 0x0E, 0x0A, 0x05, 0x69, 0x64, 0x70, 0x2D, 0x31, 0x0A, 0x05,
+            0x69, 0x64, 0x70, 0x2D, 0x32,
             // Size
-            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // Response 2 (tag: 6)
-            0x08, 0x06, 0x1A, 0x00
+            0x08, 0x06, 0x5A, 0x02, 0x08, 0x17,
         ];
 
         // Act
-        output_tx
-            .send(create_output_task(5, request.clone()))
-            .unwrap();
-        output_tx.send(create_output_task(6, request)).unwrap();
+        output_tx.send(create_output_task(5, response_1)).unwrap();
+        output_tx.send(create_output_task(6, response_2)).unwrap();
         output_tx.send(OutputTask::Exit).unwrap();
 
         output_processor.run().await.unwrap();

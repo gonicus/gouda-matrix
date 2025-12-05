@@ -1,12 +1,14 @@
 use matrix_sdk::ClientBuildError;
 
+use matrix_sdk::crypto::CryptoStoreError;
+use matrix_sdk::encryption::identities::RequestVerificationError;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
 
 /// Creates a new chat error given an error type as well as an error message.
 pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {
     Error {
-        r#type: ty as i32,
+        r#type: ty.into(),
         error_string: Some(msg.to_string()),
     }
 }
@@ -14,7 +16,7 @@ pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {
 /// Creates a new chat error without a message.
 pub fn create_error(ty: ErrorType) -> Error {
     Error {
-        r#type: ty as i32,
+        r#type: ty.into(),
         error_string: None,
     }
 }
@@ -41,5 +43,18 @@ pub fn convert_client_build_error(err: ClientBuildError) -> Error {
         ClientBuildError::Http(err) => create_error_msg(ErrorType::Network, err),
         ClientBuildError::AutoDiscovery(err) => create_error_msg(ErrorType::Network, err),
         _ => create_error_msg(ErrorType::Unknown, err),
+    }
+}
+
+/// Converts a `CryptoStoreError` to a new chat error.
+pub fn convert_crypto_store_error(err: CryptoStoreError) -> Error {
+    create_unknown(format!("CryptoStoreError: {err}"))
+}
+
+/// Converts a `RequestVerificationError` to a new chat error.
+pub fn convert_request_verification_error(err: RequestVerificationError) -> Error {
+    match err {
+        RequestVerificationError::Sdk(err) => convert_matrix_sdk_error(err),
+        err => create_unknown(err),
     }
 }
