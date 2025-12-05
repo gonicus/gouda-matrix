@@ -14,7 +14,7 @@ const LOG_FILE: &str = "matrix_client.log";
 /// The log level for our own crates.
 const LOG_LEVEL_CUSTOM: LevelFilter = LevelFilter::Debug;
 /// The log level for all other crates.
-const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Warn;
+const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
 #[tokio::main]
 async fn main() {

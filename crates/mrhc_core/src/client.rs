@@ -54,8 +54,6 @@ impl ClientContext {
 
 #[async_trait]
 pub trait Client: Send {
-    async fn get_capabilities(&mut self, ctx: ClientContext) -> Result<CapabilityResponse>;
-
     async fn initialize(
         &mut self,
         ctx: ClientContext,
@@ -109,6 +107,42 @@ pub trait Client: Send {
     }
 
     async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse>;
+
+    #[allow(unused_variables)]
+    async fn start_cross_signing(
+        &mut self,
+        ctx: ClientContext,
+        request: CrossSigningStartRequest,
+    ) -> Result<CrossSigningStartResponse> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn select_cross_signing_method(
+        &mut self,
+        ctx: ClientContext,
+        request: CrossSigningMethodSelectedRequest,
+    ) -> Result<()> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn confirm_cross_signing(
+        &mut self,
+        ctx: ClientContext,
+        request: CrossSigningAcceptRequest,
+    ) -> Result<()> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn abort_verification(
+        &mut self,
+        ctx: ClientContext,
+        request: VerificationAbortRequest,
+    ) -> Result<VerificationEndEvent> {
+        not_implemented_error()
+    }
 
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:

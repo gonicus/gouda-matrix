@@ -4,13 +4,16 @@ use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::Client;
 use matrix_sdk::LoopCtrl;
-use mrhc_core::ClientContext;
+use mrhc_proto::chat::CapabilityEvent;
+use mrhc_proto::chat::VerificationStatusEvent;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 use url::Url;
 
+use mrhc_core::ClientContext;
 use mrhc_core::Result;
+use mrhc_proto::chat::response_container::Content as ResponseContent;
 
 use crate::crypto;
 use crate::errors;
@@ -101,8 +104,10 @@ impl Session {
     /// the synchronization is complete.
     /// The session is automatically persisted once a new sync token is received.
     /// Note that the token specified in `sync_settings` will be overwritten.
+    /// This method should be called every time the client is being logged in.
     pub async fn initial_sync(
         &mut self,
+        ctx: &mut ClientContext,
         client: &Client,
         mut sync_settings: SyncSettings,
     ) -> Result<()> {
@@ -119,8 +124,12 @@ impl Session {
         self.sync_token = Some(response.next_batch.clone());
 
         log::info!("Initial sync finished");
+        log::info!("Checking verification status");
 
         self.save().await?;
+
+        self.send_capabilities_event(ctx);
+        self.send_verification_status_event(ctx, client).await?;
 
         Ok(())
     }
@@ -165,6 +174,55 @@ impl Session {
         });
 
         Ok(handle)
+    }
+
+    fn send_capabilities_event(&mut self, ctx: &mut ClientContext) {
+        let re = CapabilityEvent {
+            direct_rooms: false,
+            group_rooms: true,
+            sub_threads: true,
+            user_search: true,
+            invitations: true,
+            spaces: false,
+            client_verification: true,
+            user_presence: true,
+            mime_types: vec!["text/plain".to_owned()],
+        };
+
+        ctx.send_event(ResponseContent::CapabilityEvent(re));
+    }
+
+    async fn send_verification_status_event(
+        &mut self,
+        ctx: &mut ClientContext,
+        client: &Client,
+    ) -> Result<()> {
+        let result =
+            client.encryption().get_own_device().await.map_err(|err| {
+                errors::create_unknown(format!("Error retrieving own device: {err}"))
+            })?;
+
+        let Some(this_device) = result else {
+            return Err(errors::create_unknown(
+                "Client is not logged in, but verification status has been requested",
+            ));
+        };
+
+        let is_cross_signing_available = if let Ok(re) = client.devices().await {
+            re.devices.len() > 1
+        } else {
+            false
+        };
+
+        ctx.send_event(ResponseContent::VerificationStatusEvent(
+            VerificationStatusEvent {
+                is_verified: this_device.is_verified_with_cross_signing(),
+                is_recovery_key_verification_available: true,
+                is_cross_signing_available,
+            },
+        ));
+
+        Ok(())
     }
 }
 

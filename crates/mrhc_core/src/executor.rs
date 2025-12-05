@@ -79,13 +79,9 @@ impl Executor {
         let ctx = ClientContext::new(self.output_sender.clone());
 
         match content {
-            RequestContent::CapabilityRequest(_) => {
-                let result = self.client.get_capabilities(ctx).await;
-                self.send_response(tag, result.map(ResponseContent::CapabilityResponse));
-            }
             RequestContent::InitializationRequest(request) => {
                 let result = self.client.initialize(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::StatusUpdate));
+                self.send_response(0, result.map(ResponseContent::StatusUpdate));
             }
             RequestContent::LoginFlowsRequest(_) => {
                 let result = self.client.get_login_flows(ctx).await;
@@ -93,7 +89,7 @@ impl Executor {
             }
             RequestContent::UsernamePasswordLoginRequest(request) => {
                 let result = self.client.login_username_password(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::StatusUpdate));
+                self.send_response(0, result.map(ResponseContent::StatusUpdate));
             }
             RequestContent::SsoLoginRequest(request) => {
                 let result = self.client.login_sso(ctx, request).await;
@@ -114,6 +110,26 @@ impl Executor {
             RequestContent::UserListRequest(_) => {
                 let result = self.client.get_users(ctx).await;
                 self.send_response(tag, result.map(ResponseContent::UserListResponse));
+            }
+            RequestContent::CrossSigningStartRequest(request) => {
+                let result = self.client.start_cross_signing(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::CrossSigningStartResponse));
+            }
+            RequestContent::CrossSigningMethodSelectedRequest(request) => {
+                let result = self.client.select_cross_signing_method(ctx, request).await;
+                if let Err(err) = result {
+                    self.send_response(tag, Err(err));
+                }
+            }
+            RequestContent::CrossSigningAcceptRequest(request) => {
+                let result = self.client.confirm_cross_signing(ctx, request).await;
+                if let Err(err) = result {
+                    self.send_response(tag, Err(err));
+                }
+            }
+            RequestContent::VerificationAbortRequest(request) => {
+                let result = self.client.abort_verification(ctx, request).await;
+                self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
             }
             _ => todo!("Request: {content:?} is currently not implemented"),
         }
@@ -170,8 +186,9 @@ mod tests {
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
-        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
-        let response = ResponseContent::CapabilityResponse(CapabilityResponse::default());
+        let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
+        let response =
+            ResponseContent::IdentityProvidersResponse(IdentityProvidersResponse::default());
 
         // Act
         executor_tx
@@ -186,7 +203,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_get_capabilities_called_n(2);
+        client.assert_get_identity_providers_called_n(2);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -202,7 +219,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_context() {
         // Arrange
-        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
+        let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
 
         let client = ClientMock::default();
 
@@ -230,85 +247,12 @@ mod tests {
             output_rx.recv().await.unwrap(),
             create_output_task(
                 2,
-                ResponseContent::CapabilityResponse(CapabilityResponse::default())
+                ResponseContent::IdentityProvidersResponse(IdentityProvidersResponse::default())
             )
         );
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(0, ResponseContent::Error(Error::default()))
-        );
-        assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
-    async fn test_capability_request() {
-        // Arrange
-        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
-        let response = CapabilityResponse {
-            direct_rooms: true,
-            group_rooms: false,
-            ..Default::default()
-        };
-
-        let client = ClientMock {
-            get_capabilities_response: Ok(response.clone()),
-            ..Default::default()
-        };
-
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
-
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
-
-        // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor.run().await.unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_get_capabilities_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::CapabilityResponse(response))
-        );
-        assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
-    async fn test_capability_request_err() {
-        // Arrange
-        let request = RequestContent::CapabilityRequest(CapabilityRequest::default());
-        let response = Error {
-            r#type: ErrorType::Unknown as i32,
-            error_string: Some("Test error".to_owned()),
-        };
-
-        let client = ClientMock {
-            get_capabilities_response: Err(response.clone()),
-            ..Default::default()
-        };
-
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
-
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
-
-        // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor.run().await.unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_get_capabilities_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -699,7 +643,7 @@ mod tests {
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
                     ]),
                     space_id: Vec::new(),
-                    is_public: false,
+                    is_public: true,
                     unread_count: 0,
                 },
             ],
@@ -904,6 +848,282 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_users_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_start_request() {
+        // Arrange
+        let request = RequestContent::CrossSigningStartRequest(CrossSigningStartRequest::default());
+        let response = CrossSigningStartResponse {
+            verification_flow_id: "flow-1".to_owned(),
+        };
+
+        let client = ClientMock {
+            start_cross_signing_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_start_cross_signing_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::CrossSigningStartResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_start_request_err() {
+        // Arrange
+        let request = RequestContent::CrossSigningStartRequest(CrossSigningStartRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            start_cross_signing_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_start_cross_signing_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_method_selected_request() {
+        // Arrange
+        let request = RequestContent::CrossSigningMethodSelectedRequest(
+            CrossSigningMethodSelectedRequest::default(),
+        );
+
+        let client = ClientMock {
+            select_cross_signing_method_response: Ok(()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_select_cross_signing_method_called_n(1);
+
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_method_selected_request_err() {
+        // Arrange
+        let request = RequestContent::CrossSigningMethodSelectedRequest(
+            CrossSigningMethodSelectedRequest::default(),
+        );
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            select_cross_signing_method_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_select_cross_signing_method_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_accept_request() {
+        // Arrange
+        let request =
+            RequestContent::CrossSigningAcceptRequest(CrossSigningAcceptRequest::default());
+
+        let client = ClientMock {
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_confirm_cross_signing_called_n(1);
+
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_cross_signing_accept_request_err() {
+        // Arrange
+        let request =
+            RequestContent::CrossSigningAcceptRequest(CrossSigningAcceptRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            confirm_cross_signing_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_confirm_cross_signing_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_verification_abort_request() {
+        // Arrange
+        let request = RequestContent::VerificationAbortRequest(VerificationAbortRequest::default());
+        let response = VerificationEndEvent {
+            verification_flow_id: Some("some-flow-123".to_owned()),
+            result: None,
+        };
+
+        let client = ClientMock {
+            abort_verification_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_abort_verification_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::VerificationEndEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_verification_abort_request_err() {
+        // Arrange
+        let request = RequestContent::VerificationAbortRequest(VerificationAbortRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            abort_verification_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_abort_verification_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

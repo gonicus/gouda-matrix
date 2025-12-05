@@ -17,9 +17,13 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
 use crate::errors;
+use crate::errors::create_error_msg;
+use crate::errors::create_unknown;
 use crate::rooms;
 use crate::session;
 use crate::session::Session;
+use crate::utils;
+use crate::verification::VerificationManager;
 
 // TODO: Make configurable inside the initialization request
 const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";
@@ -40,9 +44,11 @@ pub struct MatrixClient {
     /// The inner matrix client. If `None`, the client has not yet been initialized
     /// using `Self::initialize`.
     initialized_data: Option<InitializedData>,
-    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows` is called,
-    /// as this method already retrieves the available idps.
+    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
+    /// is called, as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
+    /// The current active verification processes.
+    verification_requests: Vec<VerificationManager>,
 }
 
 impl MatrixClient {
@@ -62,7 +68,7 @@ impl MatrixClient {
     #[inline]
     fn get_initialized_data(&self) -> Result<&InitializedData> {
         let data = self.initialized_data.as_ref().ok_or(Error {
-            r#type: ErrorType::NotInitialized as i32,
+            r#type: ErrorType::NotInitialized.into(),
             error_string: Some("The client has not been initialized".to_owned()),
         })?;
         Ok(data)
@@ -101,27 +107,25 @@ impl MatrixClient {
 
         self.initialized_data = Some(data);
     }
+
+    /// Removes all finished verification requests.
+    fn cleanup_verifications(&mut self) {
+        self.verification_requests.retain(|f| f.is_active());
+    }
+
+    /// Gets the verification manager by its flow id.
+    fn get_verification_manager_mut(&mut self, flow_id: &str) -> Option<&mut VerificationManager> {
+        self.verification_requests
+            .iter_mut()
+            .find(|p| p.flow_id() == flow_id)
+    }
 }
 
 #[async_trait]
 impl ClientAbstraction for MatrixClient {
-    async fn get_capabilities(&mut self, _ctx: ClientContext) -> Result<CapabilityResponse> {
-        Ok(CapabilityResponse {
-            direct_rooms: false,
-            group_rooms: true,
-            sub_threads: true,
-            user_search: true,
-            invitations: true,
-            spaces: false,
-            client_verification: true,
-            user_presence: true,
-            mime_types: vec!["text/plain".to_owned()],
-        })
-    }
-
     async fn initialize(
         &mut self,
-        ctx: ClientContext,
+        mut ctx: ClientContext,
         request: InitializationRequest,
     ) -> Result<StatusUpdate> {
         let homeserver_url = Url::parse(&request.backend_url)
@@ -147,7 +151,9 @@ impl ClientAbstraction for MatrixClient {
 
                     let sync_settings = SyncSettings::new();
 
-                    session.initial_sync(&client, sync_settings.clone()).await?;
+                    session
+                        .initial_sync(&mut ctx, &client, sync_settings.clone())
+                        .await?;
                     session.start_background_sync(ctx, client, sync_settings)?;
 
                     return Ok(StatusUpdate {
@@ -191,8 +197,9 @@ impl ClientAbstraction for MatrixClient {
                     response.push_login_flows(login_flows_response::LoginFlow::UsernamePassword)
                 }
                 MatrixLoginType::Sso(sso) => {
-                    // We already have access to the available identity providers and store them in the cache so
-                    // that `Self::get identity_providers` does not have to retrieve them again.
+                    // We already have access to the available identity providers and store
+                    // them in the cache so that `Self::get identity_providers` does not
+                    // have to retrieve them again.
                     let idps = sso
                         .identity_providers
                         .iter()
@@ -211,7 +218,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_username_password(
         &mut self,
-        ctx: ClientContext,
+        mut ctx: ClientContext,
         request: UsernamePasswordLoginRequest,
     ) -> Result<StatusUpdate> {
         let InitializedData {
@@ -249,7 +256,9 @@ impl ClientAbstraction for MatrixClient {
 
         let sync_settings = SyncSettings::new();
 
-        session.initial_sync(client, sync_settings.clone()).await?;
+        session
+            .initial_sync(&mut ctx, client, sync_settings.clone())
+            .await?;
         session.start_background_sync(ctx, client.clone(), sync_settings)?;
 
         Ok(StatusUpdate {
@@ -297,8 +306,8 @@ impl ClientAbstraction for MatrixClient {
         let session_file = session_file.clone();
         let session_passphrase = session_passphrase.clone();
 
-        // Spawn a tokio task which waits for the successful login in order to send a status update
-        // to the application.
+        // Spawn a tokio task which waits for the successful login in order to send
+        // a status update to the application.
         tokio::spawn(async move {
             if let Err(err) = login_builder.await {
                 ctx.send_error(errors::convert_matrix_sdk_error(err));
@@ -318,7 +327,10 @@ impl ClientAbstraction for MatrixClient {
 
             let sync_settings = SyncSettings::new();
 
-            if let Err(err) = session.initial_sync(&client, sync_settings.clone()).await {
+            if let Err(err) = session
+                .initial_sync(&mut ctx, &client, sync_settings.clone())
+                .await
+            {
                 ctx.send_error(err);
                 return;
             }
@@ -356,11 +368,13 @@ impl ClientAbstraction for MatrixClient {
             });
         }
 
-        // We can use the `Self::get_login_flows` method to retrieve the idps as it saves them to the cache.
+        // We can use the `Self::get_login_flows` method to retrieve the idps as it saves
+        // them to the cache.
         // This method would ultimately only fetch the login flows too.
         let _ = self.get_login_flows(ctx).await?;
 
-        // If there is still nothing in the cache, no idps are available or single sign-on is not supported
+        // If there is still nothing in the cache, no idps are available or single sign-on
+        // is not supported
         // by the server. In this case we can just return an empty list.
         let idps = if let Some(idps) = &self.cached_idps {
             idps.clone()
@@ -464,6 +478,137 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(UserListResponse { user_list: result })
+    }
+
+    async fn start_cross_signing(
+        &mut self,
+        ctx: ClientContext,
+        request: CrossSigningStartRequest,
+    ) -> Result<CrossSigningStartResponse> {
+        self.cleanup_verifications();
+
+        let client = self.get_client_logged_in()?;
+
+        let Some(user_id) = client.user_id() else {
+            return Err(errors::create_unknown(
+                "InternalError: Client not logged in",
+            ));
+        };
+
+        let user_identity = client
+            .encryption()
+            .get_user_identity(user_id)
+            .await
+            .map_err(errors::convert_crypto_store_error)?
+            .ok_or(errors::create_unknown(
+                "InternalError: User identity not found",
+            ))?;
+
+        let methods = utils::cross_signing_methods_to_matrix(request.supported_methods);
+
+        let request = user_identity
+            .request_verification_with_methods(methods)
+            .await
+            .map_err(errors::convert_request_verification_error)?;
+
+        let verification_flow_id = request.flow_id().to_owned();
+        let manager = VerificationManager::from_verification_request(ctx, request);
+
+        self.verification_requests.push(manager);
+
+        Ok(CrossSigningStartResponse {
+            verification_flow_id,
+        })
+    }
+
+    async fn select_cross_signing_method(
+        &mut self,
+        _ctx: ClientContext,
+        request: CrossSigningMethodSelectedRequest,
+    ) -> Result<()> {
+        let _ = self.get_client_logged_in()?;
+
+        self.cleanup_verifications();
+
+        let CrossSigningMethodSelectedRequest {
+            verification_flow_id,
+            selected_method,
+        } = request;
+
+        let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
+            return Err(create_error_msg(
+                ErrorType::VerificationFlowNotFound,
+                "Verification flow with the given ID not found",
+            ));
+        };
+
+        let Ok(method) = CrossSigningMethod::try_from(selected_method) else {
+            return Err(create_unknown("Unsupported cross signing method"));
+        };
+
+        manager.select_method(method);
+
+        Ok(())
+    }
+
+    async fn confirm_cross_signing(
+        &mut self,
+        _ctx: ClientContext,
+        request: CrossSigningAcceptRequest,
+    ) -> Result<()> {
+        let _ = self.get_client_logged_in()?;
+
+        self.cleanup_verifications();
+
+        let CrossSigningAcceptRequest {
+            verification_flow_id,
+        } = request;
+
+        let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
+            return Err(create_error_msg(
+                ErrorType::VerificationFlowNotFound,
+                "Verification flow with the given ID not found",
+            ));
+        };
+
+        manager.confirm();
+
+        Ok(())
+    }
+
+    async fn abort_verification(
+        &mut self,
+        _ctx: ClientContext,
+        request: VerificationAbortRequest,
+    ) -> Result<VerificationEndEvent> {
+        let _ = self.get_client_logged_in()?;
+
+        self.cleanup_verifications();
+
+        let VerificationAbortRequest {
+            verification_flow_id,
+        } = request;
+
+        let position = self
+            .verification_requests
+            .iter()
+            .position(|p| p.flow_id() == verification_flow_id);
+
+        if let Some(index) = position {
+            let manager = self.verification_requests.swap_remove(index);
+
+            manager.cancel();
+
+            Ok(VerificationEndEvent {
+                verification_flow_id: Some(verification_flow_id.clone()),
+                result: Some(verification_end_event::Result::Successful(false)),
+            })
+        } else {
+            Err(create_error_msg(
+                ErrorType::VerificationFlowNotFound,
+                "Verification flow with the given ID not found",
+            ))
+        }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

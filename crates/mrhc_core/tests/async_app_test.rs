@@ -19,7 +19,6 @@ use mrhc_proto::chat::status_update;
 use mrhc_proto::chat::User;
 use mrhc_proto::chat::UsernamePasswordLoginRequest;
 use mrhc_proto::chat::{error::ErrorType, Error};
-use mrhc_proto::chat::{CapabilityRequest, CapabilityResponse};
 use mrhc_proto::chat::{IdentityProvidersRequest, IdentityProvidersResponse};
 use mrhc_proto::chat::{InitializationRequest, StatusUpdate};
 use mrhc_proto::chat::{LoginFlowsRequest, LoginFlowsResponse};
@@ -146,57 +145,6 @@ async fn test_on_too_large_header() {
 
     // assert
     // - should have panicked -
-}
-
-#[tokio::test]
-async fn test_capability_request_on_success() {
-    // arrange
-    let response = CapabilityResponse {
-        direct_rooms: false,
-        group_rooms: true,
-        sub_threads: true,
-        user_search: true,
-        invitations: true,
-        spaces: false,
-        client_verification: true,
-        user_presence: true,
-        mime_types: Vec::new(),
-    };
-
-    let client: ClientMock = ClientMock {
-        get_capabilities_response: Ok(response.clone()),
-        ..Default::default()
-    };
-    let mut setup = setup(client).await.expect("test setup failed");
-
-    let app_task = tokio::spawn(setup.async_app.run());
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    let test_data_obj = RequestContainer {
-        tag: 1,
-        content: Some(RequestContent::CapabilityRequest(CapabilityRequest {})),
-    };
-
-    let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
-    let mut test_data: Vec<u8> = payload.len().to_le_bytes().to_vec();
-    test_data.append(&mut payload);
-
-    let expected_response = ResponseContainer {
-        tag: 1,
-        content: Some(ResponseContent::CapabilityResponse(response)),
-    };
-
-    let expected_resp_payload: Vec<u8> = expected_response.encode_to_vec();
-
-    // act
-    setup.client_sender.write_all(&test_data).await.unwrap();
-
-    let response_payload = read_payload_from_stream(&mut setup.client_receiver).await;
-
-    app_task.abort();
-
-    // assert
-    assert_eq!(response_payload, expected_resp_payload);
 }
 
 #[tokio::test]

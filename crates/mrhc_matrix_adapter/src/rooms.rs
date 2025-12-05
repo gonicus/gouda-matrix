@@ -18,14 +18,14 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         Some(display_name.to_string())
     };
 
-    // TODO: Implement is_public and unread_count
+    // TODO: Implement unread_count
 
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
         user_id_list: get_room_members(&room).await?,
         space_id: Vec::new(),
-        is_public: false,
+        is_public: room.is_public().unwrap_or_default(),
         unread_count: 0,
     })
 }
@@ -41,7 +41,7 @@ async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32
     for member in members {
         result.insert(
             member.user_id().to_string(),
-            utils::membership_state_to_user_room_state(member.membership()) as i32,
+            utils::membership_state_to_user_room_state(member.membership()).into(),
         );
     }
 

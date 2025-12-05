@@ -16,7 +16,6 @@ use mrhc_proto::chat::*;
 #[derive(Debug, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]
 enum Action {
-    Capabilities,
     Initialize,
     LoginFlows,
     IdentityProviders,
@@ -24,6 +23,10 @@ enum Action {
     RoomList,
     UserList,
     SendMessage,
+    AbortVerification,
+    CrossSigningStart,
+    CrossSigningSelectMethod,
+    CrossSigningAccept,
     Listen,
     Exit,
 }
@@ -35,6 +38,10 @@ struct Config {
     login_sso: SsoLoginRequest,
     room_list: RoomListRequest,
     send_message: SendMessageRequest,
+    abort_verification: VerificationAbortRequest,
+    cross_signing_start: CrossSigningStartRequest,
+    cross_signing_select_method: CrossSigningMethodSelectedRequest,
+    cross_signing_accept: CrossSigningAcceptRequest,
     listen: ListenConfig,
 }
 
@@ -102,19 +109,6 @@ fn request_from_proto<T: Message>(request_obj: &T) -> Vec<u8> {
     request_data.append(&mut payload);
 
     request_data
-}
-
-fn run_capabilities(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
-    let request_obj = RequestContainer {
-        tag,
-        content: Some(RequestContent::CapabilityRequest(CapabilityRequest {})),
-    };
-
-    let request_data = request_from_proto(&request_obj);
-    let response_data = send_and_receive(request_data, recver, sender).expect("Error on socket IO");
-
-    println!("CapabilitiesResponse:");
-    println!("{:#?}", response_data);
 }
 
 fn run_initialize(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
@@ -210,6 +204,67 @@ fn run_send_message(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mu
     println!("{:#?}", response_data);
 }
 
+fn run_abort_verification(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag: 0,
+        content: Some(RequestContent::VerificationAbortRequest(
+            config.abort_verification,
+        )),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+    let response_data = send_and_receive(request_data, recver, sender).expect("Error on socket IO");
+
+    println!("AbortVerificationResponse:");
+    println!("{:#?}", response_data);
+}
+
+fn run_cross_signing_start(config: Config, recv: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag: 0,
+        content: Some(RequestContent::CrossSigningStartRequest(
+            config.cross_signing_start,
+        )),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+
+    let response_data = send_and_receive(request_data, recv, sender).expect("Error on socket IO");
+
+    println!("CrossSigningStartResponse:");
+    println!("{:#?}", response_data);
+}
+
+fn run_cross_signing_select_method(config: Config, _recv: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag: 0,
+        content: Some(RequestContent::CrossSigningMethodSelectedRequest(
+            config.cross_signing_select_method,
+        )),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+
+    sender.write_all(&request_data).expect("Error on socket IO");
+
+    println!("CrossSigningMethodSelectedRequest successfully send");
+}
+
+fn run_cross_signing_accept(config: Config, _recv: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag: 0,
+        content: Some(RequestContent::CrossSigningAcceptRequest(
+            config.cross_signing_accept,
+        )),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+
+    sender.write_all(&request_data).expect("Error on socket IO");
+
+    println!("CrossSigningAcceptRequest successfully send");
+}
+
 fn run_listen(config: Config, recver: &mut RecvHalf, _sender: &mut SendHalf) {
     let cfg: ListenConfig = config.listen;
 
@@ -247,7 +302,6 @@ fn main() {
         tag += 1;
 
         match action {
-            Action::Capabilities => run_capabilities(tag, config, &mut recver, &mut sender),
             Action::Initialize => run_initialize(tag, config, &mut recver, &mut sender),
             Action::LoginFlows => run_login_flows(tag, config, &mut recver, &mut sender),
             Action::IdentityProviders => {
@@ -257,6 +311,14 @@ fn main() {
             Action::RoomList => run_room_list(tag, config, &mut recver, &mut sender),
             Action::UserList => run_user_list(tag, config, &mut recver, &mut sender),
             Action::SendMessage => run_send_message(tag, config, &mut recver, &mut sender),
+            Action::AbortVerification => run_abort_verification(config, &mut recver, &mut sender),
+            Action::CrossSigningStart => run_cross_signing_start(config, &mut recver, &mut sender),
+            Action::CrossSigningSelectMethod => {
+                run_cross_signing_select_method(config, &mut recver, &mut sender)
+            }
+            Action::CrossSigningAccept => {
+                run_cross_signing_accept(config, &mut recver, &mut sender)
+            }
             Action::Listen => run_listen(config, &mut recver, &mut sender),
             Action::Exit => break,
         }
