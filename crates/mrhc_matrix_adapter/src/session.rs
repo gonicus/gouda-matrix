@@ -208,11 +208,11 @@ impl Session {
             ));
         };
 
-        let is_cross_signing_available = if let Ok(re) = client.devices().await {
-            re.devices.len() > 1
-        } else {
-            false
-        };
+        let is_cross_signing_available = client
+            .encryption()
+            .has_devices_to_verify_against()
+            .await
+            .unwrap_or(false);
 
         ctx.send_event(ResponseContent::VerificationStatusEvent(
             VerificationStatusEvent {
