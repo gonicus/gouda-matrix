@@ -28,10 +28,11 @@ tokio = { version = "1.48.0", default-features = false, features = [
 async-trait = "0.1"
 
 url = "2.5.7"
-matrix-sdk = { version = "0.14.0", features = [
+matrix-sdk = { version = "0.16.0", features = [
   "sso-login"
 ] }
-matrix-sdk-base = { version = "0.14.0", default-features = false }
+matrix-sdk-base = { version = "0.16.0", default-features = false }
+matrix-sdk-crypto = { version = "0.16.0", default-features = false }
 
 aes-gcm = "0.10"
 argon2 = "0.5"
