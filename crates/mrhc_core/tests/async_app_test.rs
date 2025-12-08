@@ -175,7 +175,7 @@ async fn test_initialization_request_on_success() {
     test_data.append(&mut payload);
 
     let expected_response = ResponseContainer {
-        tag: 1,
+        tag: 0,
         content: Some(ResponseContent::StatusUpdate(response)),
     };
 
@@ -221,7 +221,7 @@ async fn test_initialization_request_on_error() {
     test_data.append(&mut payload);
 
     let expected_response = ResponseContainer {
-        tag: 1,
+        tag: 0,
         content: Some(ResponseContent::Error(response)),
     };
 
@@ -360,7 +360,7 @@ async fn test_login_username_password_request_on_success() {
     test_data.append(&mut payload);
 
     let expected_response = ResponseContainer {
-        tag: 1,
+        tag: 0,
         content: Some(ResponseContent::StatusUpdate(response)),
     };
 
@@ -406,7 +406,7 @@ async fn test_login_username_password_request_on_error() {
     test_data.append(&mut payload);
 
     let expected_response = ResponseContainer {
-        tag: 1,
+        tag: 0,
         content: Some(ResponseContent::Error(response)),
     };
 
