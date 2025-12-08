@@ -1,6 +1,6 @@
-use matrix_sdk::crypto::{EmojiShortAuthString, SasState};
 use matrix_sdk::encryption::verification::SasVerification;
 use matrix_sdk::stream::StreamExt;
+use matrix_sdk_crypto::{EmojiShortAuthString, SasState};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use mrhc_core::ClientContext;
