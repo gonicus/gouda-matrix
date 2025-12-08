@@ -287,7 +287,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::StatusUpdate(response))
+            create_output_task(0, ResponseContent::StatusUpdate(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -323,7 +323,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
+            create_output_task(0, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -433,7 +433,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::StatusUpdate(response))
+            create_output_task(0, ResponseContent::StatusUpdate(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -470,7 +470,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
+            create_output_task(0, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -1091,7 +1091,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::VerificationEndEvent(response))
+            create_output_task(0, ResponseContent::VerificationEndEvent(response))
         );
         assert!(output_rx.is_empty())
     }
@@ -1127,7 +1127,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
+            create_output_task(0, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
     }
