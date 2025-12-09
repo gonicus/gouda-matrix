@@ -20,6 +20,9 @@
   "abort-verification": {
     "verification_flow_id": "ec16d60a78d5482ea52a196f83e15d28"
   },
+  "recovery-key-verification": {
+      "recovery_key": "SOME VERI FICA TION KEY!"
+  },
   "cross-signing-start": {
     "verification_flow_id": null,
     "supported_methods": [

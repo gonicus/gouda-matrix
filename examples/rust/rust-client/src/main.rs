@@ -20,6 +20,7 @@ enum Action {
     UserList,
     SendMessage,
     AbortVerification,
+    RecoveryKeyVerification,
     CrossSigningStart,
     CrossSigningSelectMethod,
     CrossSigningAccept,
@@ -35,6 +36,7 @@ struct Config {
     room_list: RoomListRequest,
     send_message: SendMessageRequest,
     abort_verification: VerificationAbortRequest,
+    recovery_key_verification: RecoveryKeyVerificationRequest,
     cross_signing_start: CrossSigningStartRequest,
     cross_signing_select_method: CrossSigningMethodSelectedRequest,
     cross_signing_accept: CrossSigningAcceptRequest,
@@ -215,6 +217,21 @@ fn run_abort_verification(config: Config, recver: &mut RecvHalf, sender: &mut Se
     println!("{:#?}", response_data);
 }
 
+fn run_recovery_key_verification(config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag: 0,
+        content: Some(RequestContent::RecoveryKeyVerificationRequest(
+            config.recovery_key_verification,
+        )),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+    let response_data = send_and_receive(request_data, recver, sender).expect("Error on socket IO");
+
+    println!("VerificationEndEvent:");
+    println!("{:#?}", response_data);
+}
+
 fn run_cross_signing_start(config: Config, recv: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
         tag: 0,
@@ -308,6 +325,9 @@ fn main() {
             Action::UserList => run_user_list(tag, config, &mut recver, &mut sender),
             Action::SendMessage => run_send_message(tag, config, &mut recver, &mut sender),
             Action::AbortVerification => run_abort_verification(config, &mut recver, &mut sender),
+            Action::RecoveryKeyVerification => {
+                run_recovery_key_verification(config, &mut recver, &mut sender)
+            }
             Action::CrossSigningStart => run_cross_signing_start(config, &mut recver, &mut sender),
             Action::CrossSigningSelectMethod => {
                 run_cross_signing_select_method(config, &mut recver, &mut sender)

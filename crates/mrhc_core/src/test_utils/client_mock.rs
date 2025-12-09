@@ -27,6 +27,9 @@ pub struct ClientMock {
     pub get_users_response: Result<UserListResponse>,
     pub get_users_call_count: u32,
 
+    pub recovery_key_verification_response: Result<VerificationEndEvent>,
+    pub recovery_key_verification_call_count: u32,
+
     pub start_cross_signing_response: Result<CrossSigningStartResponse>,
     pub start_cross_signing_call_count: u32,
 
@@ -68,6 +71,9 @@ impl Default for ClientMock {
 
             get_users_response: Ok(UserListResponse::default()),
             get_users_call_count: 0,
+
+            recovery_key_verification_response: Ok(VerificationEndEvent::default()),
+            recovery_key_verification_call_count: 0,
 
             start_cross_signing_response: Ok(CrossSigningStartResponse::default()),
             start_cross_signing_call_count: 0,
@@ -121,6 +127,10 @@ impl ClientMock {
 
     pub fn assert_get_users_called_n(&self, n: u32) {
         assert!(self.get_users_call_count == n);
+    }
+
+    pub fn assert_recovery_key_verification_called_n(&self, n: u32) {
+        assert!(self.recovery_key_verification_call_count == n);
     }
 
     pub fn assert_start_cross_signing_called_n(&self, n: u32) {
@@ -211,6 +221,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.get_users_call_count += 1;
         self.get_users_response.clone()
+    }
+
+    async fn recovery_key_verification(
+        &mut self,
+        ctx: ClientContext,
+        _request: RecoveryKeyVerificationRequest,
+    ) -> Result<VerificationEndEvent> {
+        self.received_ctx = Some(ctx);
+        self.recovery_key_verification_call_count += 1;
+        self.recovery_key_verification_response.clone()
     }
 
     async fn start_cross_signing(
