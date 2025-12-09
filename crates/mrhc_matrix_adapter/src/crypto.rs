@@ -2,9 +2,8 @@ use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::Aes256Gcm;
 use argon2::Argon2;
-use tokio::io::AsyncReadExt;
-
 use mrhc_core::Result;
+use tokio::io::AsyncReadExt;
 
 use crate::errors;
 
@@ -77,9 +76,9 @@ pub async fn decrypt<R: AsyncReadExt + Unpin>(mut reader: R, key: &[u8; 32]) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::io::Cursor;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_derive_new_key() {

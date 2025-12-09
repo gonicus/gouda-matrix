@@ -1,32 +1,23 @@
 use std::io;
 
 use interprocess::local_socket::tokio::prelude::*;
-use interprocess::local_socket::tokio::Listener;
-use interprocess::local_socket::tokio::Stream;
-use interprocess::local_socket::tokio::{RecvHalf, SendHalf};
+use interprocess::local_socket::tokio::{Listener, RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::{GenericFilePath, ListenerOptions};
+use mrhc_core::test_utils::ClientMock;
+use mrhc_core::{AsyncApp, Client};
+use mrhc_proto::chat::error::ErrorType;
+use mrhc_proto::chat::request_container::Content as RequestContent;
+use mrhc_proto::chat::response_container::Content as ResponseContent;
+use mrhc_proto::chat::{
+    login_flows_response, status_update, Error, IdentityProvidersRequest,
+    IdentityProvidersResponse, InitializationRequest, LoginFlowsRequest, LoginFlowsResponse,
+    RequestContainer, ResponseContainer, RoomListRequest, RoomListResponse, SendMessageRequest,
+    SendMessageResponse, SsoLoginRequest, SsoLoginResponse, StatusUpdate, User, UserListRequest,
+    UserListResponse, UsernamePasswordLoginRequest,
+};
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
-
-use mrhc_core::test_utils::ClientMock;
-use mrhc_core::AsyncApp;
-use mrhc_core::Client;
-use mrhc_proto::chat::login_flows_response;
-use mrhc_proto::chat::request_container::Content as RequestContent;
-use mrhc_proto::chat::response_container::Content as ResponseContent;
-use mrhc_proto::chat::status_update;
-use mrhc_proto::chat::User;
-use mrhc_proto::chat::UsernamePasswordLoginRequest;
-use mrhc_proto::chat::{error::ErrorType, Error};
-use mrhc_proto::chat::{IdentityProvidersRequest, IdentityProvidersResponse};
-use mrhc_proto::chat::{InitializationRequest, StatusUpdate};
-use mrhc_proto::chat::{LoginFlowsRequest, LoginFlowsResponse};
-use mrhc_proto::chat::{RequestContainer, ResponseContainer};
-use mrhc_proto::chat::{RoomListRequest, RoomListResponse};
-use mrhc_proto::chat::{SendMessageRequest, SendMessageResponse};
-use mrhc_proto::chat::{SsoLoginRequest, SsoLoginResponse};
-use mrhc_proto::chat::{UserListRequest, UserListResponse};
 
 struct TestSetup {
     async_app: AsyncApp,

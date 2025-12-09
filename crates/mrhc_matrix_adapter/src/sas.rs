@@ -1,12 +1,11 @@
 use matrix_sdk::encryption::verification::SasVerification;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk_crypto::{EmojiShortAuthString, SasState};
-use tokio::sync::mpsc::UnboundedReceiver;
-
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::cross_signing_method_selected_event::VerificationCode;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::verification::{self, VerificationAction};
 use crate::utils;

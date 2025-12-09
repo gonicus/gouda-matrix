@@ -1,12 +1,10 @@
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{RequestContainer, ResponseContainer};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::output_processor::OutputTask;
-use crate::Result;
-use crate::{Client, ClientContext};
+use crate::{Client, ClientContext, Result};
 
 #[derive(Debug, PartialEq)]
 pub enum ExecutorTask {
@@ -153,12 +151,11 @@ impl Executor {
 mod tests {
     use std::collections::HashMap;
 
-    use tokio::sync::mpsc;
-
     use mrhc_proto::chat::error::ErrorType;
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
     use mrhc_proto::chat::*;
+    use tokio::sync::mpsc;
 
     use super::*;
     use crate::test_utils::ClientMock;

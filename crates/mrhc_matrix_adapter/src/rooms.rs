@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use mrhc_core::Result;
 use mrhc_proto::chat::*;
 
-use crate::errors;
-use crate::utils;
+use crate::{errors, utils};
 
 pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     let display_name = room

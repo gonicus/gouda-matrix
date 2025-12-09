@@ -1,7 +1,6 @@
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::room::member::MembershipState;
 use matrix_sdk_crypto::Emoji;
-
 use mrhc_proto::chat::*;
 
 /// Converts a membership state to a room state.

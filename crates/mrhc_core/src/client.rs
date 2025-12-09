@@ -1,10 +1,10 @@
-use async_trait::async_trait;
 use std::any::Any;
-use tokio::sync::mpsc::UnboundedSender;
 
+use async_trait::async_trait;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::output_processor::OutputTask;
 use crate::Result;

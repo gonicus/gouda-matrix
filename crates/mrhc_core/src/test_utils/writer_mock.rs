@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
+
 use tokio::io::AsyncWrite;
 
 pub struct WriterMock {
