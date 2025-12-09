@@ -1,12 +1,9 @@
 use std::fmt::Debug;
 
-use prost::Message;
-use tokio::io::AsyncWrite;
-use tokio::io::AsyncWriteExt;
-use tokio::io::BufWriter;
-use tokio::sync::mpsc::UnboundedReceiver;
-
 use mrhc_proto::chat::ResponseContainer;
+use prost::Message;
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -95,14 +92,12 @@ impl OutputProcessor {
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc;
-
     use mrhc_proto::chat::response_container::Content as ResponseContent;
     use mrhc_proto::chat::{IdentityProvidersResponse, ResponseContainer, StatusUpdate};
-
-    use crate::test_utils;
+    use tokio::sync::mpsc;
 
     use super::*;
+    use crate::test_utils;
 
     fn create_output_task(tag: u64, content: ResponseContent) -> OutputTask {
         OutputTask::Response(Box::new(ResponseContainer {

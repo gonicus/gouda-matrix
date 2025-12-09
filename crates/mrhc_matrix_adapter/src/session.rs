@@ -2,22 +2,16 @@ use std::path::{Path, PathBuf};
 
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk::Client;
-use matrix_sdk::LoopCtrl;
-use mrhc_proto::chat::CapabilityEvent;
-use mrhc_proto::chat::VerificationStatusEvent;
+use matrix_sdk::{Client, LoopCtrl};
+use mrhc_core::{ClientContext, Result};
+use mrhc_proto::chat::response_container::Content as ResponseContent;
+use mrhc_proto::chat::{CapabilityEvent, VerificationStatusEvent};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 use url::Url;
 
-use mrhc_core::ClientContext;
-use mrhc_core::Result;
-use mrhc_proto::chat::response_container::Content as ResponseContent;
-
-use crate::crypto;
-use crate::errors;
-use crate::events;
+use crate::{crypto, errors, events};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]

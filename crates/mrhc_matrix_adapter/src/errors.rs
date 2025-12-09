@@ -1,7 +1,6 @@
 use matrix_sdk::encryption::identities::RequestVerificationError;
 use matrix_sdk::ClientBuildError;
 use matrix_sdk_crypto::CryptoStoreError;
-
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
 

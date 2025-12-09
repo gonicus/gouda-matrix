@@ -1,17 +1,13 @@
-use std::fs;
-use std::io;
 use std::io::{Read, Write};
+use std::{fs, io};
 
+use interprocess::local_socket::prelude::*;
+use interprocess::local_socket::{GenericFilePath, ListenerOptions, RecvHalf, SendHalf};
+use mrhc_proto::chat::request_container::Content as RequestContent;
+use mrhc_proto::chat::*;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
-
-use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::{GenericFilePath, ListenerOptions};
-use interprocess::local_socket::{RecvHalf, SendHalf};
-
-use mrhc_proto::chat::request_container::Content as RequestContent;
-use mrhc_proto::chat::*;
 
 #[derive(Debug, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]

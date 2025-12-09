@@ -1,8 +1,7 @@
+use mrhc_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
-
-use mrhc_proto::chat::RequestContainer;
 
 use crate::executor::ExecutorTask;
 use crate::output_processor::OutputTask;
@@ -107,10 +106,10 @@ async fn read_request(reader: &mut Reader, len: u64) -> RequestContainer {
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use tokio::sync::mpsc;
 
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::InitializationRequest;
+    use tokio::sync::mpsc;
 
     use super::*;
 

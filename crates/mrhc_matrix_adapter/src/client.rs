@@ -4,26 +4,18 @@ use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::RoomId;
-use matrix_sdk::Client;
-use matrix_sdk::RoomMemberships;
+use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
-use url::Url;
-
-use mrhc_core::Client as ClientAbstraction;
-use mrhc_core::ClientContext;
-use mrhc_core::Result;
+use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
+use url::Url;
 
-use crate::errors;
-use crate::errors::create_error_msg;
-use crate::errors::create_unknown;
-use crate::rooms;
-use crate::session;
+use crate::errors::{create_error_msg, create_unknown};
 use crate::session::Session;
-use crate::utils;
 use crate::verification::VerificationManager;
+use crate::{errors, rooms, session, utils};
 
 // TODO: Make configurable inside the initialization request
 const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";

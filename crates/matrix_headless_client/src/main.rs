@@ -1,13 +1,11 @@
-use mrhc_core::AsyncApp;
-
 use interprocess::local_socket::tokio::prelude::*;
-use interprocess::local_socket::tokio::Stream;
-use interprocess::local_socket::tokio::{RecvHalf, SendHalf};
+use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::GenericFilePath;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
+use mrhc_core::AsyncApp;
 
 const LOG_FILE: &str = "matrix_client.log";
 
