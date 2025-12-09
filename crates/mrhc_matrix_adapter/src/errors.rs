@@ -1,6 +1,8 @@
 use matrix_sdk::encryption::identities::RequestVerificationError;
 use matrix_sdk::encryption::recovery::RecoveryError;
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
+use matrix_sdk::ruma::api::client::error::ErrorKind as RumaClientErrorKind;
+use matrix_sdk::ruma::api::client::Error as RumaClientError;
 use matrix_sdk::ClientBuildError;
 use matrix_sdk_crypto::CryptoStoreError;
 use mrhc_proto::chat::error::ErrorType;
@@ -26,12 +28,34 @@ pub fn create_unknown<M: std::fmt::Display>(msg: M) -> Error {
     create_error_msg(ErrorType::Unknown, msg)
 }
 
+/// Converts a `ruma::api::client::Error` to a new chat error.
+pub fn convert_client_api_error(err: &RumaClientError) -> Error {
+    let Some(error_kind) = err.error_kind() else {
+        return create_error_msg(ErrorType::Network, err);
+    };
+
+    match *error_kind {
+        RumaClientErrorKind::MissingToken
+        | RumaClientErrorKind::Unauthorized
+        | RumaClientErrorKind::UnknownToken { .. } => {
+            create_error_msg(ErrorType::Authorization, "Authentication required")
+        }
+        _ => create_error_msg(ErrorType::Network, err),
+    }
+}
+
 /// Converts a `matrix_sdk::Error` to a new chat error.
 pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
     log::error!("Received matrix sdk error: {err:?}");
 
     match err {
-        matrix_sdk::Error::Http(err) => create_error_msg(ErrorType::Network, err),
+        matrix_sdk::Error::Http(err) => {
+            if let Some(err) = err.as_client_api_error() {
+                convert_client_api_error(err)
+            } else {
+                create_error_msg(ErrorType::Network, err)
+            }
+        }
         matrix_sdk::Error::AuthenticationRequired => {
             create_error_msg(ErrorType::Authorization, "Authentication required")
         }
