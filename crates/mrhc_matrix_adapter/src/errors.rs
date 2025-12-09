@@ -1,4 +1,6 @@
 use matrix_sdk::encryption::identities::RequestVerificationError;
+use matrix_sdk::encryption::recovery::RecoveryError;
+use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::ClientBuildError;
 use matrix_sdk_crypto::CryptoStoreError;
 use mrhc_proto::chat::error::ErrorType;
@@ -26,6 +28,8 @@ pub fn create_unknown<M: std::fmt::Display>(msg: M) -> Error {
 
 /// Converts a `matrix_sdk::Error` to a new chat error.
 pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
+    log::error!("Received matrix sdk error: {err:?}");
+
     match err {
         matrix_sdk::Error::Http(err) => create_error_msg(ErrorType::Network, err),
         matrix_sdk::Error::AuthenticationRequired => {
@@ -38,6 +42,8 @@ pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
 
 /// Converts a `ClientBuildError` to a new chat error.
 pub fn convert_client_build_error(err: ClientBuildError) -> Error {
+    log::error!("Received client build error: {err:?}");
+
     match err {
         ClientBuildError::Http(err) => create_error_msg(ErrorType::Network, err),
         ClientBuildError::AutoDiscovery(err) => create_error_msg(ErrorType::Network, err),
@@ -47,13 +53,39 @@ pub fn convert_client_build_error(err: ClientBuildError) -> Error {
 
 /// Converts a `CryptoStoreError` to a new chat error.
 pub fn convert_crypto_store_error(err: CryptoStoreError) -> Error {
+    log::error!("Received crypto store error: {err:?}");
     create_unknown(format!("CryptoStoreError: {err}"))
 }
 
 /// Converts a `RequestVerificationError` to a new chat error.
 pub fn convert_request_verification_error(err: RequestVerificationError) -> Error {
+    log::error!("Received request verification error error: {err:?}");
+
     match err {
         RequestVerificationError::Sdk(err) => convert_matrix_sdk_error(err),
         err => create_unknown(err),
+    }
+}
+
+/// Converts a `SecretStorageError` to a new chat error.
+pub fn convert_secret_storage_error(err: SecretStorageError) -> Error {
+    log::error!("Received secret storage error: {err:?}");
+
+    match err {
+        SecretStorageError::SecretStorageKey(err) => {
+            create_error_msg(ErrorType::InvalidRecoveryKey, err)
+        }
+        err => create_unknown(err),
+    }
+}
+
+/// Converts a `RecoveryError` to a new chat error.
+pub fn convert_recovery_error(err: RecoveryError) -> Error {
+    log::error!("Received recovery error: {err:?}");
+
+    match err {
+        RecoveryError::BackupExistsOnServer => create_unknown(err),
+        RecoveryError::Sdk(err) => convert_matrix_sdk_error(err),
+        RecoveryError::SecretStorage(err) => convert_secret_storage_error(err),
     }
 }

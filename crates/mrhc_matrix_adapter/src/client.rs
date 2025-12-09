@@ -12,7 +12,6 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 use url::Url;
 
-use crate::errors::{create_error_msg, create_unknown};
 use crate::session::Session;
 use crate::verification::VerificationManager;
 use crate::{errors, rooms, session, utils};
@@ -472,6 +471,26 @@ impl ClientAbstraction for MatrixClient {
         Ok(UserListResponse { user_list: result })
     }
 
+    async fn recovery_key_verification(
+        &mut self,
+        _ctx: ClientContext,
+        request: RecoveryKeyVerificationRequest,
+    ) -> Result<VerificationEndEvent> {
+        let client = self.get_client_logged_in()?;
+
+        client
+            .encryption()
+            .recovery()
+            .recover(&request.recovery_key)
+            .await
+            .map_err(errors::convert_recovery_error)?;
+
+        Ok(VerificationEndEvent {
+            verification_flow_id: None,
+            result: Some(verification_end_event::Result::Successful(true)),
+        })
+    }
+
     async fn start_cross_signing(
         &mut self,
         ctx: ClientContext,
@@ -528,14 +547,14 @@ impl ClientAbstraction for MatrixClient {
         } = request;
 
         let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
-            return Err(create_error_msg(
+            return Err(errors::create_error_msg(
                 ErrorType::VerificationFlowNotFound,
                 "Verification flow with the given ID not found",
             ));
         };
 
         let Ok(method) = CrossSigningMethod::try_from(selected_method) else {
-            return Err(create_unknown("Unsupported cross signing method"));
+            return Err(errors::create_unknown("Unsupported cross signing method"));
         };
 
         manager.select_method(method);
@@ -557,7 +576,7 @@ impl ClientAbstraction for MatrixClient {
         } = request;
 
         let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
-            return Err(create_error_msg(
+            return Err(errors::create_error_msg(
                 ErrorType::VerificationFlowNotFound,
                 "Verification flow with the given ID not found",
             ));
@@ -596,7 +615,7 @@ impl ClientAbstraction for MatrixClient {
                 result: Some(verification_end_event::Result::Successful(false)),
             })
         } else {
-            Err(create_error_msg(
+            Err(errors::create_error_msg(
                 ErrorType::VerificationFlowNotFound,
                 "Verification flow with the given ID not found",
             ))

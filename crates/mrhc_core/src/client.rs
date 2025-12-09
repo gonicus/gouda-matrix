@@ -12,8 +12,8 @@ use crate::Result;
 #[inline]
 fn not_implemented_error<T>() -> Result<T> {
     Err(Error {
-        r#type: ErrorType::NotImplemented as i32,
-        error_string: Some("The requested feature is not implemented by the client".to_owned()),
+        r#type: ErrorType::NotImplemented.into(),
+        error_string: Some("The requested feature is not implemented by this client".to_owned()),
     })
 }
 
@@ -107,6 +107,15 @@ pub trait Client: Send {
     }
 
     async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse>;
+
+    #[allow(unused_variables)]
+    async fn recovery_key_verification(
+        &mut self,
+        ctx: ClientContext,
+        request: RecoveryKeyVerificationRequest,
+    ) -> Result<VerificationEndEvent> {
+        not_implemented_error()
+    }
 
     #[allow(unused_variables)]
     async fn start_cross_signing(
