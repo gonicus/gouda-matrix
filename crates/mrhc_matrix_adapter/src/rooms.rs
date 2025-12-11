@@ -17,7 +17,8 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         Some(display_name.to_string())
     };
 
-    // TODO: Implement unread_count
+    let unread_count =
+        u32::try_from(room.unread_notification_counts().notification_count).unwrap_or(u32::MAX);
 
     Ok(Room {
         room_id: room.room_id().to_string(),
@@ -25,7 +26,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         user_id_list: get_room_members(&room).await?,
         space_id: Vec::new(),
         is_public: room.is_public().unwrap_or_default(),
-        unread_count: 0,
+        unread_count,
     })
 }
 
