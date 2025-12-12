@@ -118,7 +118,7 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn start_cross_signing(
+    async fn cross_signing_start(
         &mut self,
         ctx: ClientContext,
         request: CrossSigningStartRequest,
@@ -127,7 +127,7 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn select_cross_signing_method(
+    async fn cross_signing_select_method(
         &mut self,
         ctx: ClientContext,
         request: CrossSigningMethodSelectedRequest,
@@ -136,7 +136,7 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn confirm_cross_signing(
+    async fn cross_signing_confirm(
         &mut self,
         ctx: ClientContext,
         request: CrossSigningAcceptRequest,
