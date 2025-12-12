@@ -790,7 +790,16 @@ mod tests {
         let request = RequestContent::UserListRequest(UserListRequest::default());
         let response = UserListResponse {
             user_list: vec![
-            // TODO: Add some users
+                User {
+                    user_id: "user_0".to_owned(),
+                    display_name: Some("Test User 1".to_owned()),
+                    presence_state: None,
+                },
+                User {
+                    user_id: "user_1".to_owned(),
+                    display_name: Some("Test User 2".to_owned()),
+                    presence_state: None,
+                },
             ],
         };
 
