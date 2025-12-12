@@ -491,7 +491,7 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn start_cross_signing(
+    async fn cross_signing_start(
         &mut self,
         ctx: ClientContext,
         request: CrossSigningStartRequest,
@@ -532,7 +532,7 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn select_cross_signing_method(
+    async fn cross_signing_select_method(
         &mut self,
         _ctx: ClientContext,
         request: CrossSigningMethodSelectedRequest,
@@ -562,7 +562,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn confirm_cross_signing(
+    async fn cross_signing_confirm(
         &mut self,
         _ctx: ClientContext,
         request: CrossSigningAcceptRequest,

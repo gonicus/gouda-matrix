@@ -30,14 +30,14 @@ pub struct ClientMock {
     pub recovery_key_verification_response: Result<VerificationEndEvent>,
     pub recovery_key_verification_call_count: u32,
 
-    pub start_cross_signing_response: Result<CrossSigningStartResponse>,
-    pub start_cross_signing_call_count: u32,
+    pub cross_signing_start_response: Result<CrossSigningStartResponse>,
+    pub cross_signing_start_call_count: u32,
 
-    pub select_cross_signing_method_response: Result<()>,
-    pub select_cross_signing_method_call_count: u32,
+    pub cross_signing_select_method_response: Result<()>,
+    pub cross_signing_select_method_call_count: u32,
 
-    pub confirm_cross_signing_response: Result<()>,
-    pub confirm_cross_signing_call_count: u32,
+    pub cross_signing_confirm_response: Result<()>,
+    pub cross_signing_confirm_call_count: u32,
 
     pub abort_verification_response: Result<VerificationEndEvent>,
     pub abort_verification_call_count: u32,
@@ -75,14 +75,14 @@ impl Default for ClientMock {
             recovery_key_verification_response: Ok(VerificationEndEvent::default()),
             recovery_key_verification_call_count: 0,
 
-            start_cross_signing_response: Ok(CrossSigningStartResponse::default()),
-            start_cross_signing_call_count: 0,
+            cross_signing_start_response: Ok(CrossSigningStartResponse::default()),
+            cross_signing_start_call_count: 0,
 
-            select_cross_signing_method_response: Ok(()),
-            select_cross_signing_method_call_count: 0,
+            cross_signing_select_method_response: Ok(()),
+            cross_signing_select_method_call_count: 0,
 
-            confirm_cross_signing_response: Ok(()),
-            confirm_cross_signing_call_count: 0,
+            cross_signing_confirm_response: Ok(()),
+            cross_signing_confirm_call_count: 0,
 
             abort_verification_response: Ok(VerificationEndEvent::default()),
             abort_verification_call_count: 0,
@@ -133,16 +133,16 @@ impl ClientMock {
         assert!(self.recovery_key_verification_call_count == n);
     }
 
-    pub fn assert_start_cross_signing_called_n(&self, n: u32) {
-        assert!(self.start_cross_signing_call_count == n);
+    pub fn assert_cross_signing_start_called_n(&self, n: u32) {
+        assert!(self.cross_signing_start_call_count == n);
     }
 
-    pub fn assert_select_cross_signing_method_called_n(&self, n: u32) {
-        assert!(self.select_cross_signing_method_call_count == n);
+    pub fn assert_cross_signing_select_method_called_n(&self, n: u32) {
+        assert!(self.cross_signing_select_method_call_count == n);
     }
 
-    pub fn assert_confirm_cross_signing_called_n(&self, n: u32) {
-        assert!(self.confirm_cross_signing_call_count == n);
+    pub fn assert_cross_signing_confirm_called_n(&self, n: u32) {
+        assert!(self.cross_signing_confirm_call_count == n);
     }
 
     pub fn assert_abort_verification_called_n(&self, n: u32) {
@@ -233,34 +233,34 @@ impl Client for ClientMock {
         self.recovery_key_verification_response.clone()
     }
 
-    async fn start_cross_signing(
+    async fn cross_signing_start(
         &mut self,
         ctx: ClientContext,
         _request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
         self.received_ctx = Some(ctx);
-        self.start_cross_signing_call_count += 1;
-        self.start_cross_signing_response.clone()
+        self.cross_signing_start_call_count += 1;
+        self.cross_signing_start_response.clone()
     }
 
-    async fn select_cross_signing_method(
+    async fn cross_signing_select_method(
         &mut self,
         ctx: ClientContext,
         _request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
-        self.select_cross_signing_method_call_count += 1;
-        self.select_cross_signing_method_response.clone()
+        self.cross_signing_select_method_call_count += 1;
+        self.cross_signing_select_method_response.clone()
     }
 
-    async fn confirm_cross_signing(
+    async fn cross_signing_confirm(
         &mut self,
         ctx: ClientContext,
         _request: CrossSigningAcceptRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
-        self.confirm_cross_signing_call_count += 1;
-        self.confirm_cross_signing_response.clone()
+        self.cross_signing_confirm_call_count += 1;
+        self.cross_signing_confirm_response.clone()
     }
 
     async fn abort_verification(

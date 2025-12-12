@@ -114,17 +114,17 @@ impl Executor {
                 self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
             }
             RequestContent::CrossSigningStartRequest(request) => {
-                let result = self.client.start_cross_signing(ctx, request).await;
+                let result = self.client.cross_signing_start(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::CrossSigningStartResponse));
             }
             RequestContent::CrossSigningMethodSelectedRequest(request) => {
-                let result = self.client.select_cross_signing_method(ctx, request).await;
+                let result = self.client.cross_signing_select_method(ctx, request).await;
                 if let Err(err) = result {
                     self.send_response(tag, Err(err));
                 }
             }
             RequestContent::CrossSigningAcceptRequest(request) => {
-                let result = self.client.confirm_cross_signing(ctx, request).await;
+                let result = self.client.cross_signing_confirm(ctx, request).await;
                 if let Err(err) = result {
                     self.send_response(tag, Err(err));
                 }
@@ -942,7 +942,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            start_cross_signing_response: Ok(response.clone()),
+            cross_signing_start_response: Ok(response.clone()),
             ..Default::default()
         };
 
@@ -959,7 +959,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_start_cross_signing_called_n(1);
+        client.assert_cross_signing_start_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -978,7 +978,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            start_cross_signing_response: Err(response.clone()),
+            cross_signing_start_response: Err(response.clone()),
             ..Default::default()
         };
 
@@ -995,7 +995,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_start_cross_signing_called_n(1);
+        client.assert_cross_signing_start_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1012,7 +1012,7 @@ mod tests {
         );
 
         let client = ClientMock {
-            select_cross_signing_method_response: Ok(()),
+            cross_signing_select_method_response: Ok(()),
             ..Default::default()
         };
 
@@ -1029,7 +1029,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_select_cross_signing_method_called_n(1);
+        client.assert_cross_signing_select_method_called_n(1);
 
         assert!(output_rx.is_empty())
     }
@@ -1046,7 +1046,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            select_cross_signing_method_response: Err(response.clone()),
+            cross_signing_select_method_response: Err(response.clone()),
             ..Default::default()
         };
 
@@ -1063,7 +1063,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_select_cross_signing_method_called_n(1);
+        client.assert_cross_signing_select_method_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1095,7 +1095,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_confirm_cross_signing_called_n(1);
+        client.assert_cross_signing_confirm_called_n(1);
 
         assert!(output_rx.is_empty())
     }
@@ -1111,7 +1111,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            confirm_cross_signing_response: Err(response.clone()),
+            cross_signing_confirm_response: Err(response.clone()),
             ..Default::default()
         };
 
@@ -1128,7 +1128,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_confirm_cross_signing_called_n(1);
+        client.assert_cross_signing_confirm_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
