@@ -27,6 +27,9 @@ pub struct ClientMock {
     pub get_users_response: Result<UserListResponse>,
     pub get_users_call_count: u32,
 
+    pub search_users_response: Result<UserSearchResponse>,
+    pub search_users_call_count: u32,
+
     pub recovery_key_verification_response: Result<VerificationEndEvent>,
     pub recovery_key_verification_call_count: u32,
 
@@ -71,6 +74,9 @@ impl Default for ClientMock {
 
             get_users_response: Ok(UserListResponse::default()),
             get_users_call_count: 0,
+
+            search_users_response: Ok(UserSearchResponse::default()),
+            search_users_call_count: 0,
 
             recovery_key_verification_response: Ok(VerificationEndEvent::default()),
             recovery_key_verification_call_count: 0,
@@ -127,6 +133,10 @@ impl ClientMock {
 
     pub fn assert_get_users_called_n(&self, n: u32) {
         assert!(self.get_users_call_count == n);
+    }
+
+    pub fn assert_search_users_called_n(&self, n: u32) {
+        assert!(self.search_users_call_count == n);
     }
 
     pub fn assert_recovery_key_verification_called_n(&self, n: u32) {
@@ -221,6 +231,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.get_users_call_count += 1;
         self.get_users_response.clone()
+    }
+
+    async fn search_users(
+        &mut self,
+        ctx: ClientContext,
+        _request: UserSearchRequest,
+    ) -> Result<UserSearchResponse> {
+        self.received_ctx = Some(ctx);
+        self.search_users_call_count += 1;
+        self.search_users_response.clone()
     }
 
     async fn recovery_key_verification(

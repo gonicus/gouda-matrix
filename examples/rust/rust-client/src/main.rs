@@ -18,6 +18,7 @@ enum Action {
     LoginSso,
     RoomList,
     UserList,
+    UserSearch,
     SendMessage,
     AbortVerification,
     RecoveryKeyVerification,
@@ -34,6 +35,7 @@ struct Config {
     initialize: InitializationRequest,
     login_sso: SsoLoginRequest,
     room_list: RoomListRequest,
+    user_search: UserSearchRequest,
     send_message: SendMessageRequest,
     abort_verification: VerificationAbortRequest,
     recovery_key_verification: RecoveryKeyVerificationRequest,
@@ -189,6 +191,19 @@ fn run_user_list(tag: u64, _config: Config, recver: &mut RecvHalf, sender: &mut 
     println!("{:#?}", response_data);
 }
 
+fn run_user_search(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
+    let request_obj = RequestContainer {
+        tag,
+        content: Some(RequestContent::UserSearchRequest(config.user_search)),
+    };
+
+    let request_data = request_from_proto(&request_obj);
+    let response_data = send_and_receive(request_data, recver, sender).expect("Error on socket IO");
+
+    println!("UserSearchResponse:");
+    println!("{:#?}", response_data);
+}
+
 fn run_send_message(tag: u64, config: Config, recver: &mut RecvHalf, sender: &mut SendHalf) {
     let request_obj = RequestContainer {
         tag,
@@ -323,6 +338,7 @@ fn main() {
             Action::LoginSso => run_login_sso(tag, config, &mut recver, &mut sender),
             Action::RoomList => run_room_list(tag, config, &mut recver, &mut sender),
             Action::UserList => run_user_list(tag, config, &mut recver, &mut sender),
+            Action::UserSearch => run_user_search(tag, config, &mut recver, &mut sender),
             Action::SendMessage => run_send_message(tag, config, &mut recver, &mut sender),
             Action::AbortVerification => run_abort_verification(config, &mut recver, &mut sender),
             Action::RecoveryKeyVerification => {
