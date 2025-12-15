@@ -109,6 +109,15 @@ pub trait Client: Send {
     async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse>;
 
     #[allow(unused_variables)]
+    async fn search_users(
+        &mut self,
+        ctx: ClientContext,
+        request: UserSearchRequest,
+    ) -> Result<UserSearchResponse> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
     async fn recovery_key_verification(
         &mut self,
         ctx: ClientContext,

@@ -12,6 +12,10 @@
     "include_joined": true,
     "include_unjoined": false
   },
+  "user-search": {
+    "query": "test-user",
+    "limit": 30
+  },
   "send-message": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
     "content": "Hallo YAMA",

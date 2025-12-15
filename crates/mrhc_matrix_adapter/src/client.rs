@@ -471,6 +471,35 @@ impl ClientAbstraction for MatrixClient {
         Ok(UserListResponse { user_list: result })
     }
 
+    async fn search_users(
+        &mut self,
+        _ctx: ClientContext,
+        request: UserSearchRequest,
+    ) -> Result<UserSearchResponse> {
+        let client = self.get_client_logged_in()?;
+
+        let UserSearchRequest { query, limit } = request;
+
+        let user_list = client
+            .search_users(&query, limit as u64)
+            .await
+            .map_err(errors::convert_http_error)?;
+
+        let mut result = Vec::new();
+
+        for user in user_list.results {
+            // TODO: Presence state
+
+            result.push(User {
+                user_id: user.user_id.to_string(),
+                display_name: user.display_name,
+                presence_state: None,
+            });
+        }
+
+        Ok(UserSearchResponse { user_list: result })
+    }
+
     async fn recovery_key_verification(
         &mut self,
         _ctx: ClientContext,
