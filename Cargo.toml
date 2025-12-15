@@ -16,9 +16,9 @@ mrhc_proto = { path = "crates/mrhc_proto" }
 prost = "0.14"
 prost-build = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }
-bytes = "1.10"
+bytes = "1.11"
 
-tokio = { version = "1.48.0", default-features = false, features = [
+tokio = { version = "1.48", default-features = false, features = [
   "rt-multi-thread",
   "io-std",
   "io-util",
