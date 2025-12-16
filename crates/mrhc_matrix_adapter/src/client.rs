@@ -16,13 +16,12 @@ use crate::session::Session;
 use crate::verification::VerificationManager;
 use crate::{errors, rooms, session, utils};
 
-// TODO: Make configurable inside the initialization request
-const INITIAL_DEVICE_DISPLAY_NAME: &str = "matrix-rust-headless-client";
-
 #[derive(Clone)]
 struct InitializedData {
     /// The initialized matrix client.
     pub client: Client,
+    /// The display name of this device.
+    pub device_display_name: String,
 
     /// The file where the current session metadata is stored.
     pub session_file: PathBuf,
@@ -92,6 +91,7 @@ impl MatrixClient {
     ) {
         let data = InitializedData {
             client,
+            device_display_name: request.device_display_name,
             session_file,
             session_passphrase: request.encryption_secret,
         };
@@ -214,6 +214,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<StatusUpdate> {
         let InitializedData {
             client,
+            device_display_name,
             session_file,
             session_passphrase,
             ..
@@ -229,7 +230,7 @@ impl ClientAbstraction for MatrixClient {
         let result = client
             .matrix_auth()
             .login_username(request.username, &request.password)
-            .initial_device_display_name(INITIAL_DEVICE_DISPLAY_NAME)
+            .initial_device_display_name(device_display_name)
             .await;
 
         if let Err(err) = result {
@@ -264,6 +265,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<SsoLoginResponse> {
         let InitializedData {
             client,
+            device_display_name,
             session_file,
             session_passphrase,
             ..
@@ -286,7 +288,7 @@ impl ClientAbstraction for MatrixClient {
                 tx.send(url).expect("Receiver of the login url dropped");
                 Ok(())
             })
-            .initial_device_display_name(INITIAL_DEVICE_DISPLAY_NAME);
+            .initial_device_display_name(device_display_name);
 
         if let Some(idp) = request.identity_provider {
             login_builder = login_builder.identity_provider_id(&idp);
