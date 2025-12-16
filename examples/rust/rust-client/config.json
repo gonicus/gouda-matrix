@@ -3,7 +3,8 @@
     "backend_url": "https://matrix.gonicus.de",
     "data_root_path": "/tmp/gonnect",
     "persistent_storage_secret": "secret123",
-    "encryption_secret": "secret123"
+    "encryption_secret": "secret123",
+    "device_display_name": "Matrix Rust Client"
   },
   "login-sso": {
     "identity_provider": null
