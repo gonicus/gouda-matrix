@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
-use std::{fs, io};
+use std::fs;
 
 use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::{GenericFilePath, ListenerOptions, RecvHalf, SendHalf};
+use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, RecvHalf, SendHalf};
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::*;
 use prost::Message;
@@ -48,32 +48,6 @@ struct Config {
 #[derive(Clone, Serialize, Deserialize)]
 struct ListenConfig {
     n_events: i32,
-}
-
-fn setup_conn() -> io::Result<(RecvHalf, SendHalf)> {
-    let socket = std::env::args()
-        .nth(1)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "No socket name specified"))?;
-    let socket_name = socket
-        .clone()
-        .to_fs_name::<GenericFilePath>()
-        .map_err(|e| io::Error::other(format!("{e}")))?;
-
-    let opts = ListenerOptions::new().name(socket_name.clone());
-
-    let listener = match opts.create_sync() {
-        Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-            eprint!(
-                "Error: could not start server because the socket file is occupied. Please check
-                if {socket} is in use by another process and try again."
-            );
-            return Err(e);
-        }
-        x => x?,
-    };
-
-    let (recv, send) = listener.accept()?.split();
-    Ok((recv, send))
 }
 
 fn read_payload_from_stream(
@@ -304,9 +278,56 @@ fn run_listen(config: Config, recver: &mut RecvHalf, _sender: &mut SendHalf) {
     }
 }
 
+fn start_server(socket: &str) -> Listener {
+    println!("Starting server at: '{socket}'");
+
+    let socket_name = socket
+        .to_fs_name::<GenericFilePath>()
+        .expect("Invalid socket name: '{socket_name}'");
+
+    let opts = ListenerOptions::new().name(socket_name);
+
+    match opts.create_sync() {
+        Ok(listener) => listener,
+        Err(err) => panic!("Error starting server '{socket}': {err}"),
+    }
+}
+
+fn setup_conn() -> (RecvHalf, SendHalf) {
+    let request_socket = std::env::args()
+        .nth(1)
+        .expect("No request socket specified");
+
+    let response_socket = std::env::args()
+        .nth(2)
+        .expect("No response socket specified");
+
+    println!("Request socket: '{request_socket}'");
+    println!("Response socket: '{response_socket}'");
+
+    let request_server = start_server(&request_socket);
+    let response_server = start_server(&response_socket);
+
+    println!("Waiting for connection at: '{request_socket}'");
+
+    let (_, send) = request_server
+        .accept()
+        .expect("Error waiting for connection on request server")
+        .split();
+
+    println!("Waiting for connection at: '{response_socket}'");
+
+    let (recv, _) = response_server
+        .accept()
+        .expect("Error waiting for connection on response server")
+        .split();
+
+    (recv, send)
+}
+
 fn main() {
     // setup server connection to local socket
-    let (mut recver, mut sender) = setup_conn().expect("Error setting up socket connection");
+    let (mut recver, mut sender) = setup_conn();
 
     let mut config: Config;
     let mut tag: u64 = 0;
