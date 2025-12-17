@@ -17,7 +17,20 @@ const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 #[tokio::main]
 async fn main() {
     setup_logging();
-    let (recv, send) = connect_socket().await;
+
+    let request_socket = std::env::args()
+        .nth(1)
+        .expect("Request socket not specified");
+
+    let response_socket = std::env::args()
+        .nth(2)
+        .expect("Response socket not specified");
+
+    log::info!("Socket for incoming requests: '{request_socket}'");
+    log::info!("Socket for outgoing responses: '{response_socket}'");
+
+    let (recv, _send_unused) = connect_socket(&request_socket).await;
+    let (_recv_unused, send) = connect_socket(&response_socket).await;
 
     let client = mrhc_matrix_adapter::MatrixClient::new();
     let app = AsyncApp::new(Box::new(client), Box::new(recv), Box::new(send));
@@ -58,12 +71,10 @@ fn setup_custom_logger(name: &str) -> Logger {
         .build(name, LOG_LEVEL_CUSTOM)
 }
 
-async fn connect_socket() -> (RecvHalf, SendHalf) {
-    let socket_name = std::env::args().nth(1).expect("No socket name specified");
-
+async fn connect_socket(socket_name: &str) -> (RecvHalf, SendHalf) {
     let socket_name = socket_name
         .to_fs_name::<GenericFilePath>()
-        .expect("Error creating socket name");
+        .expect("Error creating socket name: '{socket_name}'");
 
     log::debug!("Waiting for local socket connection at '{socket_name:?}'");
 
