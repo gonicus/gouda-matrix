@@ -4,8 +4,12 @@ edition = "2024"
 version.workspace = true
 
 [dependencies]
-interprocess.workspace = true
 mrhc_proto.workspace = true
+
+egui = "0.33"
+eframe = { version = "0.33", default-features = false, features = ["persistence", "glow", "wayland", "x11"] }
+
+interprocess.workspace = true
 prost.workspace = true
 subprocess = "0.2.9"
 strum = "0.27.2"
