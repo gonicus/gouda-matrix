@@ -51,6 +51,9 @@ pub struct ClientMock {
     pub create_group_room_response: Result<Room>,
     pub create_group_room_call_count: u32,
 
+    pub mark_as_read_response: Result<RoomChangeEvent>,
+    pub mark_as_read_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -99,11 +102,14 @@ impl Default for ClientMock {
             abort_verification_response: Ok(VerificationEndEvent::default()),
             abort_verification_call_count: 0,
 
-            create_direct_room_call_count: 0,
             create_direct_room_response: Ok(Room::default()),
+            create_direct_room_call_count: 0,
 
-            create_group_room_call_count: 0,
             create_group_room_response: Ok(Room::default()),
+            create_group_room_call_count: 0,
+
+            mark_as_read_response: Ok(RoomChangeEvent::default()),
+            mark_as_read_call_count: 0,
 
             received_ctx: None,
         }
@@ -177,6 +183,10 @@ impl ClientMock {
 
     pub fn assert_create_group_room_called_n(&self, n: u32) {
         assert!(self.create_group_room_call_count == n);
+    }
+
+    pub fn assert_mark_as_read_called_n(&self, n: u32) {
+        assert!(self.mark_as_read_call_count == n);
     }
 }
 
@@ -331,6 +341,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.create_group_room_call_count += 1;
         self.create_group_room_response.clone()
+    }
+
+    async fn mark_as_read(
+        &mut self,
+        ctx: ClientContext,
+        _request: MarkAsReadRequest,
+    ) -> Result<RoomChangeEvent> {
+        self.received_ctx = Some(ctx);
+        self.mark_as_read_call_count += 1;
+        self.mark_as_read_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

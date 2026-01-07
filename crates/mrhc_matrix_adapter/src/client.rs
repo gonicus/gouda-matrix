@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
@@ -420,11 +421,11 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<SendMessageResponse> {
         let client = self.get_client_logged_in()?;
 
-        let room_id = <&RoomId>::try_from(request.room_id.as_str())
+        let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
         let room = client
-            .get_room(room_id)
+            .get_room(&room_id)
             .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
 
         let event = RoomMessageEventContent::text_plain(request.content);
@@ -739,6 +740,53 @@ impl ClientAbstraction for MatrixClient {
         response.display_name = request.display_name;
 
         Ok(response)
+    }
+
+    async fn mark_as_read(
+        &mut self,
+        _ctx: ClientContext,
+        request: MarkAsReadRequest,
+    ) -> Result<RoomChangeEvent> {
+        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+        use matrix_sdk::ruma::events::receipt::ReceiptThread;
+
+        let client = self.get_client_logged_in()?;
+
+        let room_id = RoomId::parse(&request.room_id)
+            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        let room = client
+            .get_room(&room_id)
+            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+
+        let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
+
+        let messages = room
+            .messages(options)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        let event = messages
+            .chunk
+            .first()
+            .ok_or(errors::create_unknown("No event found"))?;
+
+        let event_id = event
+            .event_id()
+            .ok_or(errors::create_unknown("Invalid event ID"))?;
+
+        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        let response = rooms::convert_to_proto(room).await?;
+
+        Ok(RoomChangeEvent {
+            room_id: response.room_id,
+            user_id_list: response.user_id_list,
+            typing_user_id_list: Vec::new(),
+            unread_count: Some(0),
+        })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
