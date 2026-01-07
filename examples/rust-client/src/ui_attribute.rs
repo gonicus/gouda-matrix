@@ -191,3 +191,9 @@ impl UiAttribute for CreateGroupRoomRequest {
         ui_attribute!(self, ui, is_public);
     }
 }
+
+impl UiAttribute for MarkAsReadRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}

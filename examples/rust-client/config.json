@@ -56,5 +56,8 @@
       "@some_user_2:server.com"
     ],
     "is_public": false
+  },
+  "mark-as-read": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
   }
 }

@@ -56,6 +56,7 @@ pub enum Action {
     CrossSigningAccept(Box<CrossSigningAcceptRequest>),
     CreateDirectRoom(Box<CreateDirectRoomRequest>),
     CreateGroupRoom(Box<CreateGroupRoomRequest>),
+    MarkAsRead(Box<MarkAsReadRequest>),
 }
 
 impl Action {
@@ -80,6 +81,7 @@ impl Action {
             Self::CrossSigningAccept(request) => run_cross_signing_accept(tag, sender, *request),
             Self::CreateDirectRoom(request) => run_create_direct_room(tag, sender, *request),
             Self::CreateGroupRoom(request) => run_create_group_room(tag, sender, *request),
+            Self::MarkAsRead(request) => run_mark_as_read(tag, sender, *request),
         }
     }
 }
@@ -102,6 +104,7 @@ impl UiAttribute for Action {
             Self::CrossSigningAccept(request) => request.update(ui),
             Self::CreateDirectRoom(request) => request.update(ui),
             Self::CreateGroupRoom(request) => request.update(ui),
+            Self::MarkAsRead(request) => request.update(ui),
         }
     }
 }
@@ -138,3 +141,4 @@ impl_run_with_request!(
 impl_run_with_request!(run_cross_signing_accept, CrossSigningAcceptRequest);
 impl_run_with_request!(run_create_direct_room, CreateDirectRoomRequest);
 impl_run_with_request!(run_create_group_room, CreateGroupRoomRequest);
+impl_run_with_request!(run_mark_as_read, MarkAsReadRequest);

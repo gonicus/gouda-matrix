@@ -122,6 +122,7 @@ impl InputWindow {
                     CreateGroupRoom,
                     self.config.create_group_room.clone()
                 );
+                ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
             });
     }
 }
