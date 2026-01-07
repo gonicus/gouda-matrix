@@ -50,10 +50,9 @@ impl InputWindow {
 
                 ui.add_space(10.0);
 
-                egui::ScrollArea::vertical()
-                    .show(ui, |ui| {
-                        self.selected_action.update(ui);
-                    });
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.selected_action.update(ui);
+                });
 
                 ui.add_space(10.0);
 
@@ -110,6 +109,18 @@ impl InputWindow {
                     ui,
                     CrossSigningAccept,
                     self.config.cross_signing_accept.clone()
+                );
+                ui_action!(
+                    self,
+                    ui,
+                    CreateDirectRoom,
+                    self.config.create_direct_room.clone()
+                );
+                ui_action!(
+                    self,
+                    ui,
+                    CreateGroupRoom,
+                    self.config.create_group_room.clone()
                 );
             });
     }

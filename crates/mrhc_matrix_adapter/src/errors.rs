@@ -3,7 +3,7 @@ use matrix_sdk::encryption::recovery::RecoveryError;
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::ruma::api::client::error::ErrorKind as RumaClientErrorKind;
 use matrix_sdk::ruma::api::client::Error as RumaClientError;
-use matrix_sdk::{ClientBuildError, HttpError};
+use matrix_sdk::{ClientBuildError, HttpError, IdParseError, StoreError};
 use matrix_sdk_crypto::CryptoStoreError;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
@@ -116,4 +116,14 @@ pub fn convert_recovery_error(err: RecoveryError) -> Error {
         RecoveryError::Sdk(err) => convert_matrix_sdk_error(err),
         RecoveryError::SecretStorage(err) => convert_secret_storage_error(err),
     }
+}
+
+/// Converts a `StoreError` to a new chat error.
+pub fn convert_store_error(err: StoreError) -> Error {
+    create_unknown(err)
+}
+
+/// Converts a `IdParseError` to a new chat error.
+pub fn convert_id_parse_error(err: IdParseError) -> Error {
+    create_error_msg(ErrorType::InvalidUserId, err.to_string())
 }

@@ -45,6 +45,12 @@ pub struct ClientMock {
     pub abort_verification_response: Result<VerificationEndEvent>,
     pub abort_verification_call_count: u32,
 
+    pub create_direct_room_response: Result<Room>,
+    pub create_direct_room_call_count: u32,
+
+    pub create_group_room_response: Result<Room>,
+    pub create_group_room_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -92,6 +98,12 @@ impl Default for ClientMock {
 
             abort_verification_response: Ok(VerificationEndEvent::default()),
             abort_verification_call_count: 0,
+
+            create_direct_room_call_count: 0,
+            create_direct_room_response: Ok(Room::default()),
+
+            create_group_room_call_count: 0,
+            create_group_room_response: Ok(Room::default()),
 
             received_ctx: None,
         }
@@ -157,6 +169,14 @@ impl ClientMock {
 
     pub fn assert_abort_verification_called_n(&self, n: u32) {
         assert!(self.abort_verification_call_count == n);
+    }
+
+    pub fn assert_create_direct_room_called_n(&self, n: u32) {
+        assert!(self.create_direct_room_call_count == n);
+    }
+
+    pub fn assert_create_group_room_called_n(&self, n: u32) {
+        assert!(self.create_group_room_call_count == n);
     }
 }
 
@@ -291,6 +311,26 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.abort_verification_call_count += 1;
         self.abort_verification_response.clone()
+    }
+
+    async fn create_direct_room(
+        &mut self,
+        ctx: ClientContext,
+        _request: CreateDirectRoomRequest,
+    ) -> Result<Room> {
+        self.received_ctx = Some(ctx);
+        self.create_direct_room_call_count += 1;
+        self.create_direct_room_response.clone()
+    }
+
+    async fn create_group_room(
+        &mut self,
+        ctx: ClientContext,
+        _request: CreateGroupRoomRequest,
+    ) -> Result<Room> {
+        self.received_ctx = Some(ctx);
+        self.create_group_room_call_count += 1;
+        self.create_group_room_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

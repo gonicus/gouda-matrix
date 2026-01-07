@@ -54,6 +54,8 @@ pub enum Action {
     CrossSigningStart(Box<CrossSigningStartRequest>),
     CrossSigningSelectMethod(Box<CrossSigningMethodSelectedRequest>),
     CrossSigningAccept(Box<CrossSigningAcceptRequest>),
+    CreateDirectRoom(Box<CreateDirectRoomRequest>),
+    CreateGroupRoom(Box<CreateGroupRoomRequest>),
 }
 
 impl Action {
@@ -76,6 +78,8 @@ impl Action {
                 run_cross_signing_select_method(tag, sender, *request)
             }
             Self::CrossSigningAccept(request) => run_cross_signing_accept(tag, sender, *request),
+            Self::CreateDirectRoom(request) => run_create_direct_room(tag, sender, *request),
+            Self::CreateGroupRoom(request) => run_create_group_room(tag, sender, *request),
         }
     }
 }
@@ -96,6 +100,8 @@ impl UiAttribute for Action {
             Self::CrossSigningStart(request) => request.update(ui),
             Self::CrossSigningSelectMethod(request) => request.update(ui),
             Self::CrossSigningAccept(request) => request.update(ui),
+            Self::CreateDirectRoom(request) => request.update(ui),
+            Self::CreateGroupRoom(request) => request.update(ui),
         }
     }
 }
@@ -130,3 +136,5 @@ impl_run_with_request!(
     CrossSigningMethodSelectedRequest
 );
 impl_run_with_request!(run_cross_signing_accept, CrossSigningAcceptRequest);
+impl_run_with_request!(run_create_direct_room, CreateDirectRoomRequest);
+impl_run_with_request!(run_create_group_room, CreateGroupRoomRequest);

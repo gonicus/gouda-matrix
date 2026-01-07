@@ -16,6 +16,8 @@ pub struct Config {
     pub cross_signing_start: CrossSigningStartRequest,
     pub cross_signing_select_method: CrossSigningMethodSelectedRequest,
     pub cross_signing_accept: CrossSigningAcceptRequest,
+    pub create_direct_room: CreateDirectRoomRequest,
+    pub create_group_room: CreateGroupRoomRequest,
 }
 
 impl Config {
