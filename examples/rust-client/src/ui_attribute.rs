@@ -176,3 +176,18 @@ impl UiAttribute for CrossSigningAcceptRequest {
         ui_attribute!(self, ui, verification_flow_id);
     }
 }
+
+impl UiAttribute for CreateDirectRoomRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, display_name);
+        ui_attribute!(self, ui, invitee);
+    }
+}
+
+impl UiAttribute for CreateGroupRoomRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, display_name);
+        ui_attribute!(self, ui, invitees);
+        ui_attribute!(self, ui, is_public);
+    }
+}

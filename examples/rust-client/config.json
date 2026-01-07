@@ -44,5 +44,17 @@
   },
   "listen": {
     "n_events": 1
+  },
+  "create-direct-room": {
+    "display_name": null,
+    "invitee": "@some_user:server.com"
+  },
+  "create-group-room": {
+    "display_name": "New Group Room",
+    "invitees": [
+      "@some_user_1:server.com",
+      "@some_user_2:server.com"
+    ],
+    "is_public": false
   }
 }

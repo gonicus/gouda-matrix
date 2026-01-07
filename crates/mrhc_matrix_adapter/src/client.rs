@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
-use matrix_sdk::ruma::RoomId;
+use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
 use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
@@ -651,6 +651,94 @@ impl ClientAbstraction for MatrixClient {
                 "Verification flow with the given ID not found",
             ))
         }
+    }
+
+    async fn create_direct_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: CreateDirectRoomRequest,
+    ) -> Result<Room> {
+        use matrix_sdk::ruma::api::client::room::create_room;
+        use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
+        use matrix_sdk::ruma::events::InitialStateEvent;
+
+        let client = self.get_client_logged_in()?;
+
+        let user_id = UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
+
+        let mut room_request = create_room::v3::Request::new();
+
+        room_request.name = request.display_name.clone();
+        room_request.invite = vec![user_id.to_owned()];
+        room_request.is_direct = true;
+        room_request.preset = Some(create_room::v3::RoomPreset::TrustedPrivateChat);
+        room_request.initial_state = vec![InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any()];
+        room_request.visibility = matrix_sdk::ruma::api::client::room::Visibility::Private;
+
+        let room = client
+            .create_room(room_request)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        // The room name is a separate event retrieved after the room is created and
+        // the SDK returns the room object. Therefore, `room.display_name()` always
+        // returns an empty name after creation, even if we specified a name in
+        // the request. To avoid waiting for the name event, we simply override
+        // the display name in the response.
+        let mut response = rooms::convert_to_proto(room).await?;
+        response.display_name = request.display_name;
+
+        Ok(response)
+    }
+
+    async fn create_group_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: CreateGroupRoomRequest,
+    ) -> Result<Room> {
+        use matrix_sdk::ruma::api::client::room::create_room;
+        use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
+        use matrix_sdk::ruma::events::InitialStateEvent;
+
+        let client = self.get_client_logged_in()?;
+
+        let invitees: Vec<OwnedUserId> = request
+            .invitees
+            .into_iter()
+            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
+            .collect::<Result<Vec<OwnedUserId>>>()?;
+
+        let mut room_request = create_room::v3::Request::new();
+
+        room_request.invite = invitees;
+        room_request.name = request.display_name.clone();
+        room_request.initial_state = vec![InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any()];
+        room_request.visibility = if request.is_public {
+            matrix_sdk::ruma::api::client::room::Visibility::Public
+        } else {
+            matrix_sdk::ruma::api::client::room::Visibility::Private
+        };
+
+        let room = client
+            .create_room(room_request)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        // The room name is a separate event retrieved after the room is created and
+        // the SDK returns the room object. Therefore, `room.display_name()` always
+        // returns an empty name after creation, even if we specified a name in
+        // the request. To avoid waiting for the name event, we simply override
+        // the display name in the response.
+        let mut response = rooms::convert_to_proto(room).await?;
+        response.display_name = request.display_name;
+
+        Ok(response)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

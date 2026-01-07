@@ -162,6 +162,24 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    #[allow(unused_variables)]
+    async fn create_direct_room(
+        &mut self,
+        ctx: ClientContext,
+        request: CreateDirectRoomRequest,
+    ) -> Result<Room> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn create_group_room(
+        &mut self,
+        ctx: ClientContext,
+        request: CreateGroupRoomRequest,
+    ) -> Result<Room> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

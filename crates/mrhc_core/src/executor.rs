@@ -14,8 +14,9 @@ pub enum ExecutorTask {
     Request(Box<RequestContainer>),
 }
 
-/// The executor is responsible for receiving decoded messages from the input and executing the corresponding tasks
-/// using the client. The resulting data is then send to the output processor.
+/// The executor is responsible for receiving decoded messages from the input and executing
+/// the corresponding tasks using the client. The resulting data
+/// is then send to the output processor.
 pub struct Executor {
     /// The client to be used to execute incoming tasks.
     client: Box<dyn Client>,
@@ -136,6 +137,14 @@ impl Executor {
             RequestContent::VerificationAbortRequest(request) => {
                 let result = self.client.abort_verification(ctx, request).await;
                 self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
+            }
+            RequestContent::CreateDirectRoomRequest(request) => {
+                let result = self.client.create_direct_room(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
+            }
+            RequestContent::CreateGroupRoomRequest(request) => {
+                let result = self.client.create_group_room(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
             }
             _ => todo!("Request: {content:?} is currently not implemented"),
         }
@@ -639,6 +648,7 @@ mod tests {
                     space_id: Vec::new(),
                     is_public: false,
                     unread_count: 0,
+                    is_direct: false,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -650,6 +660,7 @@ mod tests {
                     space_id: Vec::new(),
                     is_public: true,
                     unread_count: 0,
+                    is_direct: false,
                 },
             ],
         };
@@ -1300,6 +1311,166 @@ mod tests {
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(0, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_create_direct_room_request() {
+        // Arrange
+        let request = RequestContent::CreateDirectRoomRequest(CreateDirectRoomRequest::default());
+        let response = Room {
+            room_id: "new-room".to_owned(),
+            display_name: Some("Test Room".to_owned()),
+            user_id_list: HashMap::from([
+                ("user-1".to_owned(), UserRoomState::Joined as i32),
+                ("user-4".to_owned(), UserRoomState::Joined as i32),
+            ]),
+            space_id: Vec::new(),
+            is_public: true,
+            unread_count: 0,
+            is_direct: false,
+        };
+
+        let client = ClientMock {
+            create_direct_room_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_create_direct_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::RoomCreatedEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_create_direct_room_request_err() {
+        // Arrange
+        let request = RequestContent::CreateDirectRoomRequest(CreateDirectRoomRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            create_direct_room_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_create_direct_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_create_group_room_request() {
+        // Arrange
+        let request = RequestContent::CreateGroupRoomRequest(CreateGroupRoomRequest::default());
+        let response = Room {
+            room_id: "new-room".to_owned(),
+            display_name: Some("Test Room".to_owned()),
+            user_id_list: HashMap::from([
+                ("user-1".to_owned(), UserRoomState::Joined as i32),
+                ("user-4".to_owned(), UserRoomState::Joined as i32),
+            ]),
+            space_id: Vec::new(),
+            is_public: true,
+            unread_count: 0,
+            is_direct: false,
+        };
+
+        let client = ClientMock {
+            create_group_room_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_create_group_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::RoomCreatedEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_create_group_room_request_err() {
+        // Arrange
+        let request = RequestContent::CreateGroupRoomRequest(CreateGroupRoomRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            create_group_room_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_create_group_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
     }
