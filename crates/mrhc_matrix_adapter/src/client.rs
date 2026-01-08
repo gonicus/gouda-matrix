@@ -830,6 +830,66 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
+    async fn change_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: ChangeRoomRequest,
+    ) -> Result<RoomChangeEvent> {
+        let client = self.get_client_logged_in()?;
+
+        let ChangeRoomRequest {
+            room_id,
+            display_name,
+            is_public,
+        } = request;
+
+        let room_id =
+            RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        let room = client
+            .get_room(&room_id)
+            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+
+        if let Some(display_name) = display_name {
+            room.set_name(display_name)
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
+        }
+
+        if let Some(is_public) = is_public {
+            let join_rule = if is_public {
+                matrix_sdk::ruma::room::JoinRule::Public
+            } else {
+                matrix_sdk::ruma::room::JoinRule::Invite
+            };
+
+            room.privacy_settings()
+                .update_join_rule(join_rule)
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
+
+            let visibility = if is_public {
+                matrix_sdk::ruma::api::client::room::Visibility::Public
+            } else {
+                matrix_sdk::ruma::api::client::room::Visibility::Private
+            };
+
+            room.privacy_settings()
+                .update_room_visibility(visibility)
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
+        }
+
+        let response = rooms::convert_to_proto(room).await?;
+
+        Ok(RoomChangeEvent {
+            room_id: response.room_id,
+            user_id_list: response.user_id_list,
+            typing_user_id_list: Vec::new(),
+            unread_count: Some(0),
+        })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

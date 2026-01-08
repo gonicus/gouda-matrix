@@ -67,5 +67,10 @@
       "@some_user_2:server.com"
     ],
     "invitation_text": null
+  },
+  "change-room": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "display_name": null,
+    "is_public": null
   }
 }
