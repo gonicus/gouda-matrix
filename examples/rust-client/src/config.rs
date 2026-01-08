@@ -19,6 +19,7 @@ pub struct Config {
     pub create_direct_room: CreateDirectRoomRequest,
     pub create_group_room: CreateGroupRoomRequest,
     pub mark_as_read: MarkAsReadRequest,
+    pub invite: InvitationRequest,
 }
 
 impl Config {

@@ -43,7 +43,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
 
 async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
     let members = room
-        .members(matrix_sdk::RoomMemberships::JOIN)
+        .members(matrix_sdk::RoomMemberships::all())
         .await
         .map_err(errors::convert_matrix_sdk_error)?;
 

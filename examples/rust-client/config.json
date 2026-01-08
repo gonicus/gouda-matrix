@@ -59,5 +59,13 @@
   },
   "mark-as-read": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
+  },
+  "invite": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "invitees": [
+      "@some_user_1:server.com",
+      "@some_user_2:server.com"
+    ],
+    "invitation_text": null
   }
 }

@@ -789,6 +789,47 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
+    async fn invite(
+        &mut self,
+        _ctx: ClientContext,
+        request: InvitationRequest,
+    ) -> Result<RoomChangeEvent> {
+        let client = self.get_client_logged_in()?;
+
+        let room_id = RoomId::parse(&request.room_id)
+            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        let room = client
+            .get_room(&room_id)
+            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+
+        let invitees: Vec<OwnedUserId> = request
+            .invitees
+            .into_iter()
+            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
+            .collect::<Result<Vec<OwnedUserId>>>()?;
+
+        for invite in invitees {
+            if let Err(err) = room.invite_user_by_id(&invite).await {
+                log::error!("Error inviting user: {err}");
+            };
+        }
+
+        // Refresh the room
+        let room = client
+            .get_room(&room_id)
+            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+
+        let response = rooms::convert_to_proto(room).await?;
+
+        Ok(RoomChangeEvent {
+            room_id: response.room_id,
+            user_id_list: response.user_id_list,
+            typing_user_id_list: Vec::new(),
+            unread_count: None,
+        })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

@@ -197,3 +197,11 @@ impl UiAttribute for MarkAsReadRequest {
         ui_attribute!(self, ui, room_id);
     }
 }
+
+impl UiAttribute for InvitationRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, invitees);
+        ui_attribute!(self, ui, invitation_text);
+    }
+}
