@@ -46,7 +46,7 @@
     "n_events": 1
   },
   "create-direct-room": {
-    "display_name": null,
+    "display_name": "New Direct Room",
     "invitee": "@some_user:server.com"
   },
   "create-group-room": {

@@ -465,7 +465,10 @@ impl ClientAbstraction for MatrixClient {
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
-                    display_name: member.display_name().map(str::to_string),
+                    display_name: member
+                        .display_name()
+                        .map(str::to_string)
+                        .unwrap_or_default(),
                     presence_state: None,
                 });
             }
@@ -495,7 +498,7 @@ impl ClientAbstraction for MatrixClient {
 
             result.push(User {
                 user_id: user.user_id.to_string(),
-                display_name: user.display_name,
+                display_name: user.display_name.unwrap_or_default(),
                 presence_state: None,
             });
         }
@@ -669,7 +672,10 @@ impl ClientAbstraction for MatrixClient {
 
         let mut room_request = create_room::v3::Request::new();
 
-        room_request.name = request.display_name.clone();
+        if !request.display_name.is_empty() {
+            room_request.name = Some(request.display_name.clone());
+        }
+
         room_request.invite = vec![user_id.to_owned()];
         room_request.is_direct = true;
         room_request.preset = Some(create_room::v3::RoomPreset::TrustedPrivateChat);
@@ -714,8 +720,11 @@ impl ClientAbstraction for MatrixClient {
 
         let mut room_request = create_room::v3::Request::new();
 
+        if !request.display_name.is_empty() {
+            room_request.name = Some(request.display_name.clone());
+        }
+
         room_request.invite = invitees;
-        room_request.name = request.display_name.clone();
         room_request.initial_state = vec![InitialStateEvent::with_empty_state_key(
             RoomEncryptionEventContent::with_recommended_defaults(),
         )
@@ -779,14 +788,9 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        let response = rooms::convert_to_proto(room).await?;
-
-        Ok(RoomChangeEvent {
-            room_id: response.room_id,
-            user_id_list: response.user_id_list,
-            typing_user_id_list: Vec::new(),
-            unread_count: Some(0),
-        })
+        Ok(rooms::RoomChangeEventBuilder::new(request.room_id.clone())
+            .change_unread_count(0)
+            .into_proto())
     }
 
     async fn invite(
@@ -820,14 +824,11 @@ impl ClientAbstraction for MatrixClient {
             .get_room(&room_id)
             .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
 
-        let response = rooms::convert_to_proto(room).await?;
+        let members = rooms::get_room_members(&room).await?;
 
-        Ok(RoomChangeEvent {
-            room_id: response.room_id,
-            user_id_list: response.user_id_list,
-            typing_user_id_list: Vec::new(),
-            unread_count: None,
-        })
+        Ok(rooms::RoomChangeEventBuilder::new(request.room_id.clone())
+            .change_user_id_list(members)
+            .into_proto())
     }
 
     async fn change_room(
@@ -850,10 +851,14 @@ impl ClientAbstraction for MatrixClient {
             .get_room(&room_id)
             .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
 
+        let mut response = rooms::RoomChangeEventBuilder::new(room_id.to_string());
+
         if let Some(display_name) = display_name {
-            room.set_name(display_name)
+            room.set_name(display_name.clone())
                 .await
                 .map_err(errors::convert_matrix_sdk_error)?;
+
+            response = response.change_display_name(display_name);
         }
 
         if let Some(is_public) = is_public {
@@ -880,14 +885,7 @@ impl ClientAbstraction for MatrixClient {
                 .map_err(errors::convert_matrix_sdk_error)?;
         }
 
-        let response = rooms::convert_to_proto(room).await?;
-
-        Ok(RoomChangeEvent {
-            room_id: response.room_id,
-            user_id_list: response.user_id_list,
-            typing_user_id_list: Vec::new(),
-            unread_count: Some(0),
-        })
+        Ok(response.into_proto())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
