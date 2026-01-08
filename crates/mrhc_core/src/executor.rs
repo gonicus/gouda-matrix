@@ -651,7 +651,7 @@ mod tests {
             room_list: vec![
                 Room {
                     room_id: "room-1".to_owned(),
-                    display_name: Some("Test Room 1".to_owned()),
+                    display_name: "Test Room 1".to_owned(),
                     user_id_list: HashMap::from([
                         ("user-1".to_owned(), UserRoomState::Joined as i32),
                         ("user-2".to_owned(), UserRoomState::Knocked as i32),
@@ -664,7 +664,7 @@ mod tests {
                 },
                 Room {
                     room_id: "room-2".to_owned(),
-                    display_name: Some("Test Room 2".to_owned()),
+                    display_name: "Test Room 2".to_owned(),
                     user_id_list: HashMap::from([
                         ("user-1".to_owned(), UserRoomState::Joined as i32),
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -819,12 +819,12 @@ mod tests {
             user_list: vec![
                 User {
                     user_id: "user_0".to_owned(),
-                    display_name: Some("Test User 1".to_owned()),
+                    display_name: "Test User 1".to_owned(),
                     presence_state: None,
                 },
                 User {
                     user_id: "user_1".to_owned(),
-                    display_name: Some("Test User 2".to_owned()),
+                    display_name: "Test User 2".to_owned(),
                     presence_state: None,
                 },
             ],
@@ -901,12 +901,12 @@ mod tests {
             user_list: vec![
                 User {
                     user_id: "user_0".to_owned(),
-                    display_name: Some("Test User 1".to_owned()),
+                    display_name: "Test User 1".to_owned(),
                     presence_state: None,
                 },
                 User {
                     user_id: "user_1".to_owned(),
-                    display_name: Some("Test User 2".to_owned()),
+                    display_name: "Test User 2".to_owned(),
                     presence_state: None,
                 },
             ],
@@ -1333,7 +1333,7 @@ mod tests {
         let request = RequestContent::CreateDirectRoomRequest(CreateDirectRoomRequest::default());
         let response = Room {
             room_id: "new-room".to_owned(),
-            display_name: Some("Test Room".to_owned()),
+            display_name: "Test Room".to_owned(),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -1413,7 +1413,7 @@ mod tests {
         let request = RequestContent::CreateGroupRoomRequest(CreateGroupRoomRequest::default());
         let response = Room {
             room_id: "new-room".to_owned(),
-            display_name: Some("Test Room".to_owned()),
+            display_name: "Test Room".to_owned(),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -1493,11 +1493,14 @@ mod tests {
         let request = RequestContent::MarkAsReadRequest(MarkAsReadRequest::default());
         let response = RoomChangeEvent {
             room_id: "new-room".to_owned(),
+            has_typing_user_id_list_changed: true,
+            has_user_id_list_changed: false,
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
             typing_user_id_list: Vec::new(),
+            display_name: None,
             unread_count: Some(0),
         };
 
@@ -1570,11 +1573,14 @@ mod tests {
         let request = RequestContent::InvitationRequest(InvitationRequest::default());
         let response = RoomChangeEvent {
             room_id: "new-room".to_owned(),
+            has_typing_user_id_list_changed: true,
+            has_user_id_list_changed: false,
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
             typing_user_id_list: Vec::new(),
+            display_name: None,
             unread_count: Some(0),
         };
 
@@ -1647,11 +1653,14 @@ mod tests {
         let request = RequestContent::ChangeRoomRequest(ChangeRoomRequest::default());
         let response = RoomChangeEvent {
             room_id: "new-room".to_owned(),
+            has_typing_user_id_list_changed: true,
+            has_user_id_list_changed: false,
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
             typing_user_id_list: Vec::new(),
+            display_name: None,
             unread_count: Some(0),
         };
 
