@@ -92,9 +92,10 @@ impl OutputWindow {
         let mut color = RESPONSE_COLOR;
 
         if let Some(content) = &response.content
-            && matches!(content, response_container::Content::Error(_)) {
-                color = ERROR_COLOR;
-            }
+            && matches!(content, response_container::Content::Error(_))
+        {
+            color = ERROR_COLOR;
+        }
 
         ui.colored_label(color, str);
     }

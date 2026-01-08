@@ -20,6 +20,7 @@ pub struct Config {
     pub create_group_room: CreateGroupRoomRequest,
     pub mark_as_read: MarkAsReadRequest,
     pub invite: InvitationRequest,
+    pub change_room: ChangeRoomRequest,
 }
 
 impl Config {
