@@ -150,6 +150,10 @@ impl Executor {
                 let result = self.client.mark_as_read(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
             }
+            RequestContent::InvitationRequest(request) => {
+                let result = self.client.invite(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+            }
             _ => todo!("Request: {content:?} is currently not implemented"),
         }
     }
@@ -1548,6 +1552,83 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_mark_as_read_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_invitation_request() {
+        // Arrange
+        let request = RequestContent::InvitationRequest(InvitationRequest::default());
+        let response = RoomChangeEvent {
+            room_id: "new-room".to_owned(),
+            user_id_list: HashMap::from([
+                ("user-1".to_owned(), UserRoomState::Joined as i32),
+                ("user-4".to_owned(), UserRoomState::Joined as i32),
+            ]),
+            typing_user_id_list: Vec::new(),
+            unread_count: Some(0),
+        };
+
+        let client = ClientMock {
+            invite_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_invite_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::RoomChangeEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_invitation_request_err() {
+        // Arrange
+        let request = RequestContent::InvitationRequest(InvitationRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            invite_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_invite_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
