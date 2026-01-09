@@ -824,6 +824,22 @@ impl ClientAbstraction for MatrixClient {
         Ok(response.into_proto())
     }
 
+    async fn leave_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: LeaveRoomRequest,
+    ) -> Result<RoomLeftEvent> {
+        let room = self.get_matrix_room(&request.room_id)?;
+
+        room.leave()
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(RoomLeftEvent {
+            room_id: request.room_id,
+        })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

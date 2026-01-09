@@ -60,6 +60,9 @@ pub struct ClientMock {
     pub change_room_response: Result<RoomChangeEvent>,
     pub change_room_call_count: u32,
 
+    pub leave_room_response: Result<RoomLeftEvent>,
+    pub leave_room_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -122,6 +125,9 @@ impl Default for ClientMock {
 
             change_room_response: Ok(RoomChangeEvent::default()),
             change_room_call_count: 0,
+
+            leave_room_response: Ok(RoomLeftEvent::default()),
+            leave_room_call_count: 0,
 
             received_ctx: None,
         }
@@ -207,6 +213,10 @@ impl ClientMock {
 
     pub fn assert_change_room_called_n(&self, n: u32) {
         assert!(self.change_room_call_count == n);
+    }
+
+    pub fn assert_leave_room_called_n(&self, n: u32) {
+        assert!(self.leave_room_call_count == n);
     }
 }
 
@@ -391,6 +401,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.change_room_call_count += 1;
         self.change_room_response.clone()
+    }
+
+    async fn leave_room(
+        &mut self,
+        ctx: ClientContext,
+        _request: LeaveRoomRequest,
+    ) -> Result<RoomLeftEvent> {
+        self.received_ctx = Some(ctx);
+        self.leave_room_call_count += 1;
+        self.leave_room_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

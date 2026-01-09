@@ -213,3 +213,9 @@ impl UiAttribute for ChangeRoomRequest {
         ui_attribute!(self, ui, is_public);
     }
 }
+
+impl UiAttribute for LeaveRoomRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}

@@ -72,5 +72,8 @@
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
     "display_name": null,
     "is_public": null
+  },
+  "leave-room": {
+    "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de"
   }
 }
