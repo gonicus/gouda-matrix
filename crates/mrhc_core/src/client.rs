@@ -207,6 +207,15 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    #[allow(unused_variables)]
+    async fn leave_room(
+        &mut self,
+        ctx: ClientContext,
+        request: LeaveRoomRequest,
+    ) -> Result<RoomLeftEvent> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

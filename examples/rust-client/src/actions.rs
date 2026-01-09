@@ -59,6 +59,7 @@ pub enum Action {
     MarkAsRead(Box<MarkAsReadRequest>),
     Invite(Box<InvitationRequest>),
     ChangeRoom(Box<ChangeRoomRequest>),
+    LeaveRoom(Box<LeaveRoomRequest>),
 }
 
 impl Action {
@@ -86,6 +87,7 @@ impl Action {
             Self::MarkAsRead(request) => run_mark_as_read(tag, sender, *request),
             Self::Invite(request) => run_invite(tag, sender, *request),
             Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
+            Self::LeaveRoom(request) => run_leave_room(tag, sender, *request),
         }
     }
 }
@@ -111,6 +113,7 @@ impl UiAttribute for Action {
             Self::MarkAsRead(request) => request.update(ui),
             Self::Invite(request) => request.update(ui),
             Self::ChangeRoom(request) => request.update(ui),
+            Self::LeaveRoom(request) => request.update(ui),
         }
     }
 }
@@ -150,3 +153,4 @@ impl_run_with_request!(run_create_group_room, CreateGroupRoomRequest);
 impl_run_with_request!(run_mark_as_read, MarkAsReadRequest);
 impl_run_with_request!(run_invite, InvitationRequest);
 impl_run_with_request!(run_change_room, ChangeRoomRequest);
+impl_run_with_request!(run_leave_room, LeaveRoomRequest);

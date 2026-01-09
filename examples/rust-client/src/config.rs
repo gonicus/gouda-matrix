@@ -21,6 +21,7 @@ pub struct Config {
     pub mark_as_read: MarkAsReadRequest,
     pub invite: InvitationRequest,
     pub change_room: ChangeRoomRequest,
+    pub leave_room: LeaveRoomRequest,
 }
 
 impl Config {
