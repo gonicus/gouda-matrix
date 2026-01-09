@@ -111,6 +111,20 @@ impl MatrixClient {
             .iter_mut()
             .find(|p| p.flow_id() == flow_id)
     }
+
+    /// Gets a `matrix_sdk::Room` room by its id.
+    fn get_matrix_room(&mut self, room_id: &str) -> Result<matrix_sdk::Room> {
+        let client = self.get_client()?;
+
+        let room_id =
+            RoomId::parse(room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        let room = client
+            .get_room(&room_id)
+            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+
+        Ok(room)
+    }
 }
 
 #[async_trait]
@@ -419,15 +433,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: SendMessageRequest,
     ) -> Result<SendMessageResponse> {
-        let client = self.get_client_logged_in()?;
-
-        let room_id = RoomId::parse(&request.room_id)
-            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
-
-        let room = client
-            .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
-
+        let room = self.get_matrix_room(&request.room_id)?;
         let event = RoomMessageEventContent::text_plain(request.content);
 
         let re = room
@@ -662,28 +668,12 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: CreateDirectRoomRequest,
     ) -> Result<Room> {
-        use matrix_sdk::ruma::api::client::room::create_room;
-        use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
-        use matrix_sdk::ruma::events::InitialStateEvent;
-
         let client = self.get_client_logged_in()?;
 
         let user_id = UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
 
-        let mut room_request = create_room::v3::Request::new();
-
-        if !request.display_name.is_empty() {
-            room_request.name = Some(request.display_name.clone());
-        }
-
-        room_request.invite = vec![user_id.to_owned()];
-        room_request.is_direct = true;
-        room_request.preset = Some(create_room::v3::RoomPreset::TrustedPrivateChat);
-        room_request.initial_state = vec![InitialStateEvent::with_empty_state_key(
-            RoomEncryptionEventContent::with_recommended_defaults(),
-        )
-        .to_raw_any()];
-        room_request.visibility = matrix_sdk::ruma::api::client::room::Visibility::Private;
+        let room_request =
+            rooms::create_dm_room_request(request.display_name.clone(), user_id.to_owned());
 
         let room = client
             .create_room(room_request)
@@ -706,10 +696,6 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: CreateGroupRoomRequest,
     ) -> Result<Room> {
-        use matrix_sdk::ruma::api::client::room::create_room;
-        use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
-        use matrix_sdk::ruma::events::InitialStateEvent;
-
         let client = self.get_client_logged_in()?;
 
         let invitees: Vec<OwnedUserId> = request
@@ -718,17 +704,8 @@ impl ClientAbstraction for MatrixClient {
             .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
             .collect::<Result<Vec<OwnedUserId>>>()?;
 
-        let mut room_request = create_room::v3::Request::new();
+        let mut room_request = rooms::create_room_request(request.display_name.clone(), invitees);
 
-        if !request.display_name.is_empty() {
-            room_request.name = Some(request.display_name.clone());
-        }
-
-        room_request.invite = invitees;
-        room_request.initial_state = vec![InitialStateEvent::with_empty_state_key(
-            RoomEncryptionEventContent::with_recommended_defaults(),
-        )
-        .to_raw_any()];
         room_request.visibility = if request.is_public {
             matrix_sdk::ruma::api::client::room::Visibility::Public
         } else {
@@ -759,15 +736,7 @@ impl ClientAbstraction for MatrixClient {
         use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
         use matrix_sdk::ruma::events::receipt::ReceiptThread;
 
-        let client = self.get_client_logged_in()?;
-
-        let room_id = RoomId::parse(&request.room_id)
-            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
-
-        let room = client
-            .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
-
+        let room = self.get_matrix_room(&request.room_id)?;
         let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
         let messages = room
@@ -788,9 +757,11 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        Ok(rooms::RoomChangeEventBuilder::new(request.room_id.clone())
-            .change_unread_count(0)
-            .into_proto())
+        Ok(
+            builder::RoomChangeEventBuilder::new(request.room_id.clone())
+                .change_unread_count(0)
+                .into_proto(),
+        )
     }
 
     async fn invite(
@@ -798,14 +769,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
-        let client = self.get_client_logged_in()?;
-
-        let room_id = RoomId::parse(&request.room_id)
-            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
-
-        let room = client
-            .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+        let room = self.get_matrix_room(&request.room_id)?;
 
         let invitees: Vec<OwnedUserId> = request
             .invitees
@@ -820,15 +784,14 @@ impl ClientAbstraction for MatrixClient {
         }
 
         // Refresh the room
-        let room = client
-            .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+        let room = self.get_matrix_room(&request.room_id)?;
+        let members = rooms::get_members(&room).await?;
 
-        let members = rooms::get_room_members(&room).await?;
-
-        Ok(rooms::RoomChangeEventBuilder::new(request.room_id.clone())
-            .change_user_id_list(members)
-            .into_proto())
+        Ok(
+            builder::RoomChangeEventBuilder::new(request.room_id.clone())
+                .change_user_id_list(members)
+                .into_proto(),
+        )
     }
 
     async fn change_room(
@@ -836,22 +799,15 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: ChangeRoomRequest,
     ) -> Result<RoomChangeEvent> {
-        let client = self.get_client_logged_in()?;
-
         let ChangeRoomRequest {
             room_id,
             display_name,
             is_public,
         } = request;
 
-        let room_id =
-            RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+        let room = self.get_matrix_room(&room_id)?;
 
-        let room = client
-            .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
-
-        let mut response = rooms::RoomChangeEventBuilder::new(room_id.to_string());
+        let mut response = builder::RoomChangeEventBuilder::new(room_id.to_string());
 
         if let Some(display_name) = display_name {
             room.set_name(display_name.clone())
@@ -862,27 +818,7 @@ impl ClientAbstraction for MatrixClient {
         }
 
         if let Some(is_public) = is_public {
-            let join_rule = if is_public {
-                matrix_sdk::ruma::room::JoinRule::Public
-            } else {
-                matrix_sdk::ruma::room::JoinRule::Invite
-            };
-
-            room.privacy_settings()
-                .update_join_rule(join_rule)
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
-            let visibility = if is_public {
-                matrix_sdk::ruma::api::client::room::Visibility::Public
-            } else {
-                matrix_sdk::ruma::api::client::room::Visibility::Private
-            };
-
-            room.privacy_settings()
-                .update_room_visibility(visibility)
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
+            rooms::update_room_visibility(&room, is_public).await?;
         }
 
         Ok(response.into_proto())

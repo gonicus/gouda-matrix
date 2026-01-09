@@ -1,72 +1,11 @@
 use std::collections::HashMap;
 
+use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::OwnedUserId;
 use mrhc_core::Result;
 use mrhc_proto::chat::*;
 
 use crate::{errors, utils};
-
-/// Builder to easily create a `RoomChangeEvent` with desired changes.
-pub struct RoomChangeEventBuilder {
-    room_id: String,
-    user_id_list: Option<HashMap<String, i32>>,
-    typing_user_id_list: Option<Vec<String>>,
-    display_name: Option<String>,
-    unread_count: Option<u32>,
-}
-
-impl RoomChangeEventBuilder {
-    pub fn new(room_id: String) -> Self {
-        Self {
-            room_id,
-            user_id_list: None,
-            typing_user_id_list: None,
-            display_name: None,
-            unread_count: None,
-        }
-    }
-
-    pub fn change_user_id_list(mut self, user_id_list: HashMap<String, i32>) -> Self {
-        self.user_id_list = Some(user_id_list);
-        self
-    }
-
-    #[allow(unused)]
-    pub fn change_typing_user_id_list(mut self, typing_user_id_list: Vec<String>) -> Self {
-        self.typing_user_id_list = Some(typing_user_id_list);
-        self
-    }
-
-    pub fn change_display_name(mut self, display_name: String) -> Self {
-        self.display_name = Some(display_name);
-        self
-    }
-
-    pub fn change_unread_count(mut self, unread_count: u32) -> Self {
-        self.unread_count = Some(unread_count);
-        self
-    }
-
-    pub fn into_proto(self) -> RoomChangeEvent {
-        let mut event = RoomChangeEvent {
-            room_id: self.room_id,
-            display_name: self.display_name,
-            unread_count: self.unread_count,
-            ..Default::default()
-        };
-
-        if let Some(user_id_list) = self.user_id_list {
-            event.has_user_id_list_changed = true;
-            event.user_id_list = user_id_list;
-        }
-
-        if let Some(typing_user_id_list) = self.typing_user_id_list {
-            event.has_typing_user_id_list_changed = true;
-            event.typing_user_id_list = typing_user_id_list;
-        }
-
-        event
-    }
-}
 
 pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     let display_name = room
@@ -83,7 +22,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     let unread_count =
         u32::try_from(room.unread_notification_counts().notification_count).unwrap_or(u32::MAX);
 
-    let members = get_room_members(&room).await?;
+    let members = get_members(&room).await?;
 
     let is_direct = if members.len() > 2 {
         false
@@ -104,7 +43,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
     })
 }
 
-pub async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
+pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
     let members = room
         .members(matrix_sdk::RoomMemberships::all())
         .await
@@ -120,4 +59,71 @@ pub async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String,
     }
 
     Ok(result)
+}
+
+/// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with
+/// enabled encryption and recommended defaults.
+pub fn create_room_request(
+    display_name: String,
+    invitees: Vec<OwnedUserId>,
+) -> MatrixCreateRoomRequest {
+    use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
+    use matrix_sdk::ruma::events::InitialStateEvent;
+
+    let mut request = MatrixCreateRoomRequest::new();
+
+    if !display_name.is_empty() {
+        request.name = Some(display_name);
+    }
+
+    request.invite = invitees;
+    request.initial_state = vec![InitialStateEvent::with_empty_state_key(
+        RoomEncryptionEventContent::with_recommended_defaults(),
+    )
+    .to_raw_any()];
+    request.visibility = matrix_sdk::ruma::api::client::room::Visibility::Private;
+
+    request
+}
+
+/// Creates a new `ruma::api::client::room::create_room::v3::Request` for a direct room
+/// with another user.
+pub fn create_dm_room_request(
+    display_name: String,
+    invitee: OwnedUserId,
+) -> MatrixCreateRoomRequest {
+    use matrix_sdk::ruma::api::client::room::create_room;
+
+    let mut request = create_room_request(display_name, vec![invitee]);
+
+    request.preset = Some(create_room::v3::RoomPreset::TrustedPrivateChat);
+    request.is_direct = true;
+
+    request
+}
+
+/// Updates the visibility of a room.
+/// This changes the rooms `JoinRule` as well as the `Visibility`.
+pub async fn update_room_visibility(room: &matrix_sdk::Room, is_public: bool) -> Result<()> {
+    let join_rule = if is_public {
+        matrix_sdk::ruma::room::JoinRule::Public
+    } else {
+        matrix_sdk::ruma::room::JoinRule::Invite
+    };
+
+    room.privacy_settings()
+        .update_join_rule(join_rule)
+        .await
+        .map_err(errors::convert_matrix_sdk_error)?;
+
+    let visibility = if is_public {
+        matrix_sdk::ruma::api::client::room::Visibility::Public
+    } else {
+        matrix_sdk::ruma::api::client::room::Visibility::Private
+    };
+
+    room.privacy_settings()
+        .update_room_visibility(visibility)
+        .await
+        .map_err(errors::convert_matrix_sdk_error)
 }
