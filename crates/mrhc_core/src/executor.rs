@@ -665,6 +665,7 @@ mod tests {
                     is_public: false,
                     unread_count: 0,
                     is_direct: false,
+                    join_rule: RoomJoinRule::Invite.into(),
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -677,6 +678,7 @@ mod tests {
                     is_public: true,
                     unread_count: 0,
                     is_direct: false,
+                    join_rule: RoomJoinRule::Invite.into(),
                 },
             ],
         };
@@ -1346,6 +1348,7 @@ mod tests {
             is_public: true,
             unread_count: 0,
             is_direct: false,
+            join_rule: RoomJoinRule::Invite.into(),
         };
 
         let client = ClientMock {
@@ -1426,6 +1429,7 @@ mod tests {
             is_public: true,
             unread_count: 0,
             is_direct: false,
+            join_rule: RoomJoinRule::Invite.into(),
         };
 
         let client = ClientMock {
@@ -1737,6 +1741,8 @@ mod tests {
         let request = RequestContent::LeaveRoomRequest(LeaveRoomRequest::default());
         let response = RoomLeftEvent {
             room_id: "some-room".to_owned(),
+            reason: room_left_event::RoomLeaveReason::User.into(),
+            message: String::new(),
         };
 
         let client = ClientMock {
