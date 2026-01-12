@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use mrhc_core::Result;
 use mrhc_proto::chat::*;
@@ -32,6 +33,8 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
             .map_err(errors::convert_store_error)?
     };
 
+    let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
+
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -40,6 +43,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         is_public: room.is_public().unwrap_or_default(),
         unread_count,
         is_direct,
+        join_rule: join_rule.into(),
     })
 }
 
@@ -59,6 +63,15 @@ pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>
     }
 
     Ok(result)
+}
+
+pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
+    match join_rule {
+        MatrixJoinRule::Invite => RoomJoinRule::Invite,
+        MatrixJoinRule::Knock => RoomJoinRule::Knock,
+        MatrixJoinRule::Public => RoomJoinRule::Public,
+        _ => RoomJoinRule::Invite,
+    }
 }
 
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with

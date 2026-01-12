@@ -837,6 +837,8 @@ impl ClientAbstraction for MatrixClient {
 
         Ok(RoomLeftEvent {
             room_id: request.room_id,
+            reason: room_left_event::RoomLeaveReason::User.into(),
+            message: String::new(),
         })
     }
 
