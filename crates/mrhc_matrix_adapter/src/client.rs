@@ -865,10 +865,12 @@ impl ClientAbstraction for MatrixClient {
 
         // Refresh the room to return an updated member list
         let room = self.get_matrix_room(&request.room_id)?;
-        let members = rooms::get_members(&room).await?;
+        let room = rooms::convert_to_proto(room).await?;
 
         Ok(builder::RoomChangeEventBuilder::new(request.room_id)
-            .change_user_id_list(members)
+            .change_user_id_list(room.user_id_list)
+            .change_display_name(room.display_name)
+            .change_unread_count(room.unread_count)
             .into_proto())
     }
 
