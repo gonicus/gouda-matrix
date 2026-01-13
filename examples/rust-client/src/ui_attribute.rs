@@ -219,3 +219,11 @@ impl UiAttribute for LeaveRoomRequest {
         ui_attribute!(self, ui, room_id);
     }
 }
+
+impl UiAttribute for PublicRoomListRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, limit);
+        ui_attribute!(self, ui, since);
+        ui_attribute!(self, ui, generic_search_term);
+    }
+}

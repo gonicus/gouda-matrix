@@ -216,6 +216,15 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    #[allow(unused_variables)]
+    async fn public_rooms(
+        &mut self,
+        ctx: ClientContext,
+        request: PublicRoomListRequest,
+    ) -> Result<PublicRoomListResponse> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

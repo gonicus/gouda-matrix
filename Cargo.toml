@@ -33,6 +33,7 @@ matrix-sdk = { version = "0.16.0", features = [
 ] }
 matrix-sdk-base = { version = "0.16.0", default-features = false }
 matrix-sdk-crypto = { version = "0.16.0", default-features = false }
+ruma-common = "0.17"
 
 aes-gcm = "0.10"
 argon2 = "0.5"

@@ -75,5 +75,10 @@
   },
   "leave-room": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de"
+  },
+  "public-room-list": {
+    "limit": null,
+    "since": null,
+    "generic_search_term": ""
   }
 }
