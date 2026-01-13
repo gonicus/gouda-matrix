@@ -113,6 +113,7 @@ impl MatrixClient {
     }
 
     /// Gets a `matrix_sdk::Room` room by its id.
+    /// Returns an `Err` when the room was not found or the ID is invalid.
     fn get_matrix_room(&mut self, room_id: &str) -> Result<matrix_sdk::Room> {
         let client = self.get_client()?;
 
@@ -840,6 +841,27 @@ impl ClientAbstraction for MatrixClient {
             reason: room_left_event::RoomLeaveReason::User.into(),
             message: String::new(),
         })
+    }
+
+    async fn join_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: JoinRoomRequest,
+    ) -> Result<RoomChangeEvent> {
+        let client = self.get_client()?;
+
+        let room_id = RoomId::parse(&request.room_id)
+            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        client.join_room_by_id(&room_id).await.map_err(errors::convert_matrix_sdk_error)?;
+
+        // Refresh the room to return an updated member list
+        let room = self.get_matrix_room(&request.room_id)?;
+        let members = rooms::get_members(&room).await?;
+
+        Ok(builder::RoomChangeEventBuilder::new(request.room_id)
+            .change_user_id_list(members)
+            .into_proto())
     }
 
     async fn public_rooms(

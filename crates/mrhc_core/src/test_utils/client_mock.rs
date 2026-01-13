@@ -63,6 +63,9 @@ pub struct ClientMock {
     pub leave_room_response: Result<RoomLeftEvent>,
     pub leave_room_call_count: u32,
 
+    pub join_room_response: Result<RoomChangeEvent>,
+    pub join_room_call_count: u32,
+
     pub public_rooms_response: Result<PublicRoomListResponse>,
     pub public_rooms_call_count: u32,
 
@@ -131,6 +134,9 @@ impl Default for ClientMock {
 
             leave_room_response: Ok(RoomLeftEvent::default()),
             leave_room_call_count: 0,
+
+            join_room_response: Ok(RoomChangeEvent::default()),
+            join_room_call_count: 0,
 
             public_rooms_response: Ok(PublicRoomListResponse::default()),
             public_rooms_call_count: 0,
@@ -223,6 +229,10 @@ impl ClientMock {
 
     pub fn assert_leave_room_called_n(&self, n: u32) {
         assert!(self.leave_room_call_count == n);
+    }
+
+    pub fn assert_join_room_called_n(&self, n: u32) {
+        assert!(self.join_room_call_count == n);
     }
 
     pub fn assert_public_rooms_called_n(&self, n: u32) {
@@ -421,6 +431,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.leave_room_call_count += 1;
         self.leave_room_response.clone()
+    }
+
+    async fn join_room(
+        &mut self,
+        ctx: ClientContext,
+        _request: JoinRoomRequest,
+    ) -> Result<RoomChangeEvent> {
+        self.received_ctx = Some(ctx);
+        self.join_room_call_count += 1;
+        self.join_room_response.clone()
     }
 
     async fn public_rooms(

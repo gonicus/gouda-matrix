@@ -162,6 +162,10 @@ impl Executor {
                 let result = self.client.leave_room(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::RoomLeftEvent));
             }
+            RequestContent::JoinRoomRequest(request) => {
+                let result = self.client.join_room(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+            }
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.public_rooms(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::PublicRoomListResponse));
@@ -1804,6 +1808,86 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_leave_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_join_room_request() {
+        // Arrange
+        let request = RequestContent::JoinRoomRequest(JoinRoomRequest::default());
+        let response = RoomChangeEvent {
+            room_id: "new-room".to_owned(),
+            has_typing_user_id_list_changed: true,
+            has_user_id_list_changed: false,
+            user_id_list: HashMap::from([
+                ("user-1".to_owned(), UserRoomState::Joined as i32),
+                ("user-4".to_owned(), UserRoomState::Joined as i32),
+            ]),
+            typing_user_id_list: Vec::new(),
+            display_name: None,
+            unread_count: Some(0),
+        };
+
+        let client = ClientMock {
+            join_room_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_join_room_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::RoomChangeEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_join_room_request_err() {
+        // Arrange
+        let request = RequestContent::JoinRoomRequest(JoinRoomRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            join_room_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_join_room_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

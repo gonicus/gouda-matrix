@@ -220,6 +220,12 @@ impl UiAttribute for LeaveRoomRequest {
     }
 }
 
+impl UiAttribute for JoinRoomRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}
+
 impl UiAttribute for PublicRoomListRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, limit);
