@@ -55,7 +55,7 @@
       "@some_user_1:server.com",
       "@some_user_2:server.com"
     ],
-    "is_public": false
+    "join_rule": 0
   },
   "mark-as-read": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"

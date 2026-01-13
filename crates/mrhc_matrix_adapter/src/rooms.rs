@@ -85,14 +85,34 @@ pub fn convert_join_rule_kind(join_rule_kind: MatrixJoinRuleKind) -> RoomJoinRul
     }
 }
 
+pub fn convert_to_matrix_join_rule(join_rule: RoomJoinRule) -> MatrixJoinRule {
+    match join_rule {
+        RoomJoinRule::Invite => MatrixJoinRule::Invite,
+        RoomJoinRule::Knock => MatrixJoinRule::Knock,
+        RoomJoinRule::Public => MatrixJoinRule::Public,
+    }
+}
+
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with
 /// enabled encryption and recommended defaults.
 pub fn create_room_request(
     display_name: String,
     invitees: Vec<OwnedUserId>,
+    join_rule: RoomJoinRule,
 ) -> MatrixCreateRoomRequest {
     use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
+    use matrix_sdk::ruma::events::room::history_visibility::{
+        HistoryVisibility, RoomHistoryVisibilityEventContent,
+    };
+    use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
     use matrix_sdk::ruma::events::InitialStateEvent;
+
+    let join_rule = convert_to_matrix_join_rule(join_rule);
+    let visibility = if join_rule == MatrixJoinRule::Public || join_rule == MatrixJoinRule::Knock {
+        matrix_sdk::ruma::api::client::room::Visibility::Public
+    } else {
+        matrix_sdk::ruma::api::client::room::Visibility::Private
+    };
 
     let mut request = MatrixCreateRoomRequest::new();
 
@@ -101,11 +121,19 @@ pub fn create_room_request(
     }
 
     request.invite = invitees;
-    request.initial_state = vec![InitialStateEvent::with_empty_state_key(
-        RoomEncryptionEventContent::with_recommended_defaults(),
-    )
-    .to_raw_any()];
-    request.visibility = matrix_sdk::ruma::api::client::room::Visibility::Private;
+    request.visibility = visibility;
+    request.initial_state = vec![
+        InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any(),
+        InitialStateEvent::with_empty_state_key(RoomJoinRulesEventContent::new(join_rule))
+            .to_raw_any(),
+        InitialStateEvent::with_empty_state_key(RoomHistoryVisibilityEventContent::new(
+            HistoryVisibility::Shared,
+        ))
+        .to_raw_any(),
+    ];
 
     request
 }
@@ -118,8 +146,7 @@ pub fn create_dm_room_request(
 ) -> MatrixCreateRoomRequest {
     use matrix_sdk::ruma::api::client::room::create_room;
 
-    let mut request = create_room_request(display_name, vec![invitee]);
-
+    let mut request = create_room_request(display_name, vec![invitee], RoomJoinRule::Invite);
     request.preset = Some(create_room::v3::RoomPreset::TrustedPrivateChat);
     request.is_direct = true;
 

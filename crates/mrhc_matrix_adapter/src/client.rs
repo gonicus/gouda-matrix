@@ -681,13 +681,14 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // The room name is a separate event retrieved after the room is created and
-        // the SDK returns the room object. Therefore, `room.display_name()` always
-        // returns an empty name after creation, even if we specified a name in
-        // the request. To avoid waiting for the name event, we simply override
-        // the display name in the response.
+        // The following values represent separate events retrieved by the SDK after
+        // the room is created and the room object is returned. This means that the
+        // room object returned by the SDK does not contain all the data at the time
+        // of room creation. To avoid waiting for the next sync, we just
+        // overwrite the data in the response.
         let mut response = rooms::convert_to_proto(room).await?;
         response.display_name = request.display_name;
+        response.is_direct = true;
 
         Ok(response)
     }
@@ -699,32 +700,36 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<Room> {
         let client = self.get_client_logged_in()?;
 
-        let invitees: Vec<OwnedUserId> = request
-            .invitees
+        let CreateGroupRoomRequest {
+            display_name,
+            invitees,
+            join_rule,
+        } = request;
+
+        let join_rule = RoomJoinRule::try_from(join_rule)
+            .map_err(|_| errors::create_unknown("Invalid RoomJoinRule"))?;
+
+        let invitees: Vec<OwnedUserId> = invitees
             .into_iter()
             .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
             .collect::<Result<Vec<OwnedUserId>>>()?;
 
-        let mut room_request = rooms::create_room_request(request.display_name.clone(), invitees);
-
-        room_request.visibility = if request.is_public {
-            matrix_sdk::ruma::api::client::room::Visibility::Public
-        } else {
-            matrix_sdk::ruma::api::client::room::Visibility::Private
-        };
+        let room_request = rooms::create_room_request(display_name.clone(), invitees, join_rule);
 
         let room = client
             .create_room(room_request)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // The room name is a separate event retrieved after the room is created and
-        // the SDK returns the room object. Therefore, `room.display_name()` always
-        // returns an empty name after creation, even if we specified a name in
-        // the request. To avoid waiting for the name event, we simply override
-        // the display name in the response.
+        // The following values represent separate events retrieved by the SDK after
+        // the room is created and the room object is returned. This means that the
+        // room object returned by the SDK does not contain all the data at the time
+        // of room creation. To avoid waiting for the next sync, we just
+        // overwrite the data in the response.
         let mut response = rooms::convert_to_proto(room).await?;
-        response.display_name = request.display_name;
+        response.display_name = display_name;
+        response.join_rule = join_rule.into();
+        response.is_public = join_rule == RoomJoinRule::Public;
 
         Ok(response)
     }
@@ -853,7 +858,10 @@ impl ClientAbstraction for MatrixClient {
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        client.join_room_by_id(&room_id).await.map_err(errors::convert_matrix_sdk_error)?;
+        client
+            .join_room_by_id(&room_id)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         // Refresh the room to return an updated member list
         let room = self.get_matrix_room(&request.room_id)?;

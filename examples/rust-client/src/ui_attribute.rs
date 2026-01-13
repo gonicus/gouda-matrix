@@ -188,7 +188,7 @@ impl UiAttribute for CreateGroupRoomRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, display_name);
         ui_attribute!(self, ui, invitees);
-        ui_attribute!(self, ui, is_public);
+        ui_attribute!(self, ui, join_rule);
     }
 }
 
