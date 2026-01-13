@@ -217,6 +217,15 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
+    async fn join_room(
+        &mut self,
+        ctx: ClientContext,
+        request: JoinRoomRequest,
+    ) -> Result<RoomChangeEvent> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
     async fn public_rooms(
         &mut self,
         ctx: ClientContext,

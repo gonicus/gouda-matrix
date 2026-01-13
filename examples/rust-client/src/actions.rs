@@ -60,6 +60,7 @@ pub enum Action {
     Invite(Box<InvitationRequest>),
     ChangeRoom(Box<ChangeRoomRequest>),
     LeaveRoom(Box<LeaveRoomRequest>),
+    JoinRoom(Box<JoinRoomRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
 }
 
@@ -89,6 +90,7 @@ impl Action {
             Self::Invite(request) => run_invite(tag, sender, *request),
             Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
             Self::LeaveRoom(request) => run_leave_room(tag, sender, *request),
+            Self::JoinRoom(request) => run_join_room(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
         }
     }
@@ -116,6 +118,7 @@ impl UiAttribute for Action {
             Self::Invite(request) => request.update(ui),
             Self::ChangeRoom(request) => request.update(ui),
             Self::LeaveRoom(request) => request.update(ui),
+            Self::JoinRoom(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
         }
     }
@@ -157,4 +160,5 @@ impl_run_with_request!(run_mark_as_read, MarkAsReadRequest);
 impl_run_with_request!(run_invite, InvitationRequest);
 impl_run_with_request!(run_change_room, ChangeRoomRequest);
 impl_run_with_request!(run_leave_room, LeaveRoomRequest);
+impl_run_with_request!(run_join_room, JoinRoomRequest);
 impl_run_with_request!(run_public_room_list, PublicRoomListRequest);
