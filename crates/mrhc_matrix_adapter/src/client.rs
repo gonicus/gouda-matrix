@@ -842,6 +842,51 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
+    async fn public_rooms(
+        &mut self,
+        _ctx: ClientContext,
+        request: PublicRoomListRequest,
+    ) -> Result<PublicRoomListResponse> {
+        use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
+        use ruma_common::directory::Filter;
+
+        let client = self.get_client_logged_in()?;
+
+        let PublicRoomListRequest {
+            limit,
+            since,
+            generic_search_term,
+        } = request;
+
+        let filter = {
+            let mut filter = Filter::default();
+            if !generic_search_term.is_empty() {
+                filter.generic_search_term = Some(generic_search_term);
+            }
+            filter
+        };
+
+        let request = {
+            let mut request = get_public_rooms_filtered::v3::Request::default();
+            request.limit = limit.map(|f| f.into());
+            request.since = since;
+            request.filter = filter;
+            request
+        };
+
+        let result = client
+            .public_rooms_filtered(request)
+            .await
+            .map_err(errors::convert_http_error)?;
+
+        let rooms = rooms::convert_public_rooms_chunk(result.chunk);
+
+        Ok(PublicRoomListResponse {
+            room_list: rooms,
+            next_batch: result.next_batch,
+        })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

@@ -126,6 +126,12 @@ impl InputWindow {
                 ui_action!(self, ui, Invite, self.config.invite.clone());
                 ui_action!(self, ui, ChangeRoom, self.config.change_room.clone());
                 ui_action!(self, ui, LeaveRoom, self.config.leave_room.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    PublicRoomList,
+                    self.config.public_room_list.clone()
+                );
             });
     }
 }

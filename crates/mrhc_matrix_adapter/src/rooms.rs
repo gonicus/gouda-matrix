@@ -5,6 +5,8 @@ use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use mrhc_core::Result;
 use mrhc_proto::chat::*;
+use ruma_common::directory::PublicRoomsChunk;
+use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 
 use crate::{errors, utils};
 
@@ -74,6 +76,15 @@ pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
     }
 }
 
+pub fn convert_join_rule_kind(join_rule_kind: MatrixJoinRuleKind) -> RoomJoinRule {
+    match join_rule_kind {
+        MatrixJoinRuleKind::Invite => RoomJoinRule::Invite,
+        MatrixJoinRuleKind::Knock => RoomJoinRule::Knock,
+        MatrixJoinRuleKind::Public => RoomJoinRule::Public,
+        _ => RoomJoinRule::Invite,
+    }
+}
+
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with
 /// enabled encryption and recommended defaults.
 pub fn create_room_request(
@@ -139,4 +150,20 @@ pub async fn update_room_visibility(room: &matrix_sdk::Room, is_public: bool) ->
         .update_room_visibility(visibility)
         .await
         .map_err(errors::convert_matrix_sdk_error)
+}
+
+pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoom> {
+    let mut result = Vec::new();
+
+    for room in chunk {
+        result.push(PublicRoom {
+            display_name: room.name.unwrap_or_default(),
+            num_joined_members: room.num_joined_members.try_into().unwrap_or(u32::MAX),
+            room_id: room.room_id.to_string(),
+            topic: room.topic.unwrap_or_default(),
+            join_rule: convert_join_rule_kind(room.join_rule).into(),
+        });
+    }
+
+    result
 }
