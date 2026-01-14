@@ -23,6 +23,7 @@ pub struct Config {
     pub change_room: ChangeRoomRequest,
     pub leave_room: LeaveRoomRequest,
     pub join_room: JoinRoomRequest,
+    pub knock_room: KnockRoomRequest,
     pub public_room_list: PublicRoomListRequest,
 }
 

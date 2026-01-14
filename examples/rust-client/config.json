@@ -79,6 +79,10 @@
   "join-room": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de"
   },
+  "knock-room": {
+    "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
+    "message": "Knock Knock!"
+  },
   "public-room-list": {
     "limit": null,
     "since": null,

@@ -61,6 +61,7 @@ pub enum Action {
     ChangeRoom(Box<ChangeRoomRequest>),
     LeaveRoom(Box<LeaveRoomRequest>),
     JoinRoom(Box<JoinRoomRequest>),
+    KnockRoom(Box<KnockRoomRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
 }
 
@@ -91,6 +92,7 @@ impl Action {
             Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
             Self::LeaveRoom(request) => run_leave_room(tag, sender, *request),
             Self::JoinRoom(request) => run_join_room(tag, sender, *request),
+            Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
         }
     }
@@ -119,6 +121,7 @@ impl UiAttribute for Action {
             Self::ChangeRoom(request) => request.update(ui),
             Self::LeaveRoom(request) => request.update(ui),
             Self::JoinRoom(request) => request.update(ui),
+            Self::KnockRoom(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
         }
     }
@@ -162,3 +165,4 @@ impl_run_with_request!(run_change_room, ChangeRoomRequest);
 impl_run_with_request!(run_leave_room, LeaveRoomRequest);
 impl_run_with_request!(run_join_room, JoinRoomRequest);
 impl_run_with_request!(run_public_room_list, PublicRoomListRequest);
+impl_run_with_request!(run_knock_room, KnockRoomRequest);
