@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::api::client::room::{Visibility, create_room::v3::Request as MatrixCreateRoomRequest};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use mrhc_core::Result;
@@ -42,7 +42,6 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         display_name,
         user_id_list: members,
         space_id: Vec::new(),
-        is_public: room.is_public().unwrap_or_default(),
         unread_count,
         is_direct,
         join_rule: join_rule.into(),
@@ -93,6 +92,14 @@ pub fn convert_to_matrix_join_rule(join_rule: RoomJoinRule) -> MatrixJoinRule {
     }
 }
 
+fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
+    if join_rule == MatrixJoinRule::Public || join_rule == MatrixJoinRule::Knock {
+        matrix_sdk::ruma::api::client::room::Visibility::Public
+    } else {
+        matrix_sdk::ruma::api::client::room::Visibility::Private
+    }
+}
+
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with
 /// enabled encryption and recommended defaults.
 pub fn create_room_request(
@@ -108,11 +115,7 @@ pub fn create_room_request(
     use matrix_sdk::ruma::events::InitialStateEvent;
 
     let join_rule = convert_to_matrix_join_rule(join_rule);
-    let visibility = if join_rule == MatrixJoinRule::Public || join_rule == MatrixJoinRule::Knock {
-        matrix_sdk::ruma::api::client::room::Visibility::Public
-    } else {
-        matrix_sdk::ruma::api::client::room::Visibility::Private
-    };
+    let visibility = matrix_join_rule_to_visibility(join_rule.clone());
 
     let mut request = MatrixCreateRoomRequest::new();
 
@@ -155,23 +158,15 @@ pub fn create_dm_room_request(
 
 /// Updates the visibility of a room.
 /// This changes the rooms `JoinRule` as well as the `Visibility`.
-pub async fn update_room_visibility(room: &matrix_sdk::Room, is_public: bool) -> Result<()> {
-    let join_rule = if is_public {
-        matrix_sdk::ruma::room::JoinRule::Public
-    } else {
-        matrix_sdk::ruma::room::JoinRule::Invite
-    };
+pub async fn update_room_join_rule(room: &matrix_sdk::Room, join_rule: RoomJoinRule) -> Result<()> {
+    let join_rule = convert_to_matrix_join_rule(join_rule);
 
     room.privacy_settings()
-        .update_join_rule(join_rule)
+        .update_join_rule(join_rule.clone())
         .await
         .map_err(errors::convert_matrix_sdk_error)?;
 
-    let visibility = if is_public {
-        matrix_sdk::ruma::api::client::room::Visibility::Public
-    } else {
-        matrix_sdk::ruma::api::client::room::Visibility::Private
-    };
+    let visibility = matrix_join_rule_to_visibility(join_rule);
 
     room.privacy_settings()
         .update_room_visibility(visibility)

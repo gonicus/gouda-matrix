@@ -670,7 +670,6 @@ mod tests {
                         ("user-3".to_owned(), UserRoomState::Banned as i32),
                     ]),
                     space_id: Vec::new(),
-                    is_public: false,
                     unread_count: 0,
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
@@ -683,7 +682,6 @@ mod tests {
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
                     ]),
                     space_id: Vec::new(),
-                    is_public: true,
                     unread_count: 0,
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
@@ -1353,7 +1351,6 @@ mod tests {
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
             space_id: Vec::new(),
-            is_public: true,
             unread_count: 0,
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
@@ -1434,7 +1431,6 @@ mod tests {
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
             space_id: Vec::new(),
-            is_public: true,
             unread_count: 0,
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
@@ -1518,6 +1514,7 @@ mod tests {
             typing_user_id_list: Vec::new(),
             display_name: None,
             unread_count: Some(0),
+            join_rule: None,
         };
 
         let client = ClientMock {
@@ -1598,6 +1595,7 @@ mod tests {
             typing_user_id_list: Vec::new(),
             display_name: None,
             unread_count: Some(0),
+            join_rule: None,
         };
 
         let client = ClientMock {
@@ -1678,6 +1676,7 @@ mod tests {
             typing_user_id_list: Vec::new(),
             display_name: None,
             unread_count: Some(0),
+            join_rule: None,
         };
 
         let client = ClientMock {
@@ -1831,6 +1830,7 @@ mod tests {
             typing_user_id_list: Vec::new(),
             display_name: None,
             unread_count: Some(0),
+            join_rule: None,
         };
 
         let client = ClientMock {
