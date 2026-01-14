@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use matrix_sdk::ruma::api::client::room::{Visibility, create_room::v3::Request as MatrixCreateRoomRequest};
+use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use mrhc_core::Result;

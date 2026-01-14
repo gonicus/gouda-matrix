@@ -217,11 +217,12 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn join_room(
-        &mut self,
-        ctx: ClientContext,
-        request: JoinRoomRequest,
-    ) -> Result<Room> {
+    async fn join_room(&mut self, ctx: ClientContext, request: JoinRoomRequest) -> Result<Room> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn knock_room(&mut self, ctx: ClientContext, request: KnockRoomRequest) -> Result<()> {
         not_implemented_error()
     }
 

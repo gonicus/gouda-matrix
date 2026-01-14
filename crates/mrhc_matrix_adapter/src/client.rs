@@ -851,12 +851,8 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn join_room(
-        &mut self,
-        _ctx: ClientContext,
-        request: JoinRoomRequest,
-    ) -> Result<Room> {
-        let client = self.get_client()?;
+    async fn join_room(&mut self, _ctx: ClientContext, request: JoinRoomRequest) -> Result<Room> {
+        let client = self.get_client_logged_in()?;
 
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
@@ -871,6 +867,28 @@ impl ClientAbstraction for MatrixClient {
         let room = rooms::convert_to_proto(room).await?;
 
         Ok(room)
+    }
+
+    async fn knock_room(&mut self, _ctx: ClientContext, request: KnockRoomRequest) -> Result<()> {
+        let client = self.get_client_logged_in()?;
+
+        let KnockRoomRequest { room_id, message } = request;
+
+        let message = if message.is_empty() {
+            None
+        } else {
+            Some(message)
+        };
+
+        let room_id =
+            RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+
+        client
+            .knock(room_id.into(), message, Vec::new())
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
     }
 
     async fn public_rooms(

@@ -133,6 +133,7 @@ impl InputWindow {
                     PublicRoomList,
                     self.config.public_room_list.clone()
                 );
+                ui_action!(self, ui, KnockRoom, self.config.knock_room.clone());
             });
     }
 }
