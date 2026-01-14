@@ -63,7 +63,7 @@ pub struct ClientMock {
     pub leave_room_response: Result<RoomLeftEvent>,
     pub leave_room_call_count: u32,
 
-    pub join_room_response: Result<RoomChangeEvent>,
+    pub join_room_response: Result<Room>,
     pub join_room_call_count: u32,
 
     pub public_rooms_response: Result<PublicRoomListResponse>,
@@ -135,7 +135,7 @@ impl Default for ClientMock {
             leave_room_response: Ok(RoomLeftEvent::default()),
             leave_room_call_count: 0,
 
-            join_room_response: Ok(RoomChangeEvent::default()),
+            join_room_response: Ok(Room::default()),
             join_room_call_count: 0,
 
             public_rooms_response: Ok(PublicRoomListResponse::default()),
@@ -437,7 +437,7 @@ impl Client for ClientMock {
         &mut self,
         ctx: ClientContext,
         _request: JoinRoomRequest,
-    ) -> Result<RoomChangeEvent> {
+    ) -> Result<Room> {
         self.received_ctx = Some(ctx);
         self.join_room_call_count += 1;
         self.join_room_response.clone()

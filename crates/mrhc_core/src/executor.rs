@@ -164,7 +164,7 @@ impl Executor {
             }
             RequestContent::JoinRoomRequest(request) => {
                 let result = self.client.join_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
             }
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.public_rooms(ctx, request).await;
@@ -673,6 +673,7 @@ mod tests {
                     unread_count: 0,
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
+                    permissions: None,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -685,6 +686,7 @@ mod tests {
                     unread_count: 0,
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
+                    permissions: None,
                 },
             ],
         };
@@ -1354,6 +1356,7 @@ mod tests {
             unread_count: 0,
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1434,6 +1437,7 @@ mod tests {
             unread_count: 0,
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1515,6 +1519,8 @@ mod tests {
             display_name: None,
             unread_count: Some(0),
             join_rule: None,
+            is_direct: None,
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1596,6 +1602,8 @@ mod tests {
             display_name: None,
             unread_count: Some(0),
             join_rule: None,
+            is_direct: None,
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1677,6 +1685,8 @@ mod tests {
             display_name: None,
             unread_count: Some(0),
             join_rule: None,
+            is_direct: None,
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1819,18 +1829,18 @@ mod tests {
     async fn test_join_room_request() {
         // Arrange
         let request = RequestContent::JoinRoomRequest(JoinRoomRequest::default());
-        let response = RoomChangeEvent {
+        let response = Room {
             room_id: "new-room".to_owned(),
-            has_typing_user_id_list_changed: true,
-            has_user_id_list_changed: false,
+            display_name: "Test Room".to_owned(),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
             ]),
-            typing_user_id_list: Vec::new(),
-            display_name: None,
-            unread_count: Some(0),
-            join_rule: None,
+            space_id: Vec::new(),
+            unread_count: 0,
+            is_direct: false,
+            join_rule: RoomJoinRule::Invite.into(),
+            permissions: None,
         };
 
         let client = ClientMock {
@@ -1855,7 +1865,7 @@ mod tests {
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::RoomChangeEvent(response))
+            create_output_task(2, ResponseContent::RoomCreatedEvent(response))
         );
         assert!(output_rx.is_empty())
     }

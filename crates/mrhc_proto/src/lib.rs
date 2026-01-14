@@ -14,6 +14,8 @@ pub mod chat {
             display_name: Option<String>,
             unread_count: Option<u32>,
             join_rule: Option<RoomJoinRule>,
+            is_direct: Option<bool>,
+            permissions: Option<RoomPermissions>,
         }
 
         impl RoomChangeEventBuilder {
@@ -25,6 +27,8 @@ pub mod chat {
                     display_name: None,
                     unread_count: None,
                     join_rule: None,
+                    is_direct: None,
+                    permissions: None,
                 }
             }
 
@@ -53,13 +57,28 @@ pub mod chat {
                 self
             }
 
+            pub fn change_is_direct(mut self, is_direct: bool) -> Self {
+                self.is_direct = Some(is_direct);
+                self
+            }
+
+            pub fn change_permissions(mut self, permissions: RoomPermissions) -> Self {
+                self.permissions = Some(permissions);
+                self
+            }
+
             pub fn into_proto(self) -> RoomChangeEvent {
                 let mut event = RoomChangeEvent {
                     room_id: self.room_id,
+                    has_user_id_list_changed: false,
+                    has_typing_user_id_list_changed: false,
+                    user_id_list: HashMap::new(),
+                    typing_user_id_list: Vec::new(),
                     display_name: self.display_name,
                     unread_count: self.unread_count,
                     join_rule: self.join_rule.map(|f| f.into()),
-                    ..Default::default()
+                    is_direct: self.is_direct,
+                    permissions: self.permissions,
                 };
 
                 if let Some(user_id_list) = self.user_id_list {
