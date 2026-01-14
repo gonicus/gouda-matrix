@@ -68,6 +68,17 @@ pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
     }
 }
 
+/// Converts a `matrix_sdk_base::Error` to a new chat error.
+pub fn convert_matrix_sdk_base_error(err: matrix_sdk_base::Error) -> Error {
+    log::error!("Received matrix sdk base error: {err:?}");
+
+    match err {
+        matrix_sdk_base::Error::CryptoStore(err) => convert_crypto_store_error(err),
+        matrix_sdk_base::Error::StateStore(err) => convert_store_error(err),
+        _ => create_unknown(err),
+    }
+}
+
 /// Converts a `ClientBuildError` to a new chat error.
 pub fn convert_client_build_error(err: ClientBuildError) -> Error {
     log::error!("Received client build error: {err:?}");

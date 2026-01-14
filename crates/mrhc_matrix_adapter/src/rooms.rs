@@ -8,10 +8,11 @@ use mrhc_core::Result;
 use mrhc_proto::chat::*;
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
+use ruma_common::UserId;
 
 use crate::{errors, utils};
 
-pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
+pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Result<Room> {
     let display_name = room
         .display_name()
         .await
@@ -38,8 +39,6 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
 
     let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
 
-    // TODO: Retrieve room permissions
-
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -48,7 +47,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         unread_count,
         is_direct,
         join_rule: join_rule.into(),
-        permissions: None,
+        permissions: Some(get_permissions(&room, user_id).await?),
     })
 }
 
@@ -68,6 +67,25 @@ pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>
     }
 
     Ok(result)
+}
+
+pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Result<RoomPermissions> {
+    use matrix_sdk::ruma::events::StateEventType;
+
+    let room_power_levels = room
+        .power_levels()
+        .await
+        .map_err(errors::convert_matrix_sdk_base_error)?;
+
+    let can_edit = room_power_levels.user_can_send_state(user_id, StateEventType::RoomName)
+        && room_power_levels.user_can_send_state(user_id, StateEventType::RoomJoinRules);
+
+    Ok(RoomPermissions {
+        can_edit,
+        can_invite: room_power_levels.user_can_invite(user_id),
+        can_kick: room_power_levels.user_can_kick(user_id),
+        can_ban: room_power_levels.user_can_ban(user_id),
+    })
 }
 
 pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
