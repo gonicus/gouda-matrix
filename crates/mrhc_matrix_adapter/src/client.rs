@@ -403,6 +403,10 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<RoomListResponse> {
         let client = self.get_client_logged_in()?;
 
+        let Some(user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
         let mut filter = RoomStateFilter::empty();
 
         if request.include_joined {
@@ -423,7 +427,7 @@ impl ClientAbstraction for MatrixClient {
                 continue;
             }
 
-            result.push(rooms::convert_to_proto(room).await?);
+            result.push(rooms::convert_to_proto(room, user_id).await?);
         }
 
         Ok(RoomListResponse { room_list: result })
@@ -671,10 +675,15 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<Room> {
         let client = self.get_client_logged_in()?;
 
-        let user_id = UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
+        let Some(our_user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
+        let invitee_user_id =
+            UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
 
         let room_request =
-            rooms::create_dm_room_request(request.display_name.clone(), user_id.to_owned());
+            rooms::create_dm_room_request(request.display_name.clone(), invitee_user_id.to_owned());
 
         let room = client
             .create_room(room_request)
@@ -686,7 +695,7 @@ impl ClientAbstraction for MatrixClient {
         // room object returned by the SDK does not contain all the data at the time
         // of room creation. To avoid waiting for the next sync, we just
         // overwrite the data in the response.
-        let mut response = rooms::convert_to_proto(room).await?;
+        let mut response = rooms::convert_to_proto(room, our_user_id).await?;
         response.display_name = request.display_name;
         response.is_direct = true;
 
@@ -699,6 +708,10 @@ impl ClientAbstraction for MatrixClient {
         request: CreateGroupRoomRequest,
     ) -> Result<Room> {
         let client = self.get_client_logged_in()?;
+
+        let Some(user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
 
         let CreateGroupRoomRequest {
             display_name,
@@ -726,7 +739,7 @@ impl ClientAbstraction for MatrixClient {
         // room object returned by the SDK does not contain all the data at the time
         // of room creation. To avoid waiting for the next sync, we just
         // overwrite the data in the response.
-        let mut response = rooms::convert_to_proto(room).await?;
+        let mut response = rooms::convert_to_proto(room, user_id).await?;
         response.display_name = display_name;
         response.join_rule = join_rule.into();
 
@@ -854,6 +867,10 @@ impl ClientAbstraction for MatrixClient {
     async fn join_room(&mut self, _ctx: ClientContext, request: JoinRoomRequest) -> Result<Room> {
         let client = self.get_client_logged_in()?;
 
+        let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
@@ -864,7 +881,7 @@ impl ClientAbstraction for MatrixClient {
 
         // Refresh the room to return an updated member list
         let room = self.get_matrix_room(&request.room_id)?;
-        let room = rooms::convert_to_proto(room).await?;
+        let room = rooms::convert_to_proto(room, &user_id).await?;
 
         Ok(room)
     }
