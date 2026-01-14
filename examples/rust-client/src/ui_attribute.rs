@@ -210,7 +210,7 @@ impl UiAttribute for ChangeRoomRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
         ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, is_public);
+        ui_attribute!(self, ui, join_rule);
     }
 }
 

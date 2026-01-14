@@ -729,7 +729,6 @@ impl ClientAbstraction for MatrixClient {
         let mut response = rooms::convert_to_proto(room).await?;
         response.display_name = display_name;
         response.join_rule = join_rule.into();
-        response.is_public = join_rule == RoomJoinRule::Public;
 
         Ok(response)
     }
@@ -808,7 +807,7 @@ impl ClientAbstraction for MatrixClient {
         let ChangeRoomRequest {
             room_id,
             display_name,
-            is_public,
+            join_rule,
         } = request;
 
         let room = self.get_matrix_room(&room_id)?;
@@ -823,8 +822,12 @@ impl ClientAbstraction for MatrixClient {
             response = response.change_display_name(display_name);
         }
 
-        if let Some(is_public) = is_public {
-            rooms::update_room_visibility(&room, is_public).await?;
+        if let Some(join_rule) = join_rule {
+            let join_rule = RoomJoinRule::try_from(join_rule)
+                .map_err(|_| errors::create_unknown("Invalid JoinRule"))?;
+
+            rooms::update_room_join_rule(&room, join_rule).await?;
+            response = response.change_join_rule(join_rule);
         }
 
         Ok(response.into_proto())
