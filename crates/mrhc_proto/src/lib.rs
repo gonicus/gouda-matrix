@@ -13,6 +13,7 @@ pub mod chat {
             typing_user_id_list: Option<Vec<String>>,
             display_name: Option<String>,
             unread_count: Option<u32>,
+            join_rule: Option<RoomJoinRule>,
         }
 
         impl RoomChangeEventBuilder {
@@ -23,6 +24,7 @@ pub mod chat {
                     typing_user_id_list: None,
                     display_name: None,
                     unread_count: None,
+                    join_rule: None,
                 }
             }
 
@@ -46,11 +48,17 @@ pub mod chat {
                 self
             }
 
+            pub fn change_join_rule(mut self, join_rule: RoomJoinRule) -> Self {
+                self.join_rule = Some(join_rule);
+                self
+            }
+
             pub fn into_proto(self) -> RoomChangeEvent {
                 let mut event = RoomChangeEvent {
                     room_id: self.room_id,
                     display_name: self.display_name,
                     unread_count: self.unread_count,
+                    join_rule: self.join_rule.map(|f| f.into()),
                     ..Default::default()
                 };
 
