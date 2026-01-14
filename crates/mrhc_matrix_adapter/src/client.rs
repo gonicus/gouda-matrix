@@ -855,7 +855,7 @@ impl ClientAbstraction for MatrixClient {
         &mut self,
         _ctx: ClientContext,
         request: JoinRoomRequest,
-    ) -> Result<RoomChangeEvent> {
+    ) -> Result<Room> {
         let client = self.get_client()?;
 
         let room_id = RoomId::parse(&request.room_id)
@@ -870,15 +870,7 @@ impl ClientAbstraction for MatrixClient {
         let room = self.get_matrix_room(&request.room_id)?;
         let room = rooms::convert_to_proto(room).await?;
 
-        let join_rule = RoomJoinRule::try_from(room.join_rule)
-            .map_err(|_| errors::create_unknown("Invalid RoomJoinRule"))?;
-
-        Ok(builder::RoomChangeEventBuilder::new(request.room_id)
-            .change_user_id_list(room.user_id_list)
-            .change_display_name(room.display_name)
-            .change_unread_count(room.unread_count)
-            .change_join_rule(join_rule)
-            .into_proto())
+        Ok(room)
     }
 
     async fn public_rooms(

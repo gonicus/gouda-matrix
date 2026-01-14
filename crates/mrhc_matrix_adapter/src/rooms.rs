@@ -37,6 +37,8 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
 
     let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
 
+    // TODO: Retrieve room permissions
+
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -45,6 +47,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room) -> Result<Room> {
         unread_count,
         is_direct,
         join_rule: join_rule.into(),
+        permissions: None,
     })
 }
 

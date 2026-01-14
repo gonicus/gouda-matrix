@@ -221,7 +221,7 @@ pub trait Client: Send {
         &mut self,
         ctx: ClientContext,
         request: JoinRoomRequest,
-    ) -> Result<RoomChangeEvent> {
+    ) -> Result<Room> {
         not_implemented_error()
     }
 
