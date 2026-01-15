@@ -773,17 +773,17 @@ async fn test_get_user_list_on_success() {
         user_list: vec![
             User {
                 user_id: "@tick:example.org".to_string(),
-                display_name: "Tick".to_string(),
+                display_name: Some("Tick".to_string()),
                 presence_state: None,
             },
             User {
                 user_id: "@trick:example".to_string(),
-                display_name: "Trick".to_string(),
+                display_name: Some("Trick".to_string()),
                 presence_state: None,
             },
             User {
                 user_id: "@track:example".to_string(),
-                display_name: "Track".to_string(),
+                display_name: Some("Track".to_string()),
                 presence_state: None,
             },
         ],

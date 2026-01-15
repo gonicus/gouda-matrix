@@ -23,9 +23,9 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
         .unwrap_or(matrix_sdk::RoomDisplayName::Empty);
 
     let display_name = if matches!(display_name, matrix_sdk::RoomDisplayName::Empty) {
-        "".to_owned()
+        None
     } else {
-        display_name.to_string()
+        Some(display_name.to_string())
     };
 
     let unread_count =
@@ -129,7 +129,7 @@ fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a private room with
 /// enabled encryption and recommended defaults.
 pub fn create_room_request(
-    display_name: String,
+    display_name: Option<String>,
     invitees: Vec<OwnedUserId>,
     join_rule: RoomJoinRule,
 ) -> MatrixCreateRoomRequest {
@@ -145,10 +145,7 @@ pub fn create_room_request(
 
     let mut request = MatrixCreateRoomRequest::new();
 
-    if !display_name.is_empty() {
-        request.name = Some(display_name);
-    }
-
+    request.name = display_name;
     request.invite = invitees;
     request.visibility = visibility;
     request.initial_state = vec![
@@ -170,7 +167,7 @@ pub fn create_room_request(
 /// Creates a new `ruma::api::client::room::create_room::v3::Request` for a direct room
 /// with another user.
 pub fn create_dm_room_request(
-    display_name: String,
+    display_name: Option<String>,
     invitee: OwnedUserId,
 ) -> MatrixCreateRoomRequest {
     use matrix_sdk::ruma::api::client::room::create_room;
@@ -205,10 +202,10 @@ pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoo
 
     for room in chunk {
         result.push(PublicRoom {
-            display_name: room.name.unwrap_or_default(),
+            display_name: room.name,
             num_joined_members: room.num_joined_members.try_into().unwrap_or(u32::MAX),
             room_id: room.room_id.to_string(),
-            topic: room.topic.unwrap_or_default(),
+            topic: room.topic,
             join_rule: convert_join_rule_kind(room.join_rule).into(),
         });
     }
