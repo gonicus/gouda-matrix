@@ -477,10 +477,7 @@ impl ClientAbstraction for MatrixClient {
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
-                    display_name: member
-                        .display_name()
-                        .map(str::to_string)
-                        .unwrap_or_default(),
+                    display_name: member.display_name().map(str::to_string),
                     presence_state: None,
                 });
             }
@@ -510,7 +507,7 @@ impl ClientAbstraction for MatrixClient {
 
             result.push(User {
                 user_id: user.user_id.to_string(),
-                display_name: user.display_name.unwrap_or_default(),
+                display_name: user.display_name,
                 presence_state: None,
             });
         }
@@ -849,7 +846,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(RoomLeftEvent {
             room_id: request.room_id,
             reason: room_left_event::RoomLeaveReason::User.into(),
-            message: String::new(),
+            message: None,
         })
     }
 
@@ -878,12 +875,6 @@ impl ClientAbstraction for MatrixClient {
         let client = self.get_client_logged_in()?;
 
         let KnockRoomRequest { room_id, message } = request;
-
-        let message = if message.is_empty() {
-            None
-        } else {
-            Some(message)
-        };
 
         let room_id =
             RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
@@ -914,9 +905,7 @@ impl ClientAbstraction for MatrixClient {
 
         let filter = {
             let mut filter = Filter::default();
-            if !generic_search_term.is_empty() {
-                filter.generic_search_term = Some(generic_search_term);
-            }
+            filter.generic_search_term = generic_search_term;
             filter
         };
 

@@ -669,7 +669,7 @@ mod tests {
             room_list: vec![
                 Room {
                     room_id: "room-1".to_owned(),
-                    display_name: "Test Room 1".to_owned(),
+                    display_name: Some("Test Room 1".to_owned()),
                     user_id_list: HashMap::from([
                         ("user-1".to_owned(), UserRoomState::Joined as i32),
                         ("user-2".to_owned(), UserRoomState::Knocked as i32),
@@ -683,7 +683,7 @@ mod tests {
                 },
                 Room {
                     room_id: "room-2".to_owned(),
-                    display_name: "Test Room 2".to_owned(),
+                    display_name: Some("Test Room 2".to_owned()),
                     user_id_list: HashMap::from([
                         ("user-1".to_owned(), UserRoomState::Joined as i32),
                         ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -839,12 +839,12 @@ mod tests {
             user_list: vec![
                 User {
                     user_id: "user_0".to_owned(),
-                    display_name: "Test User 1".to_owned(),
+                    display_name: Some("Test User 1".to_owned()),
                     presence_state: None,
                 },
                 User {
                     user_id: "user_1".to_owned(),
-                    display_name: "Test User 2".to_owned(),
+                    display_name: Some("Test User 2".to_owned()),
                     presence_state: None,
                 },
             ],
@@ -921,12 +921,12 @@ mod tests {
             user_list: vec![
                 User {
                     user_id: "user_0".to_owned(),
-                    display_name: "Test User 1".to_owned(),
+                    display_name: Some("Test User 1".to_owned()),
                     presence_state: None,
                 },
                 User {
                     user_id: "user_1".to_owned(),
-                    display_name: "Test User 2".to_owned(),
+                    display_name: Some("Test User 2".to_owned()),
                     presence_state: None,
                 },
             ],
@@ -1353,7 +1353,7 @@ mod tests {
         let request = RequestContent::CreateDirectRoomRequest(CreateDirectRoomRequest::default());
         let response = Room {
             room_id: "new-room".to_owned(),
-            display_name: "Test Room".to_owned(),
+            display_name: Some("Test Room".to_owned()),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -1434,7 +1434,7 @@ mod tests {
         let request = RequestContent::CreateGroupRoomRequest(CreateGroupRoomRequest::default());
         let response = Room {
             room_id: "new-room".to_owned(),
-            display_name: "Test Room".to_owned(),
+            display_name: Some("Test Room".to_owned()),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -1765,7 +1765,7 @@ mod tests {
         let response = RoomLeftEvent {
             room_id: "some-room".to_owned(),
             reason: room_left_event::RoomLeaveReason::User.into(),
-            message: String::new(),
+            message: None,
         };
 
         let client = ClientMock {
@@ -1837,7 +1837,7 @@ mod tests {
         let request = RequestContent::JoinRoomRequest(JoinRoomRequest::default());
         let response = Room {
             room_id: "new-room".to_owned(),
-            display_name: "Test Room".to_owned(),
+            display_name: Some("Test Room".to_owned()),
             user_id_list: HashMap::from([
                 ("user-1".to_owned(), UserRoomState::Joined as i32),
                 ("user-4".to_owned(), UserRoomState::Joined as i32),
@@ -1983,9 +1983,9 @@ mod tests {
         let response = PublicRoomListResponse {
             room_list: vec![PublicRoom {
                 room_id: "some-public-room-1".to_owned(),
-                display_name: "Some public room!".to_owned(),
+                display_name: Some("Some public room!".to_owned()),
                 num_joined_members: 20,
-                topic: "".to_owned(),
+                topic: None,
                 join_rule: RoomJoinRule::Invite.into(),
             }],
             next_batch: None,
