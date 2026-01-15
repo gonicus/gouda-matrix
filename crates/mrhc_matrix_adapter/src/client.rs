@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
@@ -690,16 +691,10 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // The following values represent separate events retrieved by the SDK after
-        // the room is created and the room object is returned. This means that the
-        // room object returned by the SDK does not contain all the data at the time
-        // of room creation. To avoid waiting for the next sync, we just
-        // overwrite the data in the response.
-        let mut response = rooms::convert_to_proto(room, our_user_id).await?;
-        response.display_name = request.display_name;
-        response.is_direct = true;
+        // Make sure the room is fully synced before trying to access its data
+        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
 
-        Ok(response)
+        Ok(rooms::convert_to_proto(room, our_user_id).await?)
     }
 
     async fn create_group_room(
@@ -734,16 +729,10 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // The following values represent separate events retrieved by the SDK after
-        // the room is created and the room object is returned. This means that the
-        // room object returned by the SDK does not contain all the data at the time
-        // of room creation. To avoid waiting for the next sync, we just
-        // overwrite the data in the response.
-        let mut response = rooms::convert_to_proto(room, user_id).await?;
-        response.display_name = display_name;
-        response.join_rule = join_rule.into();
+        // Make sure the room is fully synced before trying to access its data
+        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
 
-        Ok(response)
+        Ok(rooms::convert_to_proto(room, user_id).await?)
     }
 
     async fn mark_as_read(
@@ -874,16 +863,15 @@ impl ClientAbstraction for MatrixClient {
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        client
+        let room = client
             .join_room_by_id(&room_id)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // Refresh the room to return an updated member list
-        let room = self.get_matrix_room(&request.room_id)?;
-        let room = rooms::convert_to_proto(room, &user_id).await?;
+        // Make sure the room is fully synced before trying to access its data
+        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
 
-        Ok(room)
+        Ok(rooms::convert_to_proto(room, &user_id).await?)
     }
 
     async fn knock_room(&mut self, _ctx: ClientContext, request: KnockRoomRequest) -> Result<()> {
