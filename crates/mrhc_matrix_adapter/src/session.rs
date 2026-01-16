@@ -140,8 +140,7 @@ impl Session {
             sync_settings = sync_settings.token(token);
         }
 
-        client.add_event_handler_context(ctx.clone());
-        client.add_event_handler(events::event_handler);
+        events::setup_event_handlers(ctx.clone(), &client);
 
         let handle = tokio::spawn(async move {
             let result = client

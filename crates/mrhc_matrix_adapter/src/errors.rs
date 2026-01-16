@@ -69,6 +69,8 @@ pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
 }
 
 /// Converts a `matrix_sdk_base::Error` to a new chat error.
+// We may need this function again in the future.
+#[allow(dead_code)]
 pub fn convert_matrix_sdk_base_error(err: matrix_sdk_base::Error) -> Error {
     log::error!("Received matrix sdk base error: {err:?}");
 

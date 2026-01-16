@@ -77,9 +77,8 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
     use matrix_sdk::ruma::events::StateEventType;
 
     let room_power_levels = room
-        .power_levels()
-        .await
-        .map_err(errors::convert_matrix_sdk_base_error)?;
+        .power_levels_or_default()
+        .await;
 
     let can_edit = room_power_levels.user_can_send_state(user_id, StateEventType::RoomName)
         && room_power_levels.user_can_send_state(user_id, StateEventType::RoomJoinRules);
@@ -213,21 +212,9 @@ pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoo
     result
 }
 
-/// Shortcut function for `wait_for_state_events` to wait for all currently required
-/// state events needed to populate the data of a chat room.
-pub async fn wait_for_required_data(room: &MatrixRoom, timeout: Duration) -> Result<()> {
-    wait_for_state_events(
-        room,
-        vec![
-            StateEventType::RoomJoinRules,
-            StateEventType::RoomPowerLevels,
-        ],
-        timeout,
-    )
-    .await
-}
-
 /// Waits until we have received all specified event types for the given room.
+// We may need this function again in the future.
+#[allow(dead_code)]
 pub async fn wait_for_state_events(
     room: &MatrixRoom,
     events: Vec<StateEventType>,
