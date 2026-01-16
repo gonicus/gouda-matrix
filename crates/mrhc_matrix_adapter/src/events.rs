@@ -1,11 +1,39 @@
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent};
-use matrix_sdk::{Room, RoomState};
+use matrix_sdk::ruma::events::room::name::RoomNameEventContent;
+use matrix_sdk::ruma::events::SyncStateEvent;
+use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 
-pub async fn event_handler(
+/// Adds all required event handlers to the client.
+pub fn setup_event_handlers(ctx: ClientContext, client: &Client) {
+    client.add_event_handler_context(ctx);
+    client.add_event_handler_context(client.clone());
+    client.add_event_handler(room_name_event_handler);
+    client.add_event_handler(message_event_handler);
+}
+
+async fn room_name_event_handler(
+    event: SyncStateEvent<RoomNameEventContent>,
+    room: Room,
+    ctx: Ctx<ClientContext>,
+) {
+    log::debug!("Received room name event: {event:?}");
+
+    if let Some(original) = event.as_original() {
+        let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
+            .change_display_name(original.content.name.clone())
+            .into_proto();
+
+        ctx.clone().send_event(ResponseContent::RoomChangeEvent(proto));
+    } else {
+        log::debug!("Event is redacted");
+    }
+}
+
+async fn message_event_handler(
     event: OriginalSyncRoomMessageEvent,
     room: Room,
     ctx: Ctx<ClientContext>,

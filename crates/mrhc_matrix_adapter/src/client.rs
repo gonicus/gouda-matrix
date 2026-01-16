@@ -1,11 +1,9 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
-use matrix_sdk::ruma::events::StateEventType;
 use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
@@ -18,8 +16,6 @@ use url::Url;
 use crate::session::Session;
 use crate::verification::VerificationManager;
 use crate::{errors, rooms, session, utils};
-
-const ROOM_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 struct InitializedData {
@@ -691,17 +687,6 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
-
-        if request.display_name.is_some() {
-            let _ = rooms::wait_for_state_events(
-                &room,
-                vec![StateEventType::RoomName],
-                ROOM_SYNC_TIMEOUT,
-            );
-        }
-
         Ok(rooms::convert_to_proto(room, our_user_id).await?)
     }
 
@@ -736,17 +721,6 @@ impl ClientAbstraction for MatrixClient {
             .create_room(room_request)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
-
-        // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
-
-        if display_name.is_some() {
-            let _ = rooms::wait_for_state_events(
-                &room,
-                vec![StateEventType::RoomName],
-                ROOM_SYNC_TIMEOUT,
-            );
-        }
 
         Ok(rooms::convert_to_proto(room, user_id).await?)
     }
@@ -883,9 +857,6 @@ impl ClientAbstraction for MatrixClient {
             .join_room_by_id(&room_id)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
-
-        // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
 
         Ok(rooms::convert_to_proto(room, &user_id).await?)
     }
