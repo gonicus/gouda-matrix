@@ -18,6 +18,8 @@ use crate::session::Session;
 use crate::verification::VerificationManager;
 use crate::{errors, rooms, session, utils};
 
+const ROOM_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Clone)]
 struct InitializedData {
     /// The initialized matrix client.
@@ -689,7 +691,7 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
+        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
 
         Ok(rooms::convert_to_proto(room, our_user_id).await?)
     }
@@ -727,7 +729,7 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
+        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
 
         Ok(rooms::convert_to_proto(room, user_id).await?)
     }
@@ -866,7 +868,7 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         // Make sure the room is fully synced before trying to access its data
-        let _ = rooms::wait_for_required_data(&room, Duration::from_secs(3)).await;
+        let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
 
         Ok(rooms::convert_to_proto(room, &user_id).await?)
     }
