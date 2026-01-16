@@ -29,14 +29,14 @@ impl ClientContext {
 
     /// Helper method to send a response container to the output processor.
     #[inline]
-    fn send_to_output(&mut self, re: ResponseContainer) {
+    fn send_to_output(&self, re: ResponseContainer) {
         self.output_sender
             .send(OutputTask::Response(Box::new(re)))
             .expect("Receiver of the output sender dropped");
     }
 
     /// Sends an event to the receiving half.
-    pub fn send_event(&mut self, content: ResponseContent) {
+    pub fn send_event(&self, content: ResponseContent) {
         self.send_to_output(ResponseContainer {
             tag: 0,
             content: Some(content),
@@ -44,7 +44,7 @@ impl ClientContext {
     }
 
     /// Sends an error event to the receiving half.
-    pub fn send_error(&mut self, err: Error) {
+    pub fn send_error(&self, err: Error) {
         self.send_to_output(ResponseContainer {
             tag: 0,
             content: Some(ResponseContent::Error(err)),
