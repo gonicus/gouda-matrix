@@ -219,7 +219,6 @@ pub async fn wait_for_required_data(room: &MatrixRoom, timeout: Duration) -> Res
     wait_for_state_events(
         room,
         vec![
-            StateEventType::RoomName,
             StateEventType::RoomJoinRules,
             StateEventType::RoomPowerLevels,
         ],

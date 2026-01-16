@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+use matrix_sdk::ruma::events::StateEventType;
 use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
@@ -693,6 +694,14 @@ impl ClientAbstraction for MatrixClient {
         // Make sure the room is fully synced before trying to access its data
         let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
 
+        if request.display_name.is_some() {
+            let _ = rooms::wait_for_state_events(
+                &room,
+                vec![StateEventType::RoomName],
+                ROOM_SYNC_TIMEOUT,
+            );
+        }
+
         Ok(rooms::convert_to_proto(room, our_user_id).await?)
     }
 
@@ -730,6 +739,14 @@ impl ClientAbstraction for MatrixClient {
 
         // Make sure the room is fully synced before trying to access its data
         let _ = rooms::wait_for_required_data(&room, ROOM_SYNC_TIMEOUT).await;
+
+        if display_name.is_some() {
+            let _ = rooms::wait_for_state_events(
+                &room,
+                vec![StateEventType::RoomName],
+                ROOM_SYNC_TIMEOUT,
+            );
+        }
 
         Ok(rooms::convert_to_proto(room, user_id).await?)
     }
