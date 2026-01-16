@@ -132,7 +132,7 @@ impl Session {
     /// making this function non blocking.
     pub fn start_background_sync(
         self,
-        mut ctx: ClientContext,
+        ctx: ClientContext,
         client: Client,
         mut sync_settings: SyncSettings,
     ) -> Result<JoinHandle<()>> {

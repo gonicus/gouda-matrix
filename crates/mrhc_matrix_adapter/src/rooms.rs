@@ -76,9 +76,7 @@ pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>
 pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Result<RoomPermissions> {
     use matrix_sdk::ruma::events::StateEventType;
 
-    let room_power_levels = room
-        .power_levels_or_default()
-        .await;
+    let room_power_levels = room.power_levels_or_default().await;
 
     let can_edit = room_power_levels.user_can_send_state(user_id, StateEventType::RoomName)
         && room_power_levels.user_can_send_state(user_id, StateEventType::RoomJoinRules);
