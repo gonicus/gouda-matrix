@@ -36,6 +36,7 @@ pub async fn event_handler(
                     content: text_content.body,
                     related_message_id: None,
                     is_pinned: false,
+                    is_encrypted: false,
                 }),
             },
         ));
