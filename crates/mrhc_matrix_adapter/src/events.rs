@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
 use matrix_sdk::ruma::events::room::member::{MembershipState, RoomMemberEventContent};
-use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent};
+use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
 use matrix_sdk::ruma::events::room::name::RoomNameEventContent;
 use matrix_sdk::ruma::events::SyncStateEvent;
 use matrix_sdk::{Client, Room, RoomState};
@@ -153,23 +153,34 @@ async fn message_event_handler(
         return;
     };
 
-    // TODO: Support related_message_id
-    // TODO: Support is_pinned
-    // TODO: Support other mime types
+    if let Some(Relation::Replacement(relation)) = event.content.relates_to {
+        let content = text_content.body.strip_prefix("* ");
 
-    ctx.send_event(ResponseContent::MessageReceivedEvent(
-        MessageReceivedEvent {
-            message_content: Some(Message {
-                message_id: Some(event.event_id.to_string()),
-                room_id: room.room_id().to_string(),
-                sender_id: event.sender.to_string(),
-                timestamp: event.origin_server_ts.get().into(),
-                mime_type: "text/plain".to_owned(),
-                content: text_content.body,
-                related_message_id: None,
-                is_pinned: false,
-                is_encrypted: false,
-            }),
-        },
-    ));
+        let proto = MessageChangeEvent {
+            message_id: relation.event_id.to_string(),
+            content: Some(content.unwrap_or(text_content.body.as_str()).to_string()),
+            is_encrypted: None,
+            is_pinned: None,
+        };
+
+        ctx.send_event(ResponseContent::MessageChangeEvent(proto));
+
+        return;
+    }
+
+    let proto = MessageReceivedEvent {
+        message_content: Some(Message {
+            message_id: Some(event.event_id.to_string()),
+            room_id: room.room_id().to_string(),
+            sender_id: event.sender.to_string(),
+            timestamp: event.origin_server_ts.get().into(),
+            mime_type: "text/plain".to_owned(),
+            content: text_content.body,
+            related_message_id: None,
+            is_pinned: false,
+            is_encrypted: false,
+        }),
+    };
+
+    ctx.send_event(ResponseContent::MessageReceivedEvent(proto));
 }
