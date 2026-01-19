@@ -1,18 +1,21 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::event_handler::Ctx;
-use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
-use matrix_sdk::ruma::events::room::member::{MembershipState, RoomMemberEventContent};
+use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
+use matrix_sdk::ruma::events::room::member::{MembershipChange, OriginalSyncRoomMemberEvent};
 use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
-use matrix_sdk::ruma::events::room::name::RoomNameEventContent;
-use matrix_sdk::ruma::events::SyncStateEvent;
+use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::*;
+use ruma_common::MilliSecondsSinceUnixEpoch;
 
 use crate::rooms;
+
+// After how many seconds does an event count as historical?
+const HISTORIC_EVENT_TIMEOUT: u64 = 5;
 
 macro_rules! unwrap_or_log_return {
     ($expr:expr) => {
@@ -26,6 +29,19 @@ macro_rules! unwrap_or_log_return {
     };
 }
 
+fn is_historic_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    if now.saturating_sub(origin_server_ts.as_secs().into()) > HISTORIC_EVENT_TIMEOUT {
+        true
+    } else {
+        false
+    }
+}
+
 /// Adds all required event handlers to the client.
 pub fn setup_event_handlers(ctx: ClientContext, client: &Client) {
     client.add_event_handler_context(ctx);
@@ -37,74 +53,41 @@ pub fn setup_event_handlers(ctx: ClientContext, client: &Client) {
 }
 
 async fn room_name_event_handler(
-    event: SyncStateEvent<RoomNameEventContent>,
+    event: OriginalSyncRoomNameEvent,
     room: Room,
     ctx: Ctx<ClientContext>,
 ) {
     log::debug!("Received room name event: {event:?}");
 
-    let Some(original) = event.as_original() else {
-        log::debug!("Event is redacted");
+    if is_historic_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
         return;
-    };
+    }
 
     let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
-        .change_display_name(original.content.name.clone())
+        .change_display_name(event.content.name.clone())
         .into_proto();
 
     ctx.send_event(ResponseContent::RoomChangeEvent(proto));
 }
 
 async fn room_member_event_handler(
-    event: SyncStateEvent<RoomMemberEventContent>,
+    event: OriginalSyncRoomMemberEvent,
     room: Room,
     ctx: Ctx<ClientContext>,
     client: Client,
 ) {
-    const EVENT_TIMEOUT: u64 = 5;
-
     log::debug!("Received room member event: {event:?}");
 
-    let Some(original) = event.as_original() else {
-        log::debug!("Event is redacted");
-        return;
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    if now.saturating_sub(original.origin_server_ts.as_secs().into()) > EVENT_TIMEOUT {
-        log::debug!("Ignoring event as it is older than {EVENT_TIMEOUT} seconds");
+    if is_historic_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
         return;
     }
 
-    if Some(event.state_key().to_string()) == client.user_id().map(|f| f.to_string()) {
-        match event.membership() {
-            MembershipState::Leave => {
-                let reason = if Some(event.sender()) != client.user_id() {
-                    RoomLeaveReason::Kicked
-                } else {
-                    RoomLeaveReason::User
-                };
-
-                ctx.send_event(ResponseContent::RoomLeftEvent(RoomLeftEvent {
-                    room_id: room.room_id().to_string(),
-                    reason: reason.into(),
-                    message: original.content.reason.clone(),
-                }));
-                return;
-            }
-            MembershipState::Ban => {
-                ctx.send_event(ResponseContent::RoomLeftEvent(RoomLeftEvent {
-                    room_id: room.room_id().to_string(),
-                    reason: RoomLeaveReason::Banned.into(),
-                    message: original.content.reason.clone(),
-                }));
-                return;
-            }
-            _ => (),
+    // Check if our user's membership changed
+    if Some(event.state_key.to_string()) == client.user_id().map(|f| f.to_string()) {
+        if process_membership_change(ctx.clone(), &room, event).await {
+            return;
         }
     }
 
@@ -117,19 +100,42 @@ async fn room_member_event_handler(
     ctx.send_event(ResponseContent::RoomChangeEvent(proto));
 }
 
+async fn process_membership_change(
+    ctx: ClientContext,
+    room: &Room,
+    event: OriginalSyncRoomMemberEvent,
+) -> bool {
+    let reason = match event.membership_change() {
+        MembershipChange::Left => RoomLeaveReason::User,
+        MembershipChange::Kicked => RoomLeaveReason::Kicked,
+        MembershipChange::Banned | MembershipChange::KickedAndBanned => RoomLeaveReason::Banned,
+        _ => return false,
+    };
+
+    let proto = RoomLeftEvent {
+        room_id: room.room_id().to_string(),
+        reason: reason.into(),
+        message: event.content.reason.clone(),
+    };
+
+    ctx.send_event(ResponseContent::RoomLeftEvent(proto));
+
+    true
+}
+
 async fn room_join_rules_event_handler(
-    event: SyncStateEvent<RoomJoinRulesEventContent>,
+    event: OriginalSyncRoomJoinRulesEvent,
     room: Room,
     ctx: Ctx<ClientContext>,
 ) {
-    log::info!("Received room join rules event: {event:?}");
+    log::debug!("Received room join rules event: {event:?}");
 
-    let Some(original) = event.as_original() else {
-        log::debug!("Event is redacted");
+    if is_historic_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
         return;
-    };
+    }
 
-    let join_rule = rooms::convert_join_rule(original.content.join_rule.clone());
+    let join_rule = rooms::convert_join_rule(event.content.join_rule.clone());
 
     let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
         .change_join_rule(join_rule)
@@ -143,7 +149,7 @@ async fn message_event_handler(
     room: Room,
     ctx: Ctx<ClientContext>,
 ) {
-    log::info!("Received event: {event:?}");
+    log::debug!("Received message event: {event:?}");
 
     if room.state() != RoomState::Joined {
         return;
