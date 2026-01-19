@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::event_handler::Ctx;
+use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
 use matrix_sdk::ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent};
 use matrix_sdk::ruma::events::room::name::RoomNameEventContent;
@@ -31,6 +32,7 @@ pub fn setup_event_handlers(ctx: ClientContext, client: &Client) {
     client.add_event_handler_context(client.clone());
     client.add_event_handler(room_name_event_handler);
     client.add_event_handler(room_member_event_handler);
+    client.add_event_handler(room_join_rules_event_handler);
     client.add_event_handler(message_event_handler);
 }
 
@@ -110,6 +112,27 @@ async fn room_member_event_handler(
 
     let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
         .change_user_id_list(members)
+        .into_proto();
+
+    ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+}
+
+async fn room_join_rules_event_handler(
+    event: SyncStateEvent<RoomJoinRulesEventContent>,
+    room: Room,
+    ctx: Ctx<ClientContext>,
+) {
+    log::info!("Received room join rules event: {event:?}");
+
+    let Some(original) = event.as_original() else {
+        log::debug!("Event is redacted");
+        return;
+    };
+
+    let join_rule = rooms::convert_join_rule(original.content.join_rule.clone());
+
+    let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
+        .change_join_rule(join_rule)
         .into_proto();
 
     ctx.send_event(ResponseContent::RoomChangeEvent(proto));
