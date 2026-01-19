@@ -3,7 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
 use matrix_sdk::ruma::events::room::member::{MembershipChange, OriginalSyncRoomMemberEvent};
-use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
+use matrix_sdk::ruma::events::room::message::{
+    MessageType, OriginalSyncRoomMessageEvent, Relation,
+};
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
@@ -35,11 +37,7 @@ fn is_historic_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
         .unwrap_or_default()
         .as_secs();
 
-    if now.saturating_sub(origin_server_ts.as_secs().into()) > HISTORIC_EVENT_TIMEOUT {
-        true
-    } else {
-        false
-    }
+    now.saturating_sub(origin_server_ts.as_secs().into()) > HISTORIC_EVENT_TIMEOUT
 }
 
 /// Adds all required event handlers to the client.
@@ -85,10 +83,10 @@ async fn room_member_event_handler(
     }
 
     // Check if our user's membership changed
-    if Some(event.state_key.to_string()) == client.user_id().map(|f| f.to_string()) {
-        if process_membership_change(ctx.clone(), &room, event).await {
-            return;
-        }
+    if Some(event.state_key.to_string()) == client.user_id().map(|f| f.to_string())
+        && process_membership_change(ctx.clone(), &room, event).await
+    {
+        return;
     }
 
     let members = unwrap_or_log_return!(rooms::get_members(&room).await);
