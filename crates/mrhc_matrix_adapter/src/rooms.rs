@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
-use matrix_sdk::ruma::OwnedUserId;
+use matrix_sdk::ruma::{assign, OwnedUserId};
 use matrix_sdk::Room as MatrixRoom;
 use mrhc_core::Result;
 use mrhc_proto::chat::error::ErrorType;
@@ -43,6 +45,12 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
 
     let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
 
+    let latest_message_timestamp: Option<u64> = get_latest_event(&room)
+        .await
+        .map(|e| e.timestamp())
+        .flatten()
+        .map(|t| t.0.into());
+
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -52,6 +60,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
         is_direct,
         join_rule: join_rule.into(),
         permissions: Some(get_permissions(&room, user_id).await?),
+        latest_message_timestamp,
     })
 }
 
@@ -87,6 +96,17 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
         can_kick: room_power_levels.user_can_kick(user_id),
         can_ban: room_power_levels.user_can_ban(user_id),
     })
+}
+
+async fn get_latest_event(room: &matrix_sdk::Room) -> Option<TimelineEvent> {
+    let options = assign!(
+        MessagesOptions::backward(), {
+        limit: 1u8.into(),
+        }
+    );
+
+    let messages = room.messages(options).await.ok()?;
+    messages.chunk.first().cloned()
 }
 
 pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
