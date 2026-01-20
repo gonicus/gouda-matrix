@@ -47,8 +47,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
 
     let latest_message_timestamp: Option<u64> = get_latest_event(&room)
         .await
-        .map(|e| e.timestamp())
-        .flatten()
+        .and_then(|e| e.timestamp())
         .map(|t| t.0.into());
 
     Ok(Room {
