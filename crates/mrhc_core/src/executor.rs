@@ -280,7 +280,7 @@ mod tests {
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        let mut ctx = client.received_ctx.clone().unwrap();
+        let ctx = client.received_ctx.clone().unwrap();
 
         // Verify that the client context has received the correct output sender.
         // Since we cannot directly compare the receivers of the senders, we send an event and expect it to
@@ -680,6 +680,7 @@ mod tests {
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
                     permissions: None,
+                    latest_message_timestamp: None,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -693,6 +694,7 @@ mod tests {
                     is_direct: false,
                     join_rule: RoomJoinRule::Invite.into(),
                     permissions: None,
+                    latest_message_timestamp: None,
                 },
             ],
         };
@@ -1363,6 +1365,7 @@ mod tests {
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
+            latest_message_timestamp: None,
         };
 
         let client = ClientMock {
@@ -1444,6 +1447,7 @@ mod tests {
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
+            latest_message_timestamp: None,
         };
 
         let client = ClientMock {
@@ -1847,6 +1851,7 @@ mod tests {
             is_direct: false,
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
+            latest_message_timestamp: None,
         };
 
         let client = ClientMock {
