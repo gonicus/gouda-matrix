@@ -260,10 +260,7 @@ async fn message_event_handler(
     ctx.send_event(ResponseContent::MessageReceivedEvent(proto));
 }
 
-async fn reaction_event_handler(
-    event: OriginalSyncReactionEvent,
-    event_index: Ctx<EventIndex>,
-) {
+async fn reaction_event_handler(event: OriginalSyncReactionEvent, event_index: Ctx<EventIndex>) {
     log::debug!("Received reaction event: {event:?}");
 
     event_index.add_reaction(event_index::Reaction {

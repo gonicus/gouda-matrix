@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
-use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId};
+use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
 use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
@@ -66,13 +66,13 @@ impl MatrixClient {
             r#type: ErrorType::NotInitialized.into(),
             error_string: Some("The client has not been initialized".to_owned()),
         })?;
+
         Ok(data)
     }
 
     /// Returns the client if it was initialized with `Self::initialize` and logged in with
     /// either `Self::login_sso` or `Self::login_username_password`.
     /// An error is returned if the client is not yet initialized or is not currently logged in.
-    #[inline]
     fn get_client_logged_in(&self) -> Result<&Client> {
         let client = self.get_client()?;
 
@@ -87,7 +87,6 @@ impl MatrixClient {
     }
 
     /// Builds the `self.initialized_data` with the given values.
-    #[inline]
     fn initialize_data(
         &mut self,
         ctx: ClientContext,
@@ -230,6 +229,7 @@ impl ClientAbstraction for MatrixClient {
                         .iter()
                         .map(|f| f.id.to_owned())
                         .collect();
+
                     self.cached_idps = Some(idps);
 
                     response.push_login_flows(login_flows_response::LoginFlow::Sso)
@@ -262,15 +262,12 @@ impl ClientAbstraction for MatrixClient {
             ));
         }
 
-        let result = client
+        client
             .matrix_auth()
             .login_username(request.username, &request.password)
             .initial_device_display_name(device_display_name)
-            .await;
-
-        if let Err(err) = result {
-            return Err(errors::convert_matrix_sdk_error(err));
-        }
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         log::info!("Successfully logged in as {:?}", client.user_id());
 
@@ -279,6 +276,7 @@ impl ClientAbstraction for MatrixClient {
             session_file.to_path_buf(),
             session_passphrase.clone(),
         )?;
+
         session.save().await?;
 
         let sync_settings = SyncSettings::new();
@@ -914,19 +912,15 @@ impl ClientAbstraction for MatrixClient {
             generic_search_term,
         } = request;
 
-        let filter = {
-            let mut filter = Filter::default();
-            filter.generic_search_term = generic_search_term;
-            filter
-        };
+        let filter = assign!(Filter::default(), {
+            generic_search_term: generic_search_term,
+        });
 
-        let request = {
-            let mut request = get_public_rooms_filtered::v3::Request::default();
-            request.limit = limit.map(|f| f.into());
-            request.since = since;
-            request.filter = filter;
-            request
-        };
+        let request = assign!(get_public_rooms_filtered::v3::Request::default(), {
+            limit: limit.map(|f| f.into()),
+            since: since,
+            filter: filter,
+        });
 
         let result = client
             .public_rooms_filtered(request)
