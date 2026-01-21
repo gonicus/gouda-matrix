@@ -72,6 +72,9 @@ pub struct ClientMock {
     pub public_rooms_response: Result<PublicRoomListResponse>,
     pub public_rooms_call_count: u32,
 
+    pub toggle_reaction_response: Result<()>,
+    pub toggle_reaction_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -146,6 +149,9 @@ impl Default for ClientMock {
 
             public_rooms_response: Ok(PublicRoomListResponse::default()),
             public_rooms_call_count: 0,
+
+            toggle_reaction_response: Ok(()),
+            toggle_reaction_call_count: 0,
 
             received_ctx: None,
         }
@@ -247,6 +253,10 @@ impl ClientMock {
 
     pub fn assert_public_rooms_called_n(&self, n: u32) {
         assert!(self.public_rooms_call_count == n);
+    }
+
+    pub fn assert_toggle_reaction_called_n(&self, n: u32) {
+        assert!(self.toggle_reaction_call_count == n);
     }
 }
 
@@ -463,6 +473,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.public_rooms_call_count += 1;
         self.public_rooms_response.clone()
+    }
+
+    async fn toggle_reaction(
+        &mut self,
+        ctx: ClientContext,
+        _request: ToggleReactionRequest,
+    ) -> Result<()> {
+        self.received_ctx = Some(ctx);
+        self.toggle_reaction_call_count += 1;
+        self.toggle_reaction_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

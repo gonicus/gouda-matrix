@@ -4,7 +4,9 @@
 mod client;
 mod crypto;
 mod errors;
+mod event_index;
 mod events;
+mod macros;
 mod rooms;
 mod sas;
 mod session;

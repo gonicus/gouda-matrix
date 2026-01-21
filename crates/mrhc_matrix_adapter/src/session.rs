@@ -11,6 +11,7 @@ use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 use url::Url;
 
+use crate::event_index::EventIndex;
 use crate::{crypto, errors, events};
 
 /// The full session to persist.
@@ -115,6 +116,7 @@ impl Session {
             .sync_once(sync_settings)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
+
         self.sync_token = Some(response.next_batch.clone());
 
         log::info!("Initial sync finished");
@@ -132,15 +134,16 @@ impl Session {
     /// making this function non blocking.
     pub fn start_background_sync(
         self,
-        ctx: ClientContext,
         client: Client,
+        event_index: EventIndex,
+        ctx: ClientContext,
         mut sync_settings: SyncSettings,
     ) -> Result<JoinHandle<()>> {
         if let Some(token) = &self.sync_token {
             sync_settings = sync_settings.token(token);
         }
 
-        events::setup_event_handlers(ctx.clone(), &client);
+        events::setup_event_handlers(&client, event_index, ctx.clone());
 
         let handle = tokio::spawn(async move {
             let result = client
