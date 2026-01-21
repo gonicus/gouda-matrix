@@ -21,7 +21,7 @@ use mrhc_proto::chat::*;
 use ruma_common::serde::Raw;
 use ruma_common::MilliSecondsSinceUnixEpoch;
 
-use crate::event_index::{self, EventIndex};
+use crate::event_index::EventIndex;
 use crate::{rooms, unwrap_or_log_return};
 
 // After how many seconds does an event count as historical?
@@ -254,19 +254,20 @@ async fn message_event_handler(
             related_message_id: None,
             is_pinned: false,
             is_encrypted: false,
+            reactions: Vec::new(),
         }),
     };
 
     ctx.send_event(ResponseContent::MessageReceivedEvent(proto));
 }
 
-async fn reaction_event_handler(event: OriginalSyncReactionEvent, event_index: Ctx<EventIndex>) {
+async fn reaction_event_handler(
+    event: OriginalSyncReactionEvent,
+    room: Room,
+    event_index: Ctx<EventIndex>,
+) {
     log::debug!("Received reaction event: {event:?}");
 
-    event_index.add_reaction(event_index::Reaction {
-        message_id: event.content.relates_to.event_id.to_string(),
-        emoji: event.content.relates_to.key,
-        user_id: event.sender.to_string(),
-        event_id: event.event_id.to_string(),
-    });
+    let full_event = event.into_full_event(room.room_id().to_owned());
+    event_index.add_reaction(full_event.into());
 }
