@@ -13,6 +13,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 use url::Url;
 
+use crate::event_index::EventIndex;
 use crate::session::Session;
 use crate::verification::VerificationManager;
 use crate::{errors, rooms, session, utils};
@@ -28,6 +29,9 @@ struct InitializedData {
     pub session_file: PathBuf,
     /// The passphrase used to encrypt the session data.
     pub session_passphrase: String,
+
+    /// Contains cached events with data that we may need after they have been redacted.
+    pub event_index: EventIndex,
 }
 
 #[derive(Default)]
@@ -86,18 +90,26 @@ impl MatrixClient {
     #[inline]
     fn initialize_data(
         &mut self,
+        ctx: ClientContext,
         request: InitializationRequest,
         client: Client,
         session_file: PathBuf,
-    ) {
+    ) -> EventIndex {
+        let event_index = EventIndex::new(ctx);
+
         let data = InitializedData {
             client,
             device_display_name: request.device_display_name,
+
             session_file,
             session_passphrase: request.encryption_secret,
+
+            event_index: event_index.clone(),
         };
 
         self.initialized_data = Some(data);
+
+        event_index
     }
 
     /// Removes all finished verification requests.
@@ -154,14 +166,20 @@ impl ClientAbstraction for MatrixClient {
 
             match result {
                 Ok((client, mut session)) => {
-                    self.initialize_data(request, client.clone(), session_file.clone());
+                    let event_index = self.initialize_data(
+                        ctx.clone(),
+                        request,
+                        client.clone(),
+                        session_file.clone(),
+                    );
 
                     let sync_settings = SyncSettings::new();
 
                     session
                         .initial_sync(&mut ctx, &client, sync_settings.clone())
                         .await?;
-                    session.start_background_sync(ctx, client, sync_settings)?;
+
+                    session.start_background_sync(client, event_index, ctx, sync_settings)?;
 
                     return Ok(StatusUpdate {
                         code: status_update::StatusCode::LoggedIn as i32,
@@ -178,7 +196,7 @@ impl ClientAbstraction for MatrixClient {
         )
         .await?;
 
-        self.initialize_data(request, client, session_file);
+        self.initialize_data(ctx, request, client, session_file);
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::Connected as i32,
@@ -233,6 +251,7 @@ impl ClientAbstraction for MatrixClient {
             device_display_name,
             session_file,
             session_passphrase,
+            event_index,
             ..
         } = self.get_initialized_data()?;
 
@@ -267,7 +286,7 @@ impl ClientAbstraction for MatrixClient {
         session
             .initial_sync(&mut ctx, client, sync_settings.clone())
             .await?;
-        session.start_background_sync(ctx, client.clone(), sync_settings)?;
+        session.start_background_sync(client.clone(), event_index.clone(), ctx, sync_settings)?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -284,6 +303,7 @@ impl ClientAbstraction for MatrixClient {
             device_display_name,
             session_file,
             session_passphrase,
+            event_index,
             ..
         } = self.get_initialized_data()?;
 
@@ -314,6 +334,7 @@ impl ClientAbstraction for MatrixClient {
         let client = client.clone();
         let session_file = session_file.clone();
         let session_passphrase = session_passphrase.clone();
+        let event_index = event_index.clone();
 
         // Spawn a tokio task which waits for the successful login in order to send
         // a status update to the application.
@@ -345,7 +366,7 @@ impl ClientAbstraction for MatrixClient {
             }
 
             if session
-                .start_background_sync(ctx.clone(), client.clone(), sync_settings)
+                .start_background_sync(client.clone(), event_index, ctx.clone(), sync_settings)
                 .is_err()
             {
                 ctx.send_error(errors::create_unknown("Error starting background sync"));

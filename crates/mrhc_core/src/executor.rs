@@ -176,6 +176,12 @@ impl Executor {
                 let result = self.client.public_rooms(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::PublicRoomListResponse));
             }
+            RequestContent::ToggleReactionRequest(request) => {
+                let result = self.client.toggle_reaction(ctx, request).await;
+                if let Err(err) = result {
+                    self.send_response(tag, Err(err));
+                }
+            }
             _ => todo!("Request: {content:?} is currently not implemented"),
         }
     }
@@ -2051,6 +2057,70 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_public_rooms_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_toggle_reaction_request() {
+        // Arrange
+        let request = RequestContent::ToggleReactionRequest(ToggleReactionRequest::default());
+
+        let client = ClientMock {
+            toggle_reaction_response: Ok(()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_toggle_reaction_called_n(1);
+
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_toggle_reaction_err() {
+        // Arrange
+        let request = RequestContent::ToggleReactionRequest(ToggleReactionRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            toggle_reaction_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_toggle_reaction_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

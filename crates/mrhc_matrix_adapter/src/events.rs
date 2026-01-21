@@ -1,53 +1,124 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
+use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
 use matrix_sdk::ruma::events::room::member::{MembershipChange, OriginalSyncRoomMemberEvent};
 use matrix_sdk::ruma::events::room::message::{
     MessageType, OriginalSyncRoomMessageEvent, Relation,
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
+use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
+use matrix_sdk::ruma::events::{
+    AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+};
 use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::*;
+use ruma_common::serde::Raw;
 use ruma_common::MilliSecondsSinceUnixEpoch;
 
-use crate::rooms;
+use crate::event_index::{self, EventIndex};
+use crate::{rooms, unwrap_or_log_return};
 
 // After how many seconds does an event count as historical?
-const HISTORIC_EVENT_TIMEOUT: u64 = 5;
+const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
 
-macro_rules! unwrap_or_log_return {
-    ($expr:expr) => {
-        match $expr {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("Error: {e:?}");
-                return;
-            }
-        }
-    };
-}
-
-fn is_historic_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
+fn is_historical_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
-    now.saturating_sub(origin_server_ts.as_secs().into()) > HISTORIC_EVENT_TIMEOUT
+    now.saturating_sub(origin_server_ts.as_secs().into()) > HISTORICAL_EVENT_TIMEOUT
 }
 
 /// Adds all required event handlers to the client.
-pub fn setup_event_handlers(ctx: ClientContext, client: &Client) {
+pub fn setup_event_handlers(client: &Client, event_index: EventIndex, ctx: ClientContext) {
+    client.add_event_handler_context(event_index);
     client.add_event_handler_context(ctx);
-    client.add_event_handler_context(client.clone());
+
+    client.add_event_handler(redaction_event_handler);
     client.add_event_handler(room_name_event_handler);
     client.add_event_handler(room_member_event_handler);
     client.add_event_handler(room_join_rules_event_handler);
     client.add_event_handler(message_event_handler);
+    client.add_event_handler(reaction_event_handler);
+}
+
+async fn redaction_event_handler(
+    redact_event: OriginalSyncRoomRedactionEvent,
+    room: Room,
+    ctx: Ctx<ClientContext>,
+    event_index: Ctx<EventIndex>,
+) {
+    log::debug!("Received redaction event: {redact_event:?}");
+
+    let Some(redact_id) = redact_event.redacts else {
+        log::error!("Event redact id is not set");
+        return;
+    };
+
+    let event = unwrap_or_log_return!(room.event(&redact_id, None).await);
+
+    match event.kind {
+        TimelineEventKind::Decrypted(decrypted) => {
+            redact_any_timeline_event(ctx, event_index, decrypted.event).await;
+        }
+        TimelineEventKind::PlainText { event } => {
+            redact_any_sync_timeline_event(ctx, event_index, event).await;
+        }
+        _ => {
+            log::warn!("Event is not decrypted or plain text");
+        }
+    };
+}
+
+async fn redact_any_timeline_event(
+    _ctx: Ctx<ClientContext>,
+    event_index: Ctx<EventIndex>,
+    redacted_event: Raw<AnyTimelineEvent>,
+) {
+    let redacted_event = unwrap_or_log_return!(redacted_event.deserialize());
+
+    let AnyTimelineEvent::MessageLike(event) = redacted_event else {
+        log::debug!("Ignoring event as it is not message like");
+        return;
+    };
+
+    match event {
+        AnyMessageLikeEvent::Reaction(event) => {
+            event_index.redact_reaction(event.event_id().to_string())
+        }
+        _ => {
+            log::debug!("Ignoring event as it is not implemented");
+        }
+    }
+}
+
+async fn redact_any_sync_timeline_event(
+    _ctx: Ctx<ClientContext>,
+    event_index: Ctx<EventIndex>,
+    redacted_event: Raw<AnySyncTimelineEvent>,
+) {
+    let redacted_event = unwrap_or_log_return!(redacted_event.deserialize());
+
+    let AnySyncTimelineEvent::MessageLike(event) = redacted_event else {
+        log::debug!("Ignoring event as it is not message like");
+        return;
+    };
+
+    match event {
+        AnySyncMessageLikeEvent::Reaction(event) => {
+            event_index.redact_reaction(event.event_id().to_string())
+        }
+        _ => {
+            log::debug!("Ignoring event as it is not implemented");
+        }
+    }
 }
 
 async fn room_name_event_handler(
@@ -57,8 +128,8 @@ async fn room_name_event_handler(
 ) {
     log::debug!("Received room name event: {event:?}");
 
-    if is_historic_event(event.origin_server_ts) {
-        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
+    if is_historical_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORICAL_EVENT_TIMEOUT} seconds");
         return;
     }
 
@@ -77,8 +148,8 @@ async fn room_member_event_handler(
 ) {
     log::debug!("Received room member event: {event:?}");
 
-    if is_historic_event(event.origin_server_ts) {
-        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
+    if is_historical_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORICAL_EVENT_TIMEOUT} seconds");
         return;
     }
 
@@ -128,8 +199,8 @@ async fn room_join_rules_event_handler(
 ) {
     log::debug!("Received room join rules event: {event:?}");
 
-    if is_historic_event(event.origin_server_ts) {
-        log::debug!("Ignoring event as it is older than {HISTORIC_EVENT_TIMEOUT} seconds");
+    if is_historical_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORICAL_EVENT_TIMEOUT} seconds");
         return;
     }
 
@@ -187,4 +258,18 @@ async fn message_event_handler(
     };
 
     ctx.send_event(ResponseContent::MessageReceivedEvent(proto));
+}
+
+async fn reaction_event_handler(
+    event: OriginalSyncReactionEvent,
+    event_index: Ctx<EventIndex>,
+) {
+    log::debug!("Received reaction event: {event:?}");
+
+    event_index.add_reaction(event_index::Reaction {
+        message_id: event.content.relates_to.event_id.to_string(),
+        emoji: event.content.relates_to.key,
+        user_id: event.sender.to_string(),
+        event_id: event.event_id.to_string(),
+    });
 }
