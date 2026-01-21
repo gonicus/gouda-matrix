@@ -235,6 +235,11 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
+    #[allow(unused_variables)]
+    async fn create_reaction(&mut self, ctx: ClientContext, request: Reaction) -> Result<()> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

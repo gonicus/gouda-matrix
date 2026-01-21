@@ -25,6 +25,7 @@ pub struct Config {
     pub join_room: JoinRoomRequest,
     pub knock_room: KnockRoomRequest,
     pub public_room_list: PublicRoomListRequest,
+    pub create_reaction: Reaction,
 }
 
 impl Config {

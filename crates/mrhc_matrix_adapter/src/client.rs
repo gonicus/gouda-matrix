@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::room::MessagesOptions;
+use matrix_sdk::ruma::events::reaction::ReactionEventContent;
+use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::{Client, RoomMemberships};
@@ -11,6 +13,7 @@ use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
+use ruma_common::OwnedEventId;
 use url::Url;
 
 use crate::event_index::EventIndex;
@@ -126,7 +129,7 @@ impl MatrixClient {
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
     fn get_matrix_room(&mut self, room_id: &str) -> Result<matrix_sdk::Room> {
-        let client = self.get_client()?;
+        let client = self.get_client_logged_in()?;
 
         let room_id =
             RoomId::parse(room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
@@ -933,6 +936,28 @@ impl ClientAbstraction for MatrixClient {
             room_list: rooms,
             next_batch: result.next_batch,
         })
+    }
+
+    async fn create_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
+        let Reaction {
+            room_id,
+            message_id,
+            reaction,
+            ..
+        } = request;
+
+        let room = self.get_matrix_room(&room_id)?;
+
+        let message_id = OwnedEventId::try_from(message_id)
+            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
+
+        let event = ReactionEventContent::new(Annotation::new(message_id, reaction));
+
+        room.send(event)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

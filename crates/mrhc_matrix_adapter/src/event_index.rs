@@ -1,4 +1,5 @@
-use matrix_sdk::ruma::events::{OriginalMessageLikeEvent, reaction::ReactionEventContent};
+use matrix_sdk::ruma::events::reaction::ReactionEventContent;
+use matrix_sdk::ruma::events::OriginalMessageLikeEvent;
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::Reaction as ChatReaction;
