@@ -1,14 +1,28 @@
+use matrix_sdk::ruma::events::{OriginalMessageLikeEvent, reaction::ReactionEventContent};
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
-use mrhc_proto::chat::ReactionEvent;
+use mrhc_proto::chat::Reaction as ChatReaction;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug)]
-pub struct Reaction {
+pub struct ReactionData {
     pub event_id: String,
+    pub room_id: String,
     pub message_id: String,
     pub user_id: String,
     pub emoji: String,
+}
+
+impl From<OriginalMessageLikeEvent<ReactionEventContent>> for ReactionData {
+    fn from(value: OriginalMessageLikeEvent<ReactionEventContent>) -> Self {
+        Self {
+            event_id: value.event_id.to_string(),
+            room_id: value.room_id.to_string(),
+            message_id: value.content.relates_to.event_id.to_string(),
+            user_id: value.sender.to_string(),
+            emoji: value.content.relates_to.key,
+        }
+    }
 }
 
 /// Contains cached events with data we might need after the event has been
@@ -27,7 +41,7 @@ impl EventIndex {
         Self { action_sender: tx }
     }
 
-    pub fn add_reaction(&self, event: Reaction) {
+    pub fn add_reaction(&self, event: ReactionData) {
         let _ = self.action_sender.send(Action::AddReaction(event));
     }
 
@@ -37,7 +51,7 @@ impl EventIndex {
 }
 
 enum Action {
-    AddReaction(Reaction),
+    AddReaction(ReactionData),
     RedactReaction(String),
 }
 
@@ -45,7 +59,7 @@ struct EventIndexData {
     ctx: ClientContext,
     recv: UnboundedReceiver<Action>,
 
-    reactions: Vec<Reaction>,
+    reactions: Vec<ReactionData>,
 }
 
 impl EventIndexData {
@@ -72,19 +86,20 @@ impl EventIndexData {
         }
     }
 
-    fn add_reaction(&mut self, reaction: Reaction) {
+    fn add_reaction(&mut self, reaction: ReactionData) {
         log::info!("Adding reaction: {reaction:?}");
 
-        let proto = ReactionEvent {
+        let proto = ChatReaction {
+            room_id: reaction.room_id.clone(),
             message_id: reaction.message_id.clone(),
-            emoji: reaction.emoji.clone(),
-            user_id: reaction.user_id.clone(),
-            removed: false,
+            reaction: reaction.emoji.clone(),
+            user_id: Some(reaction.user_id.clone()),
         };
 
         self.reactions.push(reaction);
 
-        self.ctx.send_event(ResponseContent::ReactionEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::ReactionCreatedEvent(proto));
     }
 
     fn redact_reaction(&mut self, id: &str) {
@@ -100,13 +115,22 @@ impl EventIndexData {
 
         let reaction = self.reactions.remove(pos);
 
-        let proto = ReactionEvent {
-            message_id: reaction.message_id,
-            emoji: reaction.emoji,
-            user_id: reaction.user_id,
-            removed: true,
+        let ReactionData {
+            room_id,
+            message_id,
+            user_id,
+            emoji,
+            ..
+        } = reaction;
+
+        let proto = ChatReaction {
+            room_id,
+            message_id,
+            reaction: emoji,
+            user_id: Some(user_id),
         };
 
-        self.ctx.send_event(ResponseContent::ReactionEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::ReactionRemovedEvent(proto));
     }
 }
