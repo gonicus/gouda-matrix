@@ -240,3 +240,12 @@ impl UiAttribute for PublicRoomListRequest {
         ui_attribute!(self, ui, generic_search_term);
     }
 }
+
+impl UiAttribute for Reaction {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, message_id);
+        ui_attribute!(self, ui, reaction);
+        ui_attribute!(self, ui, user_id);
+    }
+}

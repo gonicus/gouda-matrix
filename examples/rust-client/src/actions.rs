@@ -63,6 +63,7 @@ pub enum Action {
     JoinRoom(Box<JoinRoomRequest>),
     KnockRoom(Box<KnockRoomRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
+    CreateReaction(Box<Reaction>),
 }
 
 impl Action {
@@ -94,6 +95,7 @@ impl Action {
             Self::JoinRoom(request) => run_join_room(tag, sender, *request),
             Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
+            Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
         }
     }
 }
@@ -123,6 +125,7 @@ impl UiAttribute for Action {
             Self::JoinRoom(request) => request.update(ui),
             Self::KnockRoom(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
+            Self::CreateReaction(request) => request.update(ui),
         }
     }
 }
@@ -166,3 +169,15 @@ impl_run_with_request!(run_leave_room, LeaveRoomRequest);
 impl_run_with_request!(run_join_room, JoinRoomRequest);
 impl_run_with_request!(run_public_room_list, PublicRoomListRequest);
 impl_run_with_request!(run_knock_room, KnockRoomRequest);
+
+// TODO: Improve macro so we can support this case
+fn run_create_reaction(tag: u64, sender: &mut SendHalf, request: Reaction) -> RequestContainer {
+    let request = RequestContainer {
+        tag,
+        content: Some(RequestContent::CreateReactionRequest(request)),
+    };
+
+    send_request(sender, request.clone());
+
+    request
+}

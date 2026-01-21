@@ -87,5 +87,11 @@
     "limit": null,
     "since": null,
     "generic_search_term": ""
+  },
+  "create-reaction": {
+    "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
+    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
+    "reaction": "hallo\nwelt\ntest",
+    "user_id": null
   }
 }
