@@ -21,11 +21,8 @@ macro_rules! impl_run {
             request
         }
     };
-}
-
-macro_rules! impl_run_with_request {
-    ($method:ident, $request_name:ident) => {
-        fn $method(tag: u64, sender: &mut SendHalf, request: $request_name) -> RequestContainer {
+    ($method:ident, $request_name:ident, $payload_name:ident) => {
+        fn $method(tag: u64, sender: &mut SendHalf, request: $payload_name) -> RequestContainer {
             let request = RequestContainer {
                 tag,
                 content: Some(RequestContent::$request_name(request)),
@@ -141,43 +138,34 @@ fn send_request(sender: &mut SendHalf, request: RequestContainer) {
         .expect("Error writing request container to sender");
 }
 
-impl_run_with_request!(run_initialize, InitializationRequest);
+impl_run!(run_initialize, InitializationRequest, InitializationRequest);
 impl_run!(run_login_flows, LoginFlowsRequest);
 impl_run!(run_identity_providers, IdentityProvidersRequest);
-impl_run_with_request!(run_login_sso, SsoLoginRequest);
-impl_run_with_request!(run_room_list, RoomListRequest);
+impl_run!(run_login_sso, SsoLoginRequest, SsoLoginRequest);
+impl_run!(run_room_list, RoomListRequest, RoomListRequest);
 impl_run!(run_user_list, UserListRequest);
-impl_run_with_request!(run_user_search, UserSearchRequest);
-impl_run_with_request!(run_send_message, SendMessageRequest);
-impl_run_with_request!(run_abort_verification, VerificationAbortRequest);
-impl_run_with_request!(
+impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
+impl_run!(run_send_message, SendMessageRequest, SendMessageRequest);
+impl_run!(run_abort_verification, VerificationAbortRequest, VerificationAbortRequest);
+impl_run!(
     run_recovery_key_verification,
+    RecoveryKeyVerificationRequest,
     RecoveryKeyVerificationRequest
 );
-impl_run_with_request!(run_cross_signing_start, CrossSigningStartRequest);
-impl_run_with_request!(
+impl_run!(run_cross_signing_start, CrossSigningStartRequest, CrossSigningStartRequest);
+impl_run!(
     run_cross_signing_select_method,
+    CrossSigningMethodSelectedRequest,
     CrossSigningMethodSelectedRequest
 );
-impl_run_with_request!(run_cross_signing_accept, CrossSigningAcceptRequest);
-impl_run_with_request!(run_create_direct_room, CreateDirectRoomRequest);
-impl_run_with_request!(run_create_group_room, CreateGroupRoomRequest);
-impl_run_with_request!(run_mark_as_read, MarkAsReadRequest);
-impl_run_with_request!(run_invite, InvitationRequest);
-impl_run_with_request!(run_change_room, ChangeRoomRequest);
-impl_run_with_request!(run_leave_room, LeaveRoomRequest);
-impl_run_with_request!(run_join_room, JoinRoomRequest);
-impl_run_with_request!(run_public_room_list, PublicRoomListRequest);
-impl_run_with_request!(run_knock_room, KnockRoomRequest);
-
-// TODO: Improve macro so we can support this case
-fn run_create_reaction(tag: u64, sender: &mut SendHalf, request: Reaction) -> RequestContainer {
-    let request = RequestContainer {
-        tag,
-        content: Some(RequestContent::CreateReactionRequest(request)),
-    };
-
-    send_request(sender, request.clone());
-
-    request
-}
+impl_run!(run_cross_signing_accept, CrossSigningAcceptRequest, CrossSigningAcceptRequest);
+impl_run!(run_create_direct_room, CreateDirectRoomRequest, CreateDirectRoomRequest);
+impl_run!(run_create_group_room, CreateGroupRoomRequest, CreateGroupRoomRequest);
+impl_run!(run_mark_as_read, MarkAsReadRequest, MarkAsReadRequest);
+impl_run!(run_invite, InvitationRequest, InvitationRequest);
+impl_run!(run_change_room, ChangeRoomRequest, ChangeRoomRequest);
+impl_run!(run_leave_room, LeaveRoomRequest, LeaveRoomRequest);
+impl_run!(run_join_room, JoinRoomRequest, JoinRoomRequest);
+impl_run!(run_public_room_list, PublicRoomListRequest, PublicRoomListRequest);
+impl_run!(run_knock_room, KnockRoomRequest, KnockRoomRequest);
+impl_run!(run_create_reaction, CreateReactionRequest, Reaction);
