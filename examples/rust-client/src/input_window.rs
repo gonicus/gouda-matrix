@@ -140,6 +140,7 @@ impl InputWindow {
                     CreateReaction,
                     self.config.create_reaction.clone()
                 );
+                ui_action!(self, ui, ChangeMessage, self.config.change_message.clone());
             });
     }
 }

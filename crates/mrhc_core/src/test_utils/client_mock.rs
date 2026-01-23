@@ -75,6 +75,9 @@ pub struct ClientMock {
     pub create_reaction_response: Result<()>,
     pub create_reaction_call_count: u32,
 
+    pub change_message_response: Result<()>,
+    pub change_message_call_count: u32,
+
     pub received_ctx: Option<ClientContext>,
 }
 
@@ -152,6 +155,9 @@ impl Default for ClientMock {
 
             create_reaction_response: Ok(()),
             create_reaction_call_count: 0,
+
+            change_message_response: Ok(()),
+            change_message_call_count: 0,
 
             received_ctx: None,
         }
@@ -257,6 +263,10 @@ impl ClientMock {
 
     pub fn assert_create_reaction_called_n(&self, n: u32) {
         assert!(self.create_reaction_call_count == n);
+    }
+
+    pub fn assert_change_message_called_n(&self, n: u32) {
+        assert!(self.change_message_call_count == n);
     }
 }
 
@@ -479,6 +489,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.create_reaction_call_count += 1;
         self.create_reaction_response.clone()
+    }
+
+    async fn change_message(
+        &mut self,
+        ctx: ClientContext,
+        _request: ChangeMessageRequest,
+    ) -> Result<()> {
+        self.received_ctx = Some(ctx);
+        self.change_message_call_count += 1;
+        self.change_message_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

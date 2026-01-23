@@ -1,6 +1,7 @@
 use matrix_sdk::encryption::identities::RequestVerificationError;
 use matrix_sdk::encryption::recovery::RecoveryError;
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
+use matrix_sdk::room::edit::EditError;
 use matrix_sdk::ruma::api::client::error::ErrorKind as RumaClientErrorKind;
 use matrix_sdk::ruma::api::client::Error as RumaClientError;
 use matrix_sdk::{ClientBuildError, HttpError, IdParseError, StoreError};
@@ -139,4 +140,8 @@ pub fn convert_store_error(err: StoreError) -> Error {
 /// Converts a `IdParseError` to a new chat error.
 pub fn convert_id_parse_error(err: IdParseError) -> Error {
     create_error_msg(ErrorType::InvalidUserId, err.to_string())
+}
+
+pub fn convert_edit_error(err: EditError) -> Error {
+    create_unknown(err)
 }
