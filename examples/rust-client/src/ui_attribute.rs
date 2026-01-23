@@ -249,3 +249,11 @@ impl UiAttribute for Reaction {
         ui_attribute!(self, ui, user_id);
     }
 }
+
+impl UiAttribute for ChangeMessageRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, message_id);
+        ui_attribute!(self, ui, new_content);
+    }
+}

@@ -91,7 +91,12 @@
   "create-reaction": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
-    "reaction": "hallo\nwelt\ntest",
+    "reaction": "🫪",
     "user_id": null
+  },
+  "change-message": {
+    "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
+    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
+    "new_content": "Hello World!"
   }
 }

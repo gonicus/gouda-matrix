@@ -26,6 +26,7 @@ pub struct Config {
     pub knock_room: KnockRoomRequest,
     pub public_room_list: PublicRoomListRequest,
     pub create_reaction: Reaction,
+    pub change_message: ChangeMessageRequest,
 }
 
 impl Config {

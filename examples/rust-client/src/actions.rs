@@ -61,6 +61,7 @@ pub enum Action {
     KnockRoom(Box<KnockRoomRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
     CreateReaction(Box<Reaction>),
+    ChangeMessage(Box<ChangeMessageRequest>),
 }
 
 impl Action {
@@ -93,6 +94,7 @@ impl Action {
             Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
             Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
+            Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
         }
     }
 }
@@ -123,6 +125,7 @@ impl UiAttribute for Action {
             Self::KnockRoom(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
             Self::CreateReaction(request) => request.update(ui),
+            Self::ChangeMessage(request) => request.update(ui),
         }
     }
 }
@@ -146,26 +149,55 @@ impl_run!(run_room_list, RoomListRequest, RoomListRequest);
 impl_run!(run_user_list, UserListRequest);
 impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
 impl_run!(run_send_message, SendMessageRequest, SendMessageRequest);
-impl_run!(run_abort_verification, VerificationAbortRequest, VerificationAbortRequest);
+impl_run!(
+    run_abort_verification,
+    VerificationAbortRequest,
+    VerificationAbortRequest
+);
 impl_run!(
     run_recovery_key_verification,
     RecoveryKeyVerificationRequest,
     RecoveryKeyVerificationRequest
 );
-impl_run!(run_cross_signing_start, CrossSigningStartRequest, CrossSigningStartRequest);
+impl_run!(
+    run_cross_signing_start,
+    CrossSigningStartRequest,
+    CrossSigningStartRequest
+);
 impl_run!(
     run_cross_signing_select_method,
     CrossSigningMethodSelectedRequest,
     CrossSigningMethodSelectedRequest
 );
-impl_run!(run_cross_signing_accept, CrossSigningAcceptRequest, CrossSigningAcceptRequest);
-impl_run!(run_create_direct_room, CreateDirectRoomRequest, CreateDirectRoomRequest);
-impl_run!(run_create_group_room, CreateGroupRoomRequest, CreateGroupRoomRequest);
+impl_run!(
+    run_cross_signing_accept,
+    CrossSigningAcceptRequest,
+    CrossSigningAcceptRequest
+);
+impl_run!(
+    run_create_direct_room,
+    CreateDirectRoomRequest,
+    CreateDirectRoomRequest
+);
+impl_run!(
+    run_create_group_room,
+    CreateGroupRoomRequest,
+    CreateGroupRoomRequest
+);
 impl_run!(run_mark_as_read, MarkAsReadRequest, MarkAsReadRequest);
 impl_run!(run_invite, InvitationRequest, InvitationRequest);
 impl_run!(run_change_room, ChangeRoomRequest, ChangeRoomRequest);
 impl_run!(run_leave_room, LeaveRoomRequest, LeaveRoomRequest);
 impl_run!(run_join_room, JoinRoomRequest, JoinRoomRequest);
-impl_run!(run_public_room_list, PublicRoomListRequest, PublicRoomListRequest);
+impl_run!(
+    run_public_room_list,
+    PublicRoomListRequest,
+    PublicRoomListRequest
+);
 impl_run!(run_knock_room, KnockRoomRequest, KnockRoomRequest);
 impl_run!(run_create_reaction, CreateReactionRequest, Reaction);
+impl_run!(
+    run_change_message,
+    ChangeMessageRequest,
+    ChangeMessageRequest
+);
