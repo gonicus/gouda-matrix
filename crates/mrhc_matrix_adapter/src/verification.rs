@@ -202,7 +202,7 @@ impl VerificationProcessor {
     /// an error has occurred, or the process has been aborted.
     async fn process_action(&mut self, action: Option<VerificationAction>) -> bool {
         let Some(action) = action else {
-            log::info!("Action sender of the verification request dropped");
+            log::debug!("Action sender of the verification request dropped");
             return true;
         };
 
@@ -243,7 +243,7 @@ impl VerificationProcessor {
     }
 
     async fn cancel(&mut self) {
-        log::info!("Cancelling verification flow");
+        log::debug!("Cancelling verification flow");
 
         if let Err(err) = self.verification.cancel().await {
             log::error!("Error canceling verification flow {err}");
@@ -254,7 +254,7 @@ impl VerificationProcessor {
     }
 
     async fn cancel_err<E: std::fmt::Display>(&mut self, err: E) {
-        log::info!("Cancelling verification flow");
+        log::debug!("Cancelling verification flow");
 
         if let Err(err) = self.verification.cancel().await {
             log::error!("Error canceling verification flow {err}");

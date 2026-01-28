@@ -76,13 +76,13 @@ async fn connect_socket(socket_name: &str) -> (RecvHalf, SendHalf) {
         .to_fs_name::<GenericFilePath>()
         .expect("Error creating socket name: '{socket_name}'");
 
-    log::debug!("Waiting for local socket connection at '{socket_name:?}'");
+    log::info!("Waiting for local socket connection at '{socket_name:?}'");
 
     let conn = Stream::connect(socket_name)
         .await
         .expect("Error connecting to socket");
 
-    log::debug!("Successfully connected to local socket");
+    log::info!("Successfully connected to local socket");
 
     conn.split()
 }

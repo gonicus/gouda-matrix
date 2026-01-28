@@ -42,7 +42,7 @@ impl InputProcessor {
 
                 match read_size(&mut self.reader).await {
                     Ok(size) => {
-                        log::debug!("Read size: {size}");
+                        log::trace!("Read size: {size}");
 
                         let request = read_request(&mut self.reader, size).await;
 
