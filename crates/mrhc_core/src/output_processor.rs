@@ -66,21 +66,21 @@ impl OutputProcessor {
                 let serialized = response.encode_to_vec();
                 let size = serialized.len().to_le_bytes().to_vec();
 
-                log::debug!("Writing size: {}", serialized.len());
+                log::trace!("Writing size: {}", serialized.len());
 
                 self.writer
                     .write_all(&size)
                     .await
                     .expect("error writing size");
 
-                log::debug!("Writing response: {serialized:?}");
+                log::trace!("Writing response: {serialized:?}");
 
                 self.writer
                     .write_all(&serialized)
                     .await
                     .expect("error writing response");
 
-                log::debug!("Flushing writer");
+                log::trace!("Flushing writer");
 
                 self.writer.flush().await.expect("error flushing writer");
 

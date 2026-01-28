@@ -88,7 +88,7 @@ impl EventIndexData {
     }
 
     fn add_reaction(&mut self, reaction: ReactionData) {
-        log::info!("Adding reaction: {reaction:?}");
+        log::debug!("Adding reaction: {reaction:?}");
 
         let proto = ChatReaction {
             room_id: reaction.room_id.clone(),
@@ -104,7 +104,7 @@ impl EventIndexData {
     }
 
     fn redact_reaction(&mut self, id: &str) {
-        log::info!("Redacting reaction: {id}");
+        log::debug!("Redacting reaction: {id}");
 
         let Some(pos) = self.reactions.iter().position(|p| p.event_id == id) else {
             log::warn!(

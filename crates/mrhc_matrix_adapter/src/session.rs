@@ -74,7 +74,7 @@ impl Session {
     }
 
     pub async fn save(&self) -> Result<()> {
-        log::info!("Persisting session");
+        log::debug!("Persisting session");
 
         let serialized = serde_json::to_string(&self)
             .map_err(|_| errors::create_unknown("Error serializing session"))?;
@@ -90,7 +90,7 @@ impl Session {
             .await
             .map_err(|_| errors::create_unknown("Error writing session to file"))?;
 
-        log::info!("Session persisted in: {}", self.file.to_string_lossy());
+        log::debug!("Session persisted in: {}", self.file.to_string_lossy());
 
         Ok(())
     }
@@ -120,7 +120,7 @@ impl Session {
         self.sync_token = Some(response.next_batch.clone());
 
         log::info!("Initial sync finished");
-        log::info!("Checking verification status");
+        log::debug!("Checking verification status");
 
         self.save().await?;
 
@@ -230,7 +230,7 @@ pub async fn restore_session(
     db_dir: &Path,
     db_passphrase: &str,
 ) -> Result<(Client, Session)> {
-    log::info!(
+    log::debug!(
         "Previous session found in '{}'",
         session_file.to_string_lossy()
     );
