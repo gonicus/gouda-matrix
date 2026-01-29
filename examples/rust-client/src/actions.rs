@@ -62,6 +62,7 @@ pub enum Action {
     PublicRoomList(Box<PublicRoomListRequest>),
     CreateReaction(Box<Reaction>),
     ChangeMessage(Box<ChangeMessageRequest>),
+    RemoveMessage(Box<RemoveMessageRequest>),
 }
 
 impl Action {
@@ -95,6 +96,7 @@ impl Action {
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
             Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
             Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
+            Self::RemoveMessage(request) => run_remove_message(tag, sender, *request),
         }
     }
 }
@@ -126,6 +128,7 @@ impl UiAttribute for Action {
             Self::PublicRoomList(request) => request.update(ui),
             Self::CreateReaction(request) => request.update(ui),
             Self::ChangeMessage(request) => request.update(ui),
+            Self::RemoveMessage(request) => request.update(ui),
         }
     }
 }
@@ -200,4 +203,9 @@ impl_run!(
     run_change_message,
     ChangeMessageRequest,
     ChangeMessageRequest
+);
+impl_run!(
+    run_remove_message,
+    RemoveMessageRequest,
+    RemoveMessageRequest
 );
