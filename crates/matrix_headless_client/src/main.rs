@@ -5,7 +5,7 @@ use log::LevelFilter;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use mrhc_core::AsyncApp;
+use mrhc_core::Runner;
 
 const LOG_FILE: &str = "matrix_client.log";
 
@@ -33,9 +33,9 @@ async fn main() {
     let (_recv_unused, send) = connect_socket(&response_socket).await;
 
     let client = mrhc_matrix_adapter::MatrixClient::new();
-    let app = AsyncApp::new(Box::new(client), Box::new(recv), Box::new(send));
+    let runner = Runner::new(Box::new(client), Box::new(recv), Box::new(send));
 
-    app.run().await
+    runner.run().await
 }
 
 fn setup_logging() {
