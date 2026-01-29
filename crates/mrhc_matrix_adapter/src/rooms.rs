@@ -60,6 +60,8 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
         join_rule: join_rule.into(),
         permissions: Some(get_permissions(&room, user_id).await?),
         latest_message_timestamp,
+        avatar_path: None,
+        is_favorite: false,
     })
 }
 

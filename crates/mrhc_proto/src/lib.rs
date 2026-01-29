@@ -16,6 +16,8 @@ pub mod chat {
             join_rule: Option<RoomJoinRule>,
             is_direct: Option<bool>,
             permissions: Option<RoomPermissions>,
+            avatar_path: Option<String>,
+            is_favourite: Option<bool>,
         }
 
         impl RoomChangeEventBuilder {
@@ -29,6 +31,8 @@ pub mod chat {
                     join_rule: None,
                     is_direct: None,
                     permissions: None,
+                    avatar_path: None,
+                    is_favourite: None,
                 }
             }
 
@@ -67,6 +71,16 @@ pub mod chat {
                 self
             }
 
+            pub fn change_avatar_path(mut self, avatar_path: String) -> Self {
+                self.avatar_path = Some(avatar_path);
+                self
+            }
+
+            pub fn change_is_favourite(mut self, is_favourite: bool) -> Self {
+                self.is_favourite = Some(is_favourite);
+                self
+            }
+
             pub fn into_proto(self) -> RoomChangeEvent {
                 let mut event = RoomChangeEvent {
                     room_id: self.room_id,
@@ -79,6 +93,8 @@ pub mod chat {
                     join_rule: self.join_rule.map(|f| f.into()),
                     is_direct: self.is_direct,
                     permissions: self.permissions,
+                    avatar_path: self.avatar_path,
+                    is_favorite: self.is_favourite,
                 };
 
                 if let Some(user_id_list) = self.user_id_list {
