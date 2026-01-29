@@ -301,8 +301,8 @@ mod tests {
         let ctx = client.received_ctx.clone().unwrap();
 
         // Verify that the client context has received the correct output sender.
-        // Since we cannot directly compare the receivers of the senders, we send an event and expect it to
-        // be received by the correct output receiver.
+        // Since we cannot directly compare the receivers of the senders, we send
+        // an event and expect it to be received by the correct output receiver.
         ctx.send_error(Error::default());
 
         assert_eq!(

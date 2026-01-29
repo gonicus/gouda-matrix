@@ -17,8 +17,8 @@ pub enum OutputTask {
 
 /// The OutputProcessor is responsible to write data synchronously to the specified output.
 /// This prevents multiple processes from writing data at the same time.
-/// The output can be any object that implements the `AsyncWrite` trait, as well as `Send` and `Unpin`.
-/// This is typically a socket or network stream.
+/// The output can be any object that implements the `AsyncWrite` trait, as well
+/// as `Send` and `Unpin`. This is typically a socket or network stream.
 pub struct OutputProcessor {
     /// Where to write the resulting data.
     writer: BufWriter<Box<Writer>>,
@@ -34,8 +34,8 @@ impl OutputProcessor {
         }
     }
 
-    /// Spawns an asynchronous Tokio task and starts the output processor to wait for tasks and write
-    /// its data to the `self.writer`.
+    /// Spawns an asynchronous Tokio task and starts the output processor to
+    /// wait for tasks and write its data to the `self.writer`.
     /// This method is executed until an `OutputTask::Exit` is received.
     pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {

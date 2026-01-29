@@ -57,8 +57,8 @@ fn setup_logging() {
         .logger(setup_custom_logger("matrix_headless_client"))
         .build(Root::builder().appender("file").build(LOG_LEVEL_OTHERS));
 
-    // Ignore any errors in the logging configuration. We don't want the client to fail to start if,
-    // for example, we can't open the log file.
+    // Ignore any errors in the logging configuration. We don't want the
+    // client to fail to start if, for example, we can't open the log file.
     if let Ok(cfg) = config {
         let _ = log4rs::init_config(cfg);
     }

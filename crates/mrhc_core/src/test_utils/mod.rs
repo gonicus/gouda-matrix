@@ -1,5 +1,6 @@
 //! This module contains utilities used for testing.
-//! The module can only be imported if the importing module is annotated with #[cfg(test)]
+//! The module can only be imported if the importing module is
+//! annotated with #[cfg(test)]
 
 mod client_mock;
 mod writer_mock;

@@ -209,7 +209,8 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_login_flows(&mut self, _ctx: ClientContext) -> Result<LoginFlowsResponse> {
-        use matrix_sdk::ruma::api::client::session::get_login_types::v3::LoginType as MatrixLoginType;
+        use matrix_sdk::ruma::api::client::session::get_login_types::v3;
+        use v3::LoginType as MatrixLoginType;
 
         let client = self.get_client()?;
 

@@ -9,8 +9,8 @@ use crate::output_processor::OutputTask;
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
 /// The InputProcessor is responsible to read and decode data from the specified input.
-/// The input can be any object that implements the `AsyncRead` trait, as well as `Send` and `Unpin`.
-/// This is typically a socket or network stream.
+/// The input can be any object that implements the `AsyncRead` trait, as well
+/// as `Send` and `Unpin`. This is typically a socket or network stream.
 pub struct InputProcessor {
     /// From where to read and decode input.
     reader: BufReader<Box<Reader>>,
@@ -33,7 +33,8 @@ impl InputProcessor {
         }
     }
 
-    /// Spawns an asynchronous tokio task and starts the input processor to wait for input to decode.
+    /// Spawns an asynchronous tokio task and starts the input processor
+    /// to wait for input to decode.
     /// This method is executed until the program ends.
     pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
