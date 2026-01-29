@@ -699,6 +699,8 @@ mod tests {
                     join_rule: RoomJoinRule::Invite.into(),
                     permissions: None,
                     latest_message_timestamp: None,
+                    avatar_path: None,
+                    is_favorite: false,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -713,6 +715,8 @@ mod tests {
                     join_rule: RoomJoinRule::Invite.into(),
                     permissions: None,
                     latest_message_timestamp: None,
+                    avatar_path: None,
+                    is_favorite: false,
                 },
             ],
         };
@@ -1384,6 +1388,8 @@ mod tests {
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
             latest_message_timestamp: None,
+            avatar_path: None,
+            is_favorite: false,
         };
 
         let client = ClientMock {
@@ -1466,6 +1472,8 @@ mod tests {
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
             latest_message_timestamp: None,
+            avatar_path: None,
+            is_favorite: false,
         };
 
         let client = ClientMock {
@@ -1549,6 +1557,8 @@ mod tests {
             join_rule: None,
             is_direct: None,
             permissions: None,
+            avatar_path: None,
+            is_favorite: None,
         };
 
         let client = ClientMock {
@@ -1632,6 +1642,8 @@ mod tests {
             join_rule: None,
             is_direct: None,
             permissions: None,
+            avatar_path: None,
+            is_favorite: None,
         };
 
         let client = ClientMock {
@@ -1715,6 +1727,8 @@ mod tests {
             join_rule: None,
             is_direct: None,
             permissions: None,
+            avatar_path: None,
+            is_favorite: None,
         };
 
         let client = ClientMock {
@@ -1870,6 +1884,8 @@ mod tests {
             join_rule: RoomJoinRule::Invite.into(),
             permissions: None,
             latest_message_timestamp: None,
+            avatar_path: None,
+            is_favorite: false,
         };
 
         let client = ClientMock {

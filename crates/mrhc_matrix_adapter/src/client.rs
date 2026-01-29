@@ -826,6 +826,7 @@ impl ClientAbstraction for MatrixClient {
             room_id,
             display_name,
             join_rule,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id)?;
