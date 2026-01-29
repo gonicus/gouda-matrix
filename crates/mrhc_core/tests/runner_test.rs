@@ -4,7 +4,7 @@ use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{Listener, RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::{GenericFilePath, ListenerOptions};
 use mrhc_core::test_utils::ClientMock;
-use mrhc_core::{AsyncApp, Client};
+use mrhc_core::{Runner, Client};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
 struct TestSetup {
-    async_app: AsyncApp,
+    runner: Runner,
     client_receiver: RecvHalf,
     client_sender: SendHalf,
 }
@@ -59,7 +59,7 @@ async fn setup<T: Client + 'static>(test_client: T) -> Result<TestSetup, std::io
     let (recver, sender) = conn.split();
 
     let test_setup = TestSetup {
-        async_app: AsyncApp::new(
+        runner: Runner::new(
             Box::new(test_client),
             Box::new(test_reader),
             Box::new(test_writer),
@@ -93,7 +93,7 @@ async fn test_on_invalid_data() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data: Vec<u8> = vec![
@@ -120,7 +120,7 @@ async fn test_on_too_large_header() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data: Vec<u8> = vec![
@@ -151,7 +151,7 @@ async fn test_initialization_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -197,7 +197,7 @@ async fn test_initialization_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -245,7 +245,7 @@ async fn test_get_login_flows_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -291,7 +291,7 @@ async fn test_get_login_flows_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -336,7 +336,7 @@ async fn test_login_username_password_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -382,7 +382,7 @@ async fn test_login_username_password_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -427,7 +427,7 @@ async fn test_login_sso_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -471,7 +471,7 @@ async fn test_login_sso_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -514,7 +514,7 @@ async fn test_get_identity_providers_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -560,7 +560,7 @@ async fn test_get_identity_providers_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -604,7 +604,7 @@ async fn test_room_list_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -647,7 +647,7 @@ async fn test_room_list_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -689,7 +689,7 @@ async fn test_send_message_request_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -734,7 +734,7 @@ async fn test_send_message_request_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -794,7 +794,7 @@ async fn test_get_user_list_on_success() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {
@@ -837,7 +837,7 @@ async fn test_get_user_list_on_error() {
     };
     let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.async_app.run());
+    let app_task = tokio::spawn(setup.runner.run());
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let test_data_obj = RequestContainer {

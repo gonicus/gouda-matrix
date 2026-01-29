@@ -5,13 +5,13 @@ use crate::input_processor::{InputProcessor, Reader};
 use crate::output_processor::{OutputProcessor, Writer};
 use crate::Client;
 
-pub struct AsyncApp {
+pub struct Runner {
     input_processor: InputProcessor,
     executor: Executor,
     output_processor: OutputProcessor,
 }
 
-impl AsyncApp {
+impl Runner {
     pub fn new(client: Box<dyn Client>, reader: Box<Reader>, writer: Box<Writer>) -> Self {
         let (executor_tx, executor_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
