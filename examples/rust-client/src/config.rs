@@ -27,6 +27,7 @@ pub struct Config {
     pub public_room_list: PublicRoomListRequest,
     pub create_reaction: Reaction,
     pub change_message: ChangeMessageRequest,
+    pub remove_message: RemoveMessageRequest,
 }
 
 impl Config {

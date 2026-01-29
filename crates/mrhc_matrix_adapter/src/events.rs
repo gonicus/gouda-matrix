@@ -66,10 +66,10 @@ async fn redaction_event_handler(
 
     match event.kind {
         TimelineEventKind::Decrypted(decrypted) => {
-            redact_any_timeline_event(ctx, event_index, decrypted.event).await;
+            redact_any_timeline_event(ctx, room, event_index, decrypted.event).await;
         }
         TimelineEventKind::PlainText { event } => {
-            redact_any_sync_timeline_event(ctx, event_index, event).await;
+            redact_any_sync_timeline_event(ctx, room, event_index, event).await;
         }
         _ => {
             log::warn!("Event is not decrypted or plain text");
@@ -78,7 +78,8 @@ async fn redaction_event_handler(
 }
 
 async fn redact_any_timeline_event(
-    _ctx: Ctx<ClientContext>,
+    ctx: Ctx<ClientContext>,
+    room: Room,
     event_index: Ctx<EventIndex>,
     redacted_event: Raw<AnyTimelineEvent>,
 ) {
@@ -91,16 +92,21 @@ async fn redact_any_timeline_event(
 
     match event {
         AnyMessageLikeEvent::Reaction(event) => {
-            event_index.redact_reaction(event.event_id().to_string())
+            event_index.redact_reaction(event.event_id().to_string());
+        }
+        AnyMessageLikeEvent::RoomEncrypted(event) => {
+            // TODO: This doesn't necessarily have to be a text message event.
+            redact_room_message(ctx, room, event.event_id().to_string());
         }
         _ => {
-            log::debug!("Ignoring event as it is not implemented");
+            log::debug!("Ignoring event as it is not implemented: {event:?}");
         }
     }
 }
 
 async fn redact_any_sync_timeline_event(
-    _ctx: Ctx<ClientContext>,
+    ctx: Ctx<ClientContext>,
+    room: Room,
     event_index: Ctx<EventIndex>,
     redacted_event: Raw<AnySyncTimelineEvent>,
 ) {
@@ -113,12 +119,25 @@ async fn redact_any_sync_timeline_event(
 
     match event {
         AnySyncMessageLikeEvent::Reaction(event) => {
-            event_index.redact_reaction(event.event_id().to_string())
+            event_index.redact_reaction(event.event_id().to_string());
+        }
+        AnySyncMessageLikeEvent::RoomEncrypted(event) => {
+            // TODO: This doesn't necessarily have to be a text message event.
+            redact_room_message(ctx, room, event.event_id().to_string());
         }
         _ => {
-            log::debug!("Ignoring event as it is not implemented");
+            log::debug!("Ignoring event as it is not implemented: {event:?}");
         }
     }
+}
+
+fn redact_room_message(ctx: Ctx<ClientContext>, room: Room, event_id: String) {
+    let proto = RemoveMessageEvent {
+        room_id: room.room_id().to_string(),
+        message_id: event_id,
+    };
+
+    ctx.send_event(ResponseContent::RemoveMessageEvent(proto));
 }
 
 async fn room_name_event_handler(

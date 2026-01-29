@@ -131,7 +131,7 @@ impl MatrixClient {
 
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
-    fn get_matrix_room(&mut self, room_id: &str) -> Result<matrix_sdk::Room> {
+    fn get_matrix_room(&self, room_id: &str) -> Result<matrix_sdk::Room> {
         let client = self.get_client_logged_in()?;
 
         let room_id =
@@ -988,6 +988,28 @@ impl ClientAbstraction for MatrixClient {
         room.send(event)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
+    }
+
+    async fn remove_message(
+        &mut self,
+        _ctx: ClientContext,
+        request: RemoveMessageRequest,
+    ) -> Result<()> {
+        let RemoveMessageRequest {
+            room_id,
+            message_id,
+        } = request;
+
+        let room = self.get_matrix_room(&room_id)?;
+
+        let event_id = EventId::parse(message_id)
+            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
+
+        room.redact(&event_id, None, None)
+            .await
+            .map_err(errors::convert_http_error)?;
 
         Ok(())
     }

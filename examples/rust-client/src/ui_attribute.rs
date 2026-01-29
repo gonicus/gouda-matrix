@@ -257,3 +257,10 @@ impl UiAttribute for ChangeMessageRequest {
         ui_attribute!(self, ui, new_content);
     }
 }
+
+impl UiAttribute for RemoveMessageRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, message_id);
+    }
+}
