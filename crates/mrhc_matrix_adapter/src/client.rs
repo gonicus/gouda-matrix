@@ -755,6 +755,7 @@ impl ClientAbstraction for MatrixClient {
             display_name,
             invitees,
             join_rule,
+            ..
         } = request;
 
         let join_rule = RoomJoinRule::try_from(join_rule)
