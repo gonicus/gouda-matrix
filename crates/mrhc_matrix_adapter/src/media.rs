@@ -6,13 +6,37 @@ use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::avatar::RoomAvatarEventContent;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::Room;
+use thiserror::Error;
 use tokio::fs;
 
-use crate::{unwrap_or_log_return_option, utils};
+use crate::{unwrap_or_log_return_err, unwrap_or_log_return_option, utils};
 
 const INFO_FILE_SUFFIX: &str = "_info";
 
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";
+
+#[derive(Error, Debug)]
+enum MediaError {
+    #[error("the requested resource was not found")]
+    NotFound,
+
+    #[error("the previously downloaded resource has been removed from the upstream server")]
+    Removed,
+
+    #[error("the file extension of the data could not be determined")]
+    UnableToDetermineFileExtension,
+
+    #[error("io error")]
+    Io(#[from] std::io::Error),
+
+    #[error("serde json error")]
+    SerdeJson(#[from] serde_json::Error),
+
+    #[error("matrix error")]
+    MatrixError(#[from] matrix_sdk::Error),
+}
+
+type Result<T> = std::result::Result<T, MediaError>;
 
 #[derive(Clone, Debug)]
 pub struct MediaManager {
@@ -58,20 +82,20 @@ impl MediaManager {
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
         log::debug!("Receiving avatar for room: {}", room.room_id());
 
-        let mut downloader = RoomAvatarDownloader::new(room.clone());
+        let mut asset = RoomAvatarAsset::new(room.clone());
 
-        if !downloader.is_available().await {
+        if !asset.is_available().await {
             log::debug!("No avatar event found for the room");
             return None;
         }
 
-        let mut download_manager = AssetManager::new(
+        let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.room_avatars_dir.clone(),
-            Box::new(downloader),
+            Box::new(asset),
         );
 
-        download_manager.get_asset().await
+        asset_manager.get_asset().await.ok()
     }
 }
 
@@ -82,20 +106,20 @@ struct AssetManager {
     /// The relative path starting from the `data_root_dir` to the directory
     /// where the asset is stored.
     download_dir: PathBuf,
-    /// Downloader to download the requested asset if it is not cached.
-    downloader: Box<dyn AssetDownloader>,
+    /// The asset that is being managed.
+    asset: Box<dyn Asset>,
 }
 
 impl AssetManager {
     pub fn new(
         data_root_dir: impl Into<PathBuf>,
         download_dir: impl Into<PathBuf>,
-        downloader: Box<dyn AssetDownloader>,
+        asset: Box<dyn Asset>,
     ) -> Self {
         Self {
             data_root_dir: data_root_dir.into(),
             download_dir: download_dir.into(),
-            downloader,
+            asset,
         }
     }
 
@@ -104,9 +128,7 @@ impl AssetManager {
     /// Which asset is downloaded and requested is specified using `Self::downloader`.
     /// This function checks if the requested asset has been downloaded before
     /// and downloads the asset if it is not, or if the downloaded asset is outdated.
-    ///
-    /// Returns None if the asset has been removed or was not found on the Matrix server.
-    pub async fn get_asset(&mut self) -> Option<String> {
+    pub async fn get_asset(&mut self) -> Result<String> {
         if let Some(path) = self.has_been_downloaded_before().await {
             path
         } else {
@@ -116,7 +138,7 @@ impl AssetManager {
 
     /// Checks if the asset has been downloaded before and if so, if it is
     /// still up-to-date.
-    async fn has_been_downloaded_before(&mut self) -> Option<Option<String>> {
+    async fn has_been_downloaded_before(&mut self) -> Option<Result<String>> {
         let Some(info) = self.read_info().await else {
             log::debug!("Asset hasn't been downloaded yet");
             return None;
@@ -127,15 +149,15 @@ impl AssetManager {
         if self.is_up_to_date(info.download_ts).await {
             log::debug!("Asset is still up-to-date");
             let path = self.get_asset_path_relative(&info.file);
-            return Some(Some(path.to_string_lossy().to_string()));
+            return Some(Ok(path.to_string_lossy().to_string()));
         }
 
         log::debug!("Downloaded asset is no longer up-to-date");
 
-        if self.downloader.was_removed().await {
+        if self.asset.was_removed().await {
             log::debug!("Asset was removed from upstream server");
             self.delete_asset_and_info(&info).await;
-            Some(None)
+            Some(Err(MediaError::Removed))
         } else {
             None
         }
@@ -143,7 +165,7 @@ impl AssetManager {
 
     /// Checks if the asset downloaded at the specified timestamp is up-to-date.
     async fn is_up_to_date(&mut self, downloaded_at: u64) -> bool {
-        let Some(upload_ts) = self.downloader.upload_timestamp().await else {
+        let Ok(upload_ts) = self.asset.upload_timestamp().await else {
             log::warn!(
                 "Unable to retrieve the assets upload timestamp, assuming it's still up-to-date"
             );
@@ -156,7 +178,7 @@ impl AssetManager {
 
     /// Deletes the downloaded asset as well as its info file from the file system.
     async fn delete_asset_and_info(&mut self, info: &AssetInfo) {
-        log::info!("Deleting asset with ID '{}'", self.downloader.asset_id());
+        log::info!("Deleting asset with ID '{}'", self.asset.asset_id());
 
         let info_path = self.get_info_path_absolute();
         let asset_path = self.get_asset_path_absolute(&info.file);
@@ -179,10 +201,10 @@ impl AssetManager {
     /// This method writes the downloaded asset as well as its info to the file system.
     /// If the asset has already been downloaded, it will be overwritten with
     /// the newly downloaded asset.
-    async fn download_asset(&mut self) -> Option<String> {
+    async fn download_asset(&mut self) -> Result<String> {
         log::debug!("Downloading asset");
 
-        let (data, extension) = self.downloader.download().await?;
+        let (data, extension) = self.asset.download().await?;
 
         if let Some(existing_info) = self.read_info().await {
             log::debug!("Replacing the already downloaded asset");
@@ -196,11 +218,11 @@ impl AssetManager {
             download_ts: utils::get_unix_timestamp_seconds(),
         };
 
-        self.write_info_and_asset(info, data).await.ok()?;
+        self.write_info_and_asset(info, data).await?;
 
         let relative_asset_path = self.get_asset_path_relative(&data_file_name);
 
-        Some(relative_asset_path.to_string_lossy().to_string())
+        Ok(relative_asset_path.to_string_lossy().to_string())
     }
 
     /// Reads the asset information from the file system.
@@ -227,7 +249,7 @@ impl AssetManager {
 
     /// Writes the asset information as well as the actual downloaded asset
     /// to the file system.
-    async fn write_info_and_asset(&self, info: AssetInfo, asset: Vec<u8>) -> Result<(), ()> {
+    async fn write_info_and_asset(&self, info: AssetInfo, asset: Vec<u8>) -> Result<()> {
         let info_path = self.get_info_path_absolute();
         let item_path = self.get_asset_path_absolute(&info.file);
 
@@ -241,38 +263,35 @@ impl AssetManager {
     }
 
     /// Writes the asset information to the file system.
-    async fn write_info(&self, path: &Path, info: AssetInfo) -> Result<(), ()> {
-        let Ok(serialized) = serde_json::to_string_pretty(&info) else {
-            log::error!("Error serializing asset information");
-            return Err(());
-        };
+    async fn write_info(&self, path: &Path, info: AssetInfo) -> Result<()> {
+        let serialized = unwrap_or_log_return_err!(
+            serde_json::to_string_pretty(&info),
+            "Error serializing asset information"
+        );
 
-        if let Err(err) = tokio::fs::write(path, serialized).await {
-            log::error!("Error writing asset information: {err}");
-            return Err(());
-        }
+        unwrap_or_log_return_err!(
+            tokio::fs::write(path, serialized).await,
+            "Error writing asset information"
+        );
 
         Ok(())
     }
 
     /// Writes the asset to the file system.
-    async fn write_asset(&self, path: &Path, data: &[u8]) -> Result<(), ()> {
-        if let Err(err) = tokio::fs::write(path, data).await {
-            log::error!("Error writing asset: {err}");
-            return Err(());
-        }
+    async fn write_asset(&self, path: &Path, data: &[u8]) -> Result<()> {
+        unwrap_or_log_return_err!(tokio::fs::write(path, data).await, "Error writing asset");
 
         Ok(())
     }
 
     /// Gets the file name of the asset information file.
     fn get_info_file_name(&self) -> String {
-        format!("{}{INFO_FILE_SUFFIX}.json", self.downloader.asset_id())
+        format!("{}{INFO_FILE_SUFFIX}.json", self.asset.asset_id())
     }
 
     /// Gets the file name of the downloaded asset.
     fn get_asset_file_name(&self, extension: &str) -> String {
-        format!("{}.{}", self.downloader.asset_id(), extension)
+        format!("{}.{}", self.asset.asset_id(), extension)
     }
 
     /// Builds the relative path to the download directory starting from
@@ -326,9 +345,16 @@ struct AssetInfo {
     download_ts: u64,
 }
 
-/// Trait that represents an object that actually implements the asset download.
+/// Trait that represents an object that actually implements an asset upload
+/// and download.
 #[async_trait]
-trait AssetDownloader: Send + Sync {
+trait Asset: Send + Sync {
+    /// Gets the ID of the asset.
+    fn asset_id(&self) -> &str;
+
+    /// Retrieves the timestamp of when the asset was uploaded to the upstream server.
+    async fn upload_timestamp(&mut self) -> Result<u64>;
+
     /// If the asset was removed from the upstream server.
     async fn was_removed(&mut self) -> bool;
 
@@ -337,25 +363,18 @@ trait AssetDownloader: Send + Sync {
     /// specifies the file extension to be used.
     /// Returns None if the asset was not found on the upstream server or if
     /// a download error occurred.
-    async fn download(&mut self) -> Option<(Vec<u8>, String)>;
-
-    /// Gets the ID of the asset.
-    fn asset_id(&self) -> &str;
-
-    /// Retrieves the timestamp of when the asset was uploaded to the upstream server,
-    /// provided the asset is still available.
-    async fn upload_timestamp(&mut self) -> Option<u64>;
+    async fn download(&mut self) -> Result<(Vec<u8>, String)>;
 }
 
-/// Downloads the avatar of a specific room from the matrix server.
-struct RoomAvatarDownloader {
-    /// The room from which the avatar is to be downloaded.
+/// Manages the download and upload of an avatar from a specific room.
+struct RoomAvatarAsset {
+    /// The room from which the avatar is to be downloaded or uploaded.
     room: Room,
     /// Cached `RoomAvatarEventContent` and its origin server timestamp in seconds.
     cached_event: Option<(RoomAvatarEventContent, u64)>,
 }
 
-impl RoomAvatarDownloader {
+impl RoomAvatarAsset {
     pub fn new(room: Room) -> Self {
         Self {
             room,
@@ -395,7 +414,19 @@ impl RoomAvatarDownloader {
 }
 
 #[async_trait]
-impl AssetDownloader for RoomAvatarDownloader {
+impl Asset for RoomAvatarAsset {
+    fn asset_id(&self) -> &str {
+        self.room.room_id().as_str()
+    }
+
+    async fn upload_timestamp(&mut self) -> Result<u64> {
+        Ok(self
+            .get_avatar_event_content()
+            .await
+            .ok_or(MediaError::NotFound)?
+            .1)
+    }
+
     async fn was_removed(&mut self) -> bool {
         if let Some(event) = self.get_avatar_event_content().await {
             event.0.url.is_none()
@@ -404,43 +435,34 @@ impl AssetDownloader for RoomAvatarDownloader {
         }
     }
 
-    async fn download(&mut self) -> Option<(Vec<u8>, String)> {
-        let event_content = match self.get_avatar_event_content().await {
-            Some(content) => content.0,
-            None => {
+    async fn download(&mut self) -> Result<(Vec<u8>, String)> {
+        let event_content = self
+            .get_avatar_event_content()
+            .await
+            .ok_or_else(|| {
                 log::debug!("No room avatar event was found for this room");
-                return None;
-            }
-        };
+                MediaError::NotFound
+            })?
+            .0;
 
         log::info!("Downloading avatar image for room: {}", self.room.room_id());
 
         let client = self.room.client();
 
         let request = MediaRequestParameters {
-            source: MediaSource::Plain(event_content.url?),
+            source: MediaSource::Plain(event_content.url.ok_or(MediaError::NotFound)?),
             format: MediaFormat::File,
         };
 
-        let content = match client.media().get_media_content(&request, true).await {
-            Ok(content) => content,
-            Err(err) => {
-                log::error!("Error downloading room avatar: {err}");
-                return None;
-            }
-        };
+        let content = unwrap_or_log_return_err!(
+            client.media().get_media_content(&request, true).await,
+            "Error downloading room avatar"
+        );
 
-        let extension = determine_data_file_extension(&content)?;
+        let extension = determine_data_file_extension(&content)
+            .ok_or(MediaError::UnableToDetermineFileExtension)?;
 
-        Some((content, extension))
-    }
-
-    fn asset_id(&self) -> &str {
-        self.room.room_id().as_str()
-    }
-
-    async fn upload_timestamp(&mut self) -> Option<u64> {
-        Some(self.get_avatar_event_content().await?.1)
+        Ok((content, extension))
     }
 }
 
@@ -459,6 +481,7 @@ fn determine_data_file_extension(data: &[u8]) -> Option<String> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
 
     use tempdir::TempDir;
 
@@ -469,21 +492,28 @@ mod tests {
     const DATA_ROOT_DIR: &str = "data_root_dir";
     const DOWNLOAD_DIR: &str = "download_dir";
 
-    struct DownloaderMock {
-        item_id: String,
+    type MockedResult<T> = Arc<dyn Fn() -> Result<T> + Send + Sync>;
+
+    struct AssetMock {
+        asset_id: String,
+        upload_timestamp: MockedResult<u64>,
         was_removed: bool,
-        data: Option<(Vec<u8>, String)>,
-        last_upload_timestamp: Option<u64>,
+        download: MockedResult<(Vec<u8>, String)>,
     }
 
-    impl DownloaderMock {
-        pub fn new(item_id: impl Into<String>) -> Self {
+    impl AssetMock {
+        pub fn new(asset_id: impl Into<String>) -> Self {
             Self {
-                item_id: item_id.into(),
+                asset_id: asset_id.into(),
+                upload_timestamp: Arc::new(|| Err(MediaError::NotFound)),
                 was_removed: false,
-                data: None,
-                last_upload_timestamp: None,
+                download: Arc::new(|| Err(MediaError::NotFound)),
             }
+        }
+
+        pub fn upload_timestamp(mut self, upload_timestamp: MockedResult<u64>) -> Self {
+            self.upload_timestamp = upload_timestamp;
+            self
         }
 
         pub fn was_removed(mut self, was_removed: bool) -> Self {
@@ -491,33 +521,32 @@ mod tests {
             self
         }
 
-        pub fn data(mut self, data: (Vec<u8>, String)) -> Self {
-            self.data = Some(data);
+        pub fn download(mut self, download_response: MockedResult<(Vec<u8>, String)>) -> Self {
+            self.download = download_response;
             self
         }
 
-        pub fn upload_timestamp(mut self, last_upload_timestamp: u64) -> Self {
-            self.last_upload_timestamp = Some(last_upload_timestamp);
-            self
+        pub fn data(self, data: Vec<u8>, extension: String) -> Self {
+            self.download(Arc::new(move || Ok((data.clone(), extension.to_owned()))))
         }
     }
 
     #[async_trait]
-    impl AssetDownloader for DownloaderMock {
+    impl Asset for AssetMock {
+        fn asset_id(&self) -> &str {
+            &self.asset_id
+        }
+
+        async fn upload_timestamp(&mut self) -> Result<u64> {
+            (self.upload_timestamp)()
+        }
+
         async fn was_removed(&mut self) -> bool {
             self.was_removed
         }
 
-        async fn download(&mut self) -> Option<(Vec<u8>, String)> {
-            self.data.clone()
-        }
-
-        fn asset_id(&self) -> &str {
-            &self.item_id
-        }
-
-        async fn upload_timestamp(&mut self) -> Option<u64> {
-            self.last_upload_timestamp
+        async fn download(&mut self) -> Result<(Vec<u8>, String)> {
+            (self.download)()
         }
     }
 
@@ -583,13 +612,12 @@ mod tests {
         let data: Vec<u8> = vec![1, 2, 3, 4];
         let extension: String = "png".to_owned();
 
-        let downloader = DownloaderMock::new("some_asset").data((data.clone(), extension));
-
+        let asset = AssetMock::new("some_asset").data(data.clone(), extension);
         let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(downloader));
+            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await;
+        let result = manager.get_asset().await.unwrap();
 
         // Assert
         let download_dir_str = download_dir_relative.to_string_lossy();
@@ -600,7 +628,7 @@ mod tests {
             .join(&download_dir_relative)
             .join("some_asset_info.json");
 
-        assert_eq!(result, Some(format!("{download_dir_str}/some_asset.png")));
+        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
 
         test_utils::assert_directory(
             data_root_dir.join(download_dir_relative),
@@ -623,14 +651,14 @@ mod tests {
 
         setup_asset(&download_dir_absolute, "some_asset", content.clone(), "png");
 
-        let downloader = DownloaderMock::new("some_asset")
-            .upload_timestamp(utils::get_unix_timestamp_seconds() - 10000);
+        let asset = AssetMock::new("some_asset")
+            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() - 10000)));
 
         let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(downloader));
+            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await;
+        let result = manager.get_asset().await.unwrap();
 
         // Assert
         let download_dir_str = download_dir_relative.to_string_lossy();
@@ -641,7 +669,7 @@ mod tests {
             .join(&download_dir_relative)
             .join("some_asset_info.json");
 
-        assert_eq!(result, Some(format!("{download_dir_str}/some_asset.png")));
+        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
 
         test_utils::assert_directory(
             data_root_dir.join(download_dir_relative),
@@ -666,15 +694,15 @@ mod tests {
         let content_new = vec![10, 20];
         let extension = "png".to_owned();
 
-        let downloader = DownloaderMock::new("some_asset")
-            .data((content_new.clone(), extension))
-            .upload_timestamp(utils::get_unix_timestamp_seconds() + 10);
+        let asset = AssetMock::new("some_asset")
+            .data(content_new.clone(), extension)
+            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
 
         let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(downloader));
+            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await;
+        let result = manager.get_asset().await.unwrap();
 
         // Assert
         let download_dir_str = download_dir_relative.to_string_lossy();
@@ -685,7 +713,7 @@ mod tests {
             .join(&download_dir_relative)
             .join("some_asset_info.json");
 
-        assert_eq!(result, Some(format!("{download_dir_str}/some_asset.png")));
+        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
 
         test_utils::assert_directory(
             data_root_dir.join(download_dir_relative),
@@ -715,15 +743,15 @@ mod tests {
         let content_new = vec![10, 20];
         let extension = "jpeg".to_owned();
 
-        let downloader = DownloaderMock::new("some_asset")
-            .data((content_new.clone(), extension))
-            .upload_timestamp(utils::get_unix_timestamp_seconds() + 10);
+        let asset = AssetMock::new("some_asset")
+            .data(content_new.clone(), extension)
+            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
 
         let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(downloader));
+            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await;
+        let result = manager.get_asset().await.unwrap();
 
         // Assert
         let download_dir_str = download_dir_relative.to_string_lossy();
@@ -734,7 +762,7 @@ mod tests {
             .join(&download_dir_relative)
             .join("some_asset_info.json");
 
-        assert_eq!(result, Some(format!("{download_dir_str}/some_asset.jpeg")));
+        assert_eq!(result, format!("{download_dir_str}/some_asset.jpeg"));
 
         test_utils::assert_directory(
             data_root_dir.join(download_dir_relative),
@@ -761,12 +789,12 @@ mod tests {
         setup_asset(&download_dir_absolute, "some_asset", vec![2, 3, 4], "png");
         setup_asset(&download_dir_absolute, "some_asset2", vec![5, 2], "png");
 
-        let downloader = DownloaderMock::new("some_asset")
+        let asset = AssetMock::new("some_asset")
             .was_removed(true)
-            .upload_timestamp(utils::get_unix_timestamp_seconds() + 10000);
+            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10000)));
 
         let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(downloader));
+            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
 
         // Act
         let result = manager.get_asset().await;
@@ -774,7 +802,7 @@ mod tests {
         // Assert
         let download_dir_absolute = data_root_dir.join(download_dir_relative);
 
-        assert_eq!(result, None);
+        assert!(matches!(result, Err(MediaError::Removed)));
 
         test_utils::assert_directory(
             download_dir_absolute,

@@ -27,6 +27,8 @@ log.workspace = true
 
 infer.workspace = true
 
+thiserror.workspace = true
+
 [dev-dependencies]
 tokio = { version = "1.48.0", default-features = false, features = [
   "rt-multi-thread",

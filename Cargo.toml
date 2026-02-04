@@ -48,3 +48,5 @@ infer = "0.19"
 
 tempdir = "0.3"
 test-log = "0.2"
+
+thiserror = "2.0"
