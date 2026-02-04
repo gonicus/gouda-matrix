@@ -4,7 +4,7 @@ use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{Listener, RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::{GenericFilePath, ListenerOptions};
 use mrhc_core::test_utils::ClientMock;
-use mrhc_core::{Runner, Client};
+use mrhc_core::{Client, Runner};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;

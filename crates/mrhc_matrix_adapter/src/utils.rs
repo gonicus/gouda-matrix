@@ -1,7 +1,17 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::room::member::MembershipState;
 use matrix_sdk_crypto::Emoji;
 use mrhc_proto::chat::*;
+
+/// Gets the current unix timestamp in seconds.
+pub fn get_unix_timestamp_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
 
 /// Converts a membership state to a room state.
 pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -> UserRoomState {
