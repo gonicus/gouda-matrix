@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
+use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
 use matrix_sdk::ruma::events::room::member::{MembershipChange, OriginalSyncRoomMemberEvent};
 use matrix_sdk::ruma::events::room::message::{
@@ -22,6 +23,7 @@ use ruma_common::serde::Raw;
 use ruma_common::MilliSecondsSinceUnixEpoch;
 
 use crate::event_index::EventIndex;
+use crate::media::MediaManager;
 use crate::{rooms, unwrap_or_log_return};
 
 // After how many seconds does an event count as historical?
@@ -37,14 +39,21 @@ fn is_historical_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
 }
 
 /// Adds all required event handlers to the client.
-pub fn setup_event_handlers(client: &Client, event_index: EventIndex, ctx: ClientContext) {
-    client.add_event_handler_context(event_index);
+pub fn setup_event_handlers(
+    client: &Client,
+    ctx: ClientContext,
+    media_manager: MediaManager,
+    event_index: EventIndex,
+) {
     client.add_event_handler_context(ctx);
+    client.add_event_handler_context(event_index);
+    client.add_event_handler_context(media_manager);
 
     client.add_event_handler(redaction_event_handler);
     client.add_event_handler(room_name_event_handler);
     client.add_event_handler(room_member_event_handler);
     client.add_event_handler(room_join_rules_event_handler);
+    client.add_event_handler(room_avatar_event_handler);
     client.add_event_handler(message_event_handler);
     client.add_event_handler(reaction_event_handler);
 }
@@ -227,6 +236,31 @@ async fn room_join_rules_event_handler(
 
     let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
         .change_join_rule(join_rule)
+        .into_proto();
+
+    ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+}
+
+async fn room_avatar_event_handler(
+    event: OriginalSyncRoomAvatarEvent,
+    room: Room,
+    ctx: Ctx<ClientContext>,
+    media_manager: Ctx<MediaManager>,
+) {
+    log::debug!("Received room avatar event: {event:?}");
+
+    if is_historical_event(event.origin_server_ts) {
+        log::debug!("Ignoring event as it is older than {HISTORICAL_EVENT_TIMEOUT} seconds");
+        return;
+    }
+
+    let avatar_path = media_manager
+        .get_room_avatar_path(&room)
+        .await
+        .unwrap_or_default();
+
+    let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
+        .change_avatar_path(avatar_path)
         .into_proto();
 
     ctx.send_event(ResponseContent::RoomChangeEvent(proto));

@@ -16,9 +16,14 @@ use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
+use crate::media::MediaManager;
 use crate::{errors, utils};
 
-pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Result<Room> {
+pub async fn convert_to_proto(
+    media_manager: &MediaManager,
+    room: matrix_sdk::Room,
+    user_id: &UserId,
+) -> Result<Room> {
     let display_name = room
         .display_name()
         .await
@@ -60,7 +65,7 @@ pub async fn convert_to_proto(room: matrix_sdk::Room, user_id: &UserId) -> Resul
         join_rule: join_rule.into(),
         permissions: Some(get_permissions(&room, user_id).await?),
         latest_message_timestamp,
-        avatar_path: None,
+        avatar_path: media_manager.get_room_avatar_path(&room).await,
         is_favorite: false,
     })
 }
@@ -215,6 +220,8 @@ pub async fn update_room_join_rule(room: &matrix_sdk::Room, join_rule: RoomJoinR
         .map_err(errors::convert_matrix_sdk_error)
 }
 
+/// Converts a chunk of public rooms received from the matrix sdk to a chunk of public rooms
+/// usable in the chat interface.
 pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoom> {
     let mut result = Vec::new();
 

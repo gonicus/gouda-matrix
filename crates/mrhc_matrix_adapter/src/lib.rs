@@ -7,9 +7,12 @@ mod errors;
 mod event_index;
 mod events;
 mod macros;
+mod media;
 mod rooms;
 mod sas;
 mod session;
+#[cfg(test)]
+mod test_utils;
 mod utils;
 mod verification;
 

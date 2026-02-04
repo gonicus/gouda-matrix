@@ -43,3 +43,8 @@ serde_json = "1.0"
 
 log = "0.4"
 log4rs = "1.4"
+
+infer = "0.19"
+
+tempdir = "0.3"
+test-log = "0.2"
