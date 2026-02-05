@@ -514,12 +514,15 @@ impl ClientAbstraction for MatrixClient {
                     continue;
                 }
 
-                // TODO: Presence state
+                // TODO:
+                //  - Presence state
+                //  - Avatar path
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
                     display_name: member.display_name().map(str::to_string),
                     presence_state: None,
+                    avatar_path: None,
                 });
             }
         }
@@ -544,12 +547,15 @@ impl ClientAbstraction for MatrixClient {
         let mut result = Vec::new();
 
         for user in user_list.results {
-            // TODO: Presence state
+            // TODO:
+            //  - Presence state
+            //  - Avatar path
 
             result.push(User {
                 user_id: user.user_id.to_string(),
                 display_name: user.display_name,
                 presence_state: None,
+                avatar_path: None,
             });
         }
 
