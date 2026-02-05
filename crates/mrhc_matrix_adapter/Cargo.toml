@@ -16,6 +16,8 @@ matrix-sdk-base.workspace = true
 matrix-sdk-crypto.workspace = true
 ruma-common.workspace = true
 url.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
 
 aes-gcm.workspace = true
 argon2.workspace = true

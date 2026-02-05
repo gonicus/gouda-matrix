@@ -181,6 +181,7 @@ impl UiAttribute for CreateDirectRoomRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, display_name);
         ui_attribute!(self, ui, invitee);
+        ui_attribute!(self, ui, avatar_path);
     }
 }
 
@@ -189,6 +190,7 @@ impl UiAttribute for CreateGroupRoomRequest {
         ui_attribute!(self, ui, display_name);
         ui_attribute!(self, ui, invitees);
         ui_attribute!(self, ui, join_rule);
+        ui_attribute!(self, ui, avatar_path);
     }
 }
 
@@ -211,6 +213,8 @@ impl UiAttribute for ChangeRoomRequest {
         ui_attribute!(self, ui, room_id);
         ui_attribute!(self, ui, display_name);
         ui_attribute!(self, ui, join_rule);
+        ui_attribute!(self, ui, is_favorite);
+        ui_attribute!(self, ui, avatar_path);
     }
 }
 
