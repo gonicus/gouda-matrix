@@ -47,7 +47,8 @@
   },
   "create-direct-room": {
     "display_name": "New Direct Room",
-    "invitee": "@some_user:server.com"
+    "invitee": "@some_user:server.com",
+    "avatar_path": null
   },
   "create-group-room": {
     "display_name": "New Group Room",
@@ -55,7 +56,8 @@
       "@some_user_1:server.com",
       "@some_user_2:server.com"
     ],
-    "join_rule": 0
+    "join_rule": 0,
+    "avatar_path": null
   },
   "mark-as-read": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
@@ -71,7 +73,9 @@
   "change-room": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
     "display_name": null,
-    "is_public": null
+    "is_public": null,
+    "is_favourite": null,
+    "avatar_path": null
   },
   "leave-room": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de"

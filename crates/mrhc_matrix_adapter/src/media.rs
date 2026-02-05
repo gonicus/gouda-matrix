@@ -16,7 +16,7 @@ const INFO_FILE_SUFFIX: &str = "_info";
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";
 
 #[derive(Error, Debug)]
-enum MediaError {
+pub enum MediaError {
     #[error("the requested resource was not found")]
     NotFound,
 
@@ -25,6 +25,9 @@ enum MediaError {
 
     #[error("the file extension of the data could not be determined")]
     UnableToDetermineFileExtension,
+
+    #[error("the mime type of the data could not be determined")]
+    UnableToDetermineMimeType,
 
     #[error("io error")]
     Io(#[from] std::io::Error),
@@ -95,7 +98,40 @@ impl MediaManager {
             Box::new(asset),
         );
 
-        asset_manager.get_asset().await.ok()
+        asset_manager.download().await.ok()
+    }
+
+    /// Uploads a new avatar to the specified room.
+    /// This method moves the avatar to the correct directory after upload.
+    ///
+    /// # Arguments
+    ///
+    /// * `room` - The room for which the avatar should be uploaded.
+    /// * `avatar_path` - The relative path to the avatar starting from
+    ///   the data root directory.
+    ///
+    /// # Returns
+    ///
+    /// Returns the relative path starting from the data root directory to the
+    /// uploaded asset.
+    /// Note that this path will not match the passed `avatar_path`, as the avatar
+    /// will be moved to the correct directory after upload.
+    pub async fn upload_room_avatar(
+        &self,
+        room: &Room,
+        avatar_path: impl AsRef<Path>,
+    ) -> Result<String> {
+        let src = avatar_path.as_ref();
+
+        log::info!("Uploading room avatar {src:?} to room {}", room.room_id());
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            self.room_avatars_dir.clone(),
+            Box::new(RoomAvatarAsset::new(room.clone())),
+        );
+
+        asset_manager.upload(src).await
     }
 }
 
@@ -105,35 +141,85 @@ struct AssetManager {
     data_root_dir: PathBuf,
     /// The relative path starting from the `data_root_dir` to the directory
     /// where the asset is stored.
-    download_dir: PathBuf,
+    asset_dir: PathBuf,
     /// The asset that is being managed.
     asset: Box<dyn Asset>,
 }
 
 impl AssetManager {
+    /// Creates a new asset manager.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_root_dir` - The absolute path to the data root directory.
+    /// * `asset_dir` - The relative path to the asset directory,
+    ///   starting from the data root directory.
+    /// * `asset` - The asset that is being managed.
     pub fn new(
         data_root_dir: impl Into<PathBuf>,
-        download_dir: impl Into<PathBuf>,
+        asset_dir: impl Into<PathBuf>,
         asset: Box<dyn Asset>,
     ) -> Self {
         Self {
             data_root_dir: data_root_dir.into(),
-            download_dir: download_dir.into(),
+            asset_dir: asset_dir.into(),
             asset,
         }
     }
 
-    /// Returns the relative file path starting from the data root directory
-    /// to the requested asset.
-    /// Which asset is downloaded and requested is specified using `Self::downloader`.
-    /// This function checks if the requested asset has been downloaded before
-    /// and downloads the asset if it is not, or if the downloaded asset is outdated.
-    pub async fn get_asset(&mut self) -> Result<String> {
+    /// Downloads the asset if it hasn't been done already.
+    /// This method will check if the previously downloaded asset is
+    /// still up-to-date and if not, downloads the updated asset from
+    /// the upstream server.
+    /// Returns the relative file path starting from the data root
+    /// directory to the downloaded asset.
+    pub async fn download(&mut self) -> Result<String> {
         if let Some(path) = self.has_been_downloaded_before().await {
             path
         } else {
             self.download_asset().await
         }
+    }
+
+    /// Uploads the specified asset to the upstream server and replaces
+    /// the current asset, if one exists.
+    /// Returns the relative path starting from the data root directory
+    /// to the uploaded asset.
+    /// Note that this method will move the source file to the correct asset
+    /// directory after upload.
+    pub async fn upload(&mut self, src: impl Into<PathBuf>) -> Result<String> {
+        let src = self.data_root_dir.join(src.into());
+
+        log::debug!("Uploading asset: {src:?}");
+
+        let extension = self.asset.upload(src.clone()).await?;
+
+        log::debug!("Successfully uploaded asset");
+
+        if let Some(info) = self.read_info().await {
+            log::debug!(
+                "Old version of the asset exists, replacing it with the newly uploaded asset"
+            );
+            self.delete_asset_and_info(&info).await;
+        }
+
+        let asset_file_name = self.get_asset_file_name(&extension);
+        let info = AssetInfo {
+            file: asset_file_name.clone(),
+            download_ts: utils::get_unix_timestamp_seconds(),
+        };
+
+        let info_path_absolute = self.get_info_path_absolute();
+        let asset_path_absolute = self.get_asset_path_absolute(&asset_file_name);
+
+        log::debug!("Moving uploaded asset from {src:?} to {asset_path_absolute:?}");
+        tokio::fs::rename(src, asset_path_absolute).await?;
+
+        self.write_info(&info_path_absolute, info).await?;
+
+        let asset_path_relative = self.get_asset_path_relative(&asset_file_name);
+
+        Ok(asset_path_relative.to_string_lossy().to_string())
     }
 
     /// Checks if the asset has been downloaded before and if so, if it is
@@ -253,10 +339,7 @@ impl AssetManager {
         let info_path = self.get_info_path_absolute();
         let item_path = self.get_asset_path_absolute(&info.file);
 
-        log::debug!("Writing downloaded asset to: {item_path:?}");
         self.write_asset(&item_path, &asset).await?;
-
-        log::debug!("Writing {info:?} to: {info_path:?}");
         self.write_info(&info_path, info).await?;
 
         Ok(())
@@ -264,6 +347,8 @@ impl AssetManager {
 
     /// Writes the asset information to the file system.
     async fn write_info(&self, path: &Path, info: AssetInfo) -> Result<()> {
+        log::debug!("Writing asset info {info:?} to: {path:?}");
+
         let serialized = unwrap_or_log_return_err!(
             serde_json::to_string_pretty(&info),
             "Error serializing asset information"
@@ -279,6 +364,8 @@ impl AssetManager {
 
     /// Writes the asset to the file system.
     async fn write_asset(&self, path: &Path, data: &[u8]) -> Result<()> {
+        log::debug!("Writing asset to: {path:?}");
+
         unwrap_or_log_return_err!(tokio::fs::write(path, data).await, "Error writing asset");
 
         Ok(())
@@ -297,7 +384,7 @@ impl AssetManager {
     /// Builds the relative path to the download directory starting from
     /// the data root directory.
     fn get_download_dir_relative(&self) -> PathBuf {
-        self.download_dir.clone()
+        self.asset_dir.clone()
     }
 
     /// Gets the absolute path to the download directory.
@@ -364,6 +451,10 @@ trait Asset: Send + Sync {
     /// Returns None if the asset was not found on the upstream server or if
     /// a download error occurred.
     async fn download(&mut self) -> Result<(Vec<u8>, String)>;
+
+    /// Uploads the specified asset to the upstream server.
+    /// Returns the file extension to be used for the asset file.
+    async fn upload(&mut self, src: PathBuf) -> Result<String>;
 }
 
 /// Manages the download and upload of an avatar from a specific room.
@@ -464,6 +555,30 @@ impl Asset for RoomAvatarAsset {
 
         Ok((content, extension))
     }
+
+    async fn upload(&mut self, src: PathBuf) -> Result<String> {
+        log::info!("Uploading room avatar: {src:?}");
+
+        let data =
+            unwrap_or_log_return_err!(tokio::fs::read(&src).await, "Error reading source file");
+
+        let file_extension = src
+            .extension()
+            .map(|f| f.to_string_lossy().to_string())
+            .or_else(|| determine_data_file_extension(&data))
+            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+
+        let mime = mime_guess::from_ext(&file_extension)
+            .first()
+            .ok_or(MediaError::UnableToDetermineMimeType)?;
+
+        unwrap_or_log_return_err!(
+            self.room.upload_avatar(&mime, data, None).await,
+            "Error uploading room avatar"
+        );
+
+        Ok(file_extension)
+    }
 }
 
 /// Attempts to determine the file extension of the specified data.
@@ -490,7 +605,9 @@ mod tests {
 
     const TEMPDIR_PREFIX: &str = "mrhc_matrix_adapter";
     const DATA_ROOT_DIR: &str = "data_root_dir";
-    const DOWNLOAD_DIR: &str = "download_dir";
+    const ASSET_DIR: &str = "assets";
+    const UPLOAD_DIR: &str = "uploads";
+    const TIMESTAMP_PRECISION: u64 = 5;
 
     type MockedResult<T> = Arc<dyn Fn() -> Result<T> + Send + Sync>;
 
@@ -499,6 +616,7 @@ mod tests {
         upload_timestamp: MockedResult<u64>,
         was_removed: bool,
         download: MockedResult<(Vec<u8>, String)>,
+        upload: MockedResult<String>,
     }
 
     impl AssetMock {
@@ -508,6 +626,7 @@ mod tests {
                 upload_timestamp: Arc::new(|| Err(MediaError::NotFound)),
                 was_removed: false,
                 download: Arc::new(|| Err(MediaError::NotFound)),
+                upload: Arc::new(|| Err(MediaError::NotFound)),
             }
         }
 
@@ -521,13 +640,24 @@ mod tests {
             self
         }
 
-        pub fn download(mut self, download_response: MockedResult<(Vec<u8>, String)>) -> Self {
-            self.download = download_response;
+        pub fn download(mut self, download: MockedResult<(Vec<u8>, String)>) -> Self {
+            self.download = download;
             self
         }
 
-        pub fn data(self, data: Vec<u8>, extension: String) -> Self {
+        pub fn upload(mut self, upload: MockedResult<String>) -> Self {
+            self.upload = upload;
+            self
+        }
+
+        /// Helper method for `Self::download` to return the specified data and extension.
+        pub fn download_result(self, data: Vec<u8>, extension: String) -> Self {
             self.download(Arc::new(move || Ok((data.clone(), extension.to_owned()))))
+        }
+
+        /// Helper method for `Self::upload` to return the specified file extension.
+        pub fn upload_result(self, extension: String) -> Self {
+            self.upload(Arc::new(move || Ok(extension.clone())))
         }
     }
 
@@ -548,48 +678,81 @@ mod tests {
         async fn download(&mut self) -> Result<(Vec<u8>, String)> {
             (self.download)()
         }
+
+        async fn upload(&mut self, _src: PathBuf) -> Result<String> {
+            (self.upload)()
+        }
     }
 
-    /// Creates the temporary directories for the tests. Returns the TempDir handle,
-    /// the absolute root directory, and the relative download directory.
-    /// Ensure that the TempDir handle is not dropped before the test is complete.
-    fn setup_temp_directories() -> (TempDir, PathBuf, PathBuf) {
-        let dir = TempDir::new(TEMPDIR_PREFIX).unwrap();
-        let data_root_dir = dir.path().join(DATA_ROOT_DIR);
-        let download_dir = data_root_dir.join(DOWNLOAD_DIR);
+    struct Directories {
+        /// Handle to the temporary directory.
+        /// The temporary directory will be removed once this is dropped, making
+        /// all the created directories invalid.
+        _temp_dir_handle: TempDir,
+        /// The absolute path to the data root directory.
+        pub data_root_dir: PathBuf,
+
+        pub asset_dir_relative: PathBuf,
+        pub asset_dir_absolute: PathBuf,
+        pub upload_dir_relative: PathBuf,
+        pub upload_dir_absolute: PathBuf,
+    }
+
+    /// Creates the temporary directories for the tests.
+    fn setup_directories() -> Directories {
+        let temp_dir = TempDir::new(TEMPDIR_PREFIX).unwrap();
+
+        let data_root_dir = temp_dir.path().join(DATA_ROOT_DIR);
+
+        let asset_dir_relative = PathBuf::from(ASSET_DIR);
+        let asset_dir_absolute = data_root_dir.join(&asset_dir_relative);
+        let upload_dir_relative = PathBuf::from(UPLOAD_DIR);
+        let upload_dir_absolute = data_root_dir.join(&upload_dir_relative);
 
         fs::create_dir(&data_root_dir).unwrap();
-        fs::create_dir(&download_dir).unwrap();
+        fs::create_dir(&asset_dir_absolute).unwrap();
+        fs::create_dir(&upload_dir_absolute).unwrap();
 
-        (dir, data_root_dir, PathBuf::from(DOWNLOAD_DIR))
+        Directories {
+            _temp_dir_handle: temp_dir,
+            data_root_dir,
+            asset_dir_relative,
+            asset_dir_absolute,
+            upload_dir_relative,
+            upload_dir_absolute,
+        }
+    }
+
+    /// Creates the asset manager.
+    fn setup_asset_manager(dirs: &Directories, asset: Box<dyn Asset>) -> AssetManager {
+        AssetManager::new(&dirs.data_root_dir, &dirs.asset_dir_relative, asset)
     }
 
     /// Creates the info and item file.
     fn setup_asset(dir: impl AsRef<Path>, id: &str, content: Vec<u8>, extension: &str) {
-        let item_file_name = format!("{id}.{extension}");
+        let asset_file_name = format!("{id}.{extension}");
 
         let info_path = dir.as_ref().join(format!("{id}{INFO_FILE_SUFFIX}.json"));
-        let item_path = dir.as_ref().join(&item_file_name);
+        let asset_path = dir.as_ref().join(&asset_file_name);
 
         let info = AssetInfo {
-            file: item_file_name,
+            file: asset_file_name,
             download_ts: utils::get_unix_timestamp_seconds(),
         };
 
         let serialized = serde_json::to_string_pretty(&info).unwrap();
 
         fs::write(info_path, serialized).unwrap();
-        fs::write(item_path, content).unwrap();
+        fs::write(asset_path, content).unwrap();
     }
 
-    fn assert_info_file(info_file: impl AsRef<Path>, item_file_name: &str) {
+    fn assert_info_file(info_file: impl AsRef<Path>, asset_file_name: &str) {
         let content = fs::read(info_file).unwrap();
         let info: AssetInfo = serde_json::from_slice(&content).unwrap();
 
-        assert_eq!(&info.file, item_file_name);
+        assert_eq!(&info.file, asset_file_name);
 
-        // Make sure the download timestamp was within the last 3 seconds
-        // and not in the future.
+        // Make sure the download timestamp was within the allowed seconds and not in the future.
         let now = utils::get_unix_timestamp_seconds();
 
         assert!(
@@ -598,125 +761,110 @@ mod tests {
         );
 
         assert!(
-            now - info.download_ts <= 3,
-            "Timestamp of download is older than 3 seconds"
+            now - info.download_ts <= TIMESTAMP_PRECISION,
+            "Timestamp of download is older than {TIMESTAMP_PRECISION} seconds"
         );
     }
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_get_asset_with_new_item() {
+    async fn test_asset_manager_download_new() {
         // Arrange
-        let (_tmpdir, data_root_dir, download_dir_relative) = setup_temp_directories();
+        let dirs = setup_directories();
 
         let data: Vec<u8> = vec![1, 2, 3, 4];
         let extension: String = "png".to_owned();
 
-        let asset = AssetMock::new("some_asset").data(data.clone(), extension);
-        let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
+        let asset = AssetMock::new("some_asset").download_result(data.clone(), extension);
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await.unwrap();
+        let result = manager.download().await.unwrap();
 
         // Assert
-        let download_dir_str = download_dir_relative.to_string_lossy();
-        let asset_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset.png");
-        let info_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset_info.json");
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
-        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
 
         test_utils::assert_directory(
-            data_root_dir.join(download_dir_relative),
+            dirs.asset_dir_absolute,
             vec!["some_asset_info.json", "some_asset.png"],
         );
 
-        test_utils::assert_file_content(&asset_path, &data);
+        test_utils::assert_file_content(&asset_path_absolute, &data);
 
-        assert_info_file(info_path, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png");
     }
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_get_asset_with_up_to_date_item() {
+    async fn test_asset_manager_download_up_to_date() {
         // Arrange
-        let (_tmpdir, data_root_dir, download_dir_relative) = setup_temp_directories();
-        let download_dir_absolute = data_root_dir.join(&download_dir_relative);
+        let dirs = setup_directories();
 
         let content = vec![2, 3, 4, 5];
 
-        setup_asset(&download_dir_absolute, "some_asset", content.clone(), "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            content.clone(),
+            "png",
+        );
 
         let asset = AssetMock::new("some_asset")
             .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() - 10000)));
 
-        let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await.unwrap();
+        let result = manager.download().await.unwrap();
 
         // Assert
-        let download_dir_str = download_dir_relative.to_string_lossy();
-        let item_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset.png");
-        let asset_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset_info.json");
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
-        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
 
         test_utils::assert_directory(
-            data_root_dir.join(download_dir_relative),
+            dirs.asset_dir_absolute,
             vec!["some_asset_info.json", "some_asset.png"],
         );
 
-        test_utils::assert_file_content(&item_path, &content);
+        test_utils::assert_file_content(&asset_path_absolute, &content);
 
-        assert_info_file(asset_path, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png");
     }
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_get_asset_with_no_longer_up_to_date_item() {
+    async fn test_asset_manager_download_no_longer_up_to_date() {
         // Arrange
-        let (_tmpdir, data_root_dir, download_dir_relative) = setup_temp_directories();
-        let download_dir_absolute = data_root_dir.join(&download_dir_relative);
+        let dirs = setup_directories();
 
-        setup_asset(&download_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&download_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
 
         let content_new = vec![10, 20];
         let extension = "png".to_owned();
 
         let asset = AssetMock::new("some_asset")
-            .data(content_new.clone(), extension)
+            .download_result(content_new.clone(), extension)
             .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
 
-        let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await.unwrap();
+        let result = manager.download().await.unwrap();
 
         // Assert
-        let download_dir_str = download_dir_relative.to_string_lossy();
-        let item_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset.png");
-        let asset_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset_info.json");
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
-        assert_eq!(result, format!("{download_dir_str}/some_asset.png"));
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
 
         test_utils::assert_directory(
-            data_root_dir.join(download_dir_relative),
+            dirs.asset_dir_absolute,
             vec![
                 "some_asset_info.json",
                 "some_asset.png",
@@ -725,47 +873,40 @@ mod tests {
             ],
         );
 
-        test_utils::assert_file_content(&item_path, &content_new);
+        test_utils::assert_file_content(&asset_path_absolute, &content_new);
 
-        assert_info_file(asset_path, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png");
     }
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_get_asset_with_no_longer_up_to_date_item_and_new_extension() {
+    async fn test_asset_manager_download_new_file_extension() {
         // Arrange
-        let (_tmpdir, data_root_dir, download_dir_relative) = setup_temp_directories();
-        let download_dir_absolute = data_root_dir.join(&download_dir_relative);
+        let dirs = setup_directories();
 
-        setup_asset(&download_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&download_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
 
         let content_new = vec![10, 20];
         let extension = "jpeg".to_owned();
 
         let asset = AssetMock::new("some_asset")
-            .data(content_new.clone(), extension)
+            .download_result(content_new.clone(), extension)
             .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
 
-        let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await.unwrap();
+        let result = manager.download().await.unwrap();
 
         // Assert
-        let download_dir_str = download_dir_relative.to_string_lossy();
-        let item_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset.jpeg");
-        let asset_path = data_root_dir
-            .join(&download_dir_relative)
-            .join("some_asset_info.json");
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.jpeg");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
-        assert_eq!(result, format!("{download_dir_str}/some_asset.jpeg"));
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.jpeg"));
 
         test_utils::assert_directory(
-            data_root_dir.join(download_dir_relative),
+            dirs.asset_dir_absolute,
             vec![
                 "some_asset_info.json",
                 "some_asset.jpeg",
@@ -774,39 +915,195 @@ mod tests {
             ],
         );
 
-        test_utils::assert_file_content(&item_path, &content_new);
+        test_utils::assert_file_content(&asset_path_absolute, &content_new);
 
-        assert_info_file(asset_path, "some_asset.jpeg");
+        assert_info_file(info_path_absolute, "some_asset.jpeg");
     }
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_get_asset_with_removed_item_upstream() {
+    async fn test_asset_manager_download_removed() {
         // Arrange
-        let (_tmpdir, data_root_dir, download_dir_relative) = setup_temp_directories();
-        let download_dir_absolute = data_root_dir.join(&download_dir_relative);
+        let dirs = setup_directories();
 
-        setup_asset(&download_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&download_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
 
         let asset = AssetMock::new("some_asset")
             .was_removed(true)
             .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10000)));
 
-        let mut manager =
-            AssetManager::new(&data_root_dir, &download_dir_relative, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
-        let result = manager.get_asset().await;
+        let result = manager.download().await;
 
         // Assert
-        let download_dir_absolute = data_root_dir.join(download_dir_relative);
-
         assert!(matches!(result, Err(MediaError::Removed)));
 
         test_utils::assert_directory(
-            download_dir_absolute,
+            dirs.asset_dir_absolute,
             vec!["some_asset2_info.json", "some_asset2.png"],
         );
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_upload_new() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("some_asset.png");
+        let upload_path_relative = dirs.upload_dir_relative.join("some_asset.png");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec!["some_asset_info.json", "some_asset.png"],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset.png");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_upload_existing() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("some_asset.png");
+        let upload_path_relative = dirs.upload_dir_relative.join("some_asset.png");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+
+        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset.png",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset.png");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_upload_new_file_extension() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("some_asset.jpeg");
+        let upload_path_relative = dirs.upload_dir_relative.join("some_asset.jpeg");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
+        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+
+        let asset = AssetMock::new("some_asset").upload_result("jpeg".to_owned());
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.jpeg");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.jpeg"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset.jpeg",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset.jpeg");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_upload_new_different_upload_name() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("upload_file.png");
+        let upload_path_relative = dirs.upload_dir_relative.join("upload_file.png");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec!["some_asset_info.json", "some_asset.png"],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset.png");
     }
 }

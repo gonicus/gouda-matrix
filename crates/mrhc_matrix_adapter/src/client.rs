@@ -733,6 +733,13 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
+        if let Some(avatar_path) = request.avatar_path {
+            // TODO: Error handling
+            let _ = media_manager
+                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .await;
+        }
+
         Ok(rooms::convert_to_proto(media_manager, room, our_user_id).await?)
     }
 
@@ -755,7 +762,7 @@ impl ClientAbstraction for MatrixClient {
             display_name,
             invitees,
             join_rule,
-            ..
+            avatar_path,
         } = request;
 
         let join_rule = RoomJoinRule::try_from(join_rule)
@@ -772,6 +779,13 @@ impl ClientAbstraction for MatrixClient {
             .create_room(room_request)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
+
+        if let Some(avatar_path) = avatar_path {
+            // TODO: Error handling
+            let _ = media_manager
+                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .await;
+        }
 
         Ok(rooms::convert_to_proto(media_manager, room, user_id).await?)
     }
@@ -851,9 +865,11 @@ impl ClientAbstraction for MatrixClient {
             room_id,
             display_name,
             join_rule,
+            avatar_path,
             ..
         } = request;
 
+        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
         let room = self.get_matrix_room(&room_id)?;
 
         let mut response = builder::RoomChangeEventBuilder::new(room_id.to_string());
@@ -872,6 +888,13 @@ impl ClientAbstraction for MatrixClient {
 
             rooms::update_room_join_rule(&room, join_rule).await?;
             response = response.change_join_rule(join_rule);
+        }
+
+        if let Some(avatar_path) = avatar_path {
+            // TODO: Error handling
+            let _ = media_manager
+                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .await;
         }
 
         Ok(response.into_proto())
