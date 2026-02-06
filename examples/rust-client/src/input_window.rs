@@ -76,16 +76,6 @@ impl InputWindow {
                 ui_action!(self, ui, LoginFlows);
                 ui_action!(self, ui, IdentityProviders);
                 ui_action!(self, ui, LoginSso, self.config.login_sso.clone());
-                ui_action!(self, ui, RoomList, self.config.room_list);
-                ui_action!(self, ui, UserList);
-                ui_action!(self, ui, UserSearch, self.config.user_search.clone());
-                ui_action!(self, ui, SendMessage, self.config.send_message.clone());
-                ui_action!(
-                    self,
-                    ui,
-                    AbortVerification,
-                    self.config.abort_verification.clone()
-                );
                 ui_action!(
                     self,
                     ui,
@@ -107,8 +97,30 @@ impl InputWindow {
                 ui_action!(
                     self,
                     ui,
-                    CrossSigningAccept,
+                    CrossSigningConfirm,
                     self.config.cross_signing_accept.clone()
+                );
+                ui_action!(
+                    self,
+                    ui,
+                    AbortVerification,
+                    self.config.abort_verification.clone()
+                );
+                ui_action!(self, ui, UserList);
+                ui_action!(self, ui, UserSearch, self.config.user_search.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    PublicRoomList,
+                    self.config.public_room_list.clone()
+                );
+                ui_action!(self, ui, Invite, self.config.invite.clone());
+                ui_action!(self, ui, RoomList, self.config.room_list);
+                ui_action!(
+                    self,
+                    ui,
+                    CreateGroupRoom,
+                    self.config.create_group_room.clone()
                 );
                 ui_action!(
                     self,
@@ -116,32 +128,20 @@ impl InputWindow {
                     CreateDirectRoom,
                     self.config.create_direct_room.clone()
                 );
-                ui_action!(
-                    self,
-                    ui,
-                    CreateGroupRoom,
-                    self.config.create_group_room.clone()
-                );
-                ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
-                ui_action!(self, ui, Invite, self.config.invite.clone());
                 ui_action!(self, ui, ChangeRoom, self.config.change_room.clone());
                 ui_action!(self, ui, LeaveRoom, self.config.leave_room.clone());
                 ui_action!(self, ui, JoinRoom, self.config.join_room.clone());
-                ui_action!(
-                    self,
-                    ui,
-                    PublicRoomList,
-                    self.config.public_room_list.clone()
-                );
                 ui_action!(self, ui, KnockRoom, self.config.knock_room.clone());
+                ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
+                ui_action!(self, ui, SendMessage, self.config.send_message.clone());
+                ui_action!(self, ui, RemoveMessage, self.config.remove_message.clone());
+                ui_action!(self, ui, ChangeMessage, self.config.change_message.clone());
                 ui_action!(
                     self,
                     ui,
                     CreateReaction,
                     self.config.create_reaction.clone()
                 );
-                ui_action!(self, ui, ChangeMessage, self.config.change_message.clone());
-                ui_action!(self, ui, RemoveMessage, self.config.remove_message.clone());
             });
     }
 }

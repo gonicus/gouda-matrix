@@ -141,12 +141,12 @@ async fn redact_any_sync_timeline_event(
 }
 
 fn redact_room_message(ctx: Ctx<ClientContext>, room: Room, event_id: String) {
-    let proto = RemoveMessageEvent {
+    let proto = MessageRemoveEvent {
         room_id: room.room_id().to_string(),
         message_id: event_id,
     };
 
-    ctx.send_event(ResponseContent::RemoveMessageEvent(proto));
+    ctx.send_event(ResponseContent::MessageRemoveEvent(proto));
 }
 
 async fn room_name_event_handler(

@@ -9,22 +9,6 @@
   "login-sso": {
     "identity_provider": null
   },
-  "room-list": {
-    "include_joined": true,
-    "include_unjoined": false
-  },
-  "user-search": {
-    "query": "test-user",
-    "limit": 30
-  },
-  "send-message": {
-    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
-    "content": "Hallo YAMA",
-    "mime_type": "text/plain"
-  },
-  "abort-verification": {
-    "verification_flow_id": "ec16d60a78d5482ea52a196f83e15d28"
-  },
   "recovery-key-verification": {
       "recovery_key": "SOME VERI FICA TION KEY!"
   },
@@ -39,16 +23,32 @@
     "verification_flow_id": "748e039c112c4c9e888a3c6fc9849c0e",
     "selected_method": 1
   },
-  "cross-signing-accept": {
+  "cross-signing-confirm": {
     "verification_flow_id": "748e039c112c4c9e888a3c6fc9849c0e"
   },
-  "listen": {
-    "n_events": 1
+  "abort-verification": {
+    "verification_flow_id": "ec16d60a78d5482ea52a196f83e15d28"
   },
-  "create-direct-room": {
-    "display_name": "New Direct Room",
-    "invitee": "@some_user:server.com",
-    "avatar_path": null
+  "user-search": {
+    "query": "test-user",
+    "limit": 30
+  },
+  "public-room-list": {
+    "limit": null,
+    "since": null,
+    "generic_search_term": ""
+  },
+  "invite": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "invitees": [
+      "@some_user_1:server.com",
+      "@some_user_2:server.com"
+    ],
+    "invitation_text": null
+  },
+  "room-list": {
+    "include_joined": true,
+    "include_unjoined": false
   },
   "create-group-room": {
     "display_name": "New Group Room",
@@ -59,16 +59,10 @@
     "join_rule": 0,
     "avatar_path": null
   },
-  "mark-as-read": {
-    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
-  },
-  "invite": {
-    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
-    "invitees": [
-      "@some_user_1:server.com",
-      "@some_user_2:server.com"
-    ],
-    "invitation_text": null
+  "create-direct-room": {
+    "display_name": "New Direct Room",
+    "invitee": "@some_user:server.com",
+    "avatar_path": null
   },
   "change-room": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
@@ -87,24 +81,27 @@
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message": "Knock Knock!"
   },
-  "public-room-list": {
-    "limit": null,
-    "since": null,
-    "generic_search_term": ""
+  "mark-as-read": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
   },
-  "create-reaction": {
+  "send-message": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "content": "Hallo YAMA",
+    "mime_type": "text/plain"
+  },
+  "remove-message": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
-    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
-    "reaction": "🫪",
-    "user_id": null
+    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k"
   },
   "change-message": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
     "new_content": "Hello World!"
   },
-  "remove-message": {
+  "create-reaction": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
-    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k"
+    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
+    "reaction": "🫪",
+    "user_id": null
   }
 }

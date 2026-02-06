@@ -264,10 +264,40 @@ impl ClientAbstraction for MatrixClient {
         Ok(response)
     }
 
+    async fn get_identity_providers(
+        &mut self,
+        ctx: ClientContext,
+    ) -> Result<IdentityProvidersResponse> {
+        // Check if the idps have been retrieved before
+        if let Some(idps) = &self.cached_idps {
+            return Ok(IdentityProvidersResponse {
+                identity_providers: idps.clone(),
+            });
+        }
+
+        // We can use the `Self::get_login_flows` method to retrieve the idps as it saves
+        // them to the cache.
+        // This method would ultimately only fetch the login flows too.
+        let _ = self.get_login_flows(ctx).await?;
+
+        // If there is still nothing in the cache, no idps are available or single sign-on
+        // is not supported
+        // by the server. In this case we can just return an empty list.
+        let idps = if let Some(idps) = &self.cached_idps {
+            idps.clone()
+        } else {
+            Vec::new()
+        };
+
+        Ok(IdentityProvidersResponse {
+            identity_providers: idps,
+        })
+    }
+
     async fn login_username_password(
         &mut self,
         mut ctx: ClientContext,
-        request: UsernamePasswordLoginRequest,
+        request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
         let initialized_data = self.get_initialized_data()?;
 
@@ -315,8 +345,8 @@ impl ClientAbstraction for MatrixClient {
     async fn login_sso(
         &mut self,
         mut ctx: ClientContext,
-        request: SsoLoginRequest,
-    ) -> Result<SsoLoginResponse> {
+        request: LoginSsoRequest,
+    ) -> Result<LoginSsoResponse> {
         let initialized_data = self.get_initialized_data()?;
 
         if initialized_data.client.matrix_auth().logged_in() {
@@ -401,165 +431,7 @@ impl ClientAbstraction for MatrixClient {
             errors::create_unknown("InternalError: Sender of the login url dropped")
         })?;
 
-        Ok(SsoLoginResponse { login_url })
-    }
-
-    async fn get_identity_providers(
-        &mut self,
-        ctx: ClientContext,
-    ) -> Result<IdentityProvidersResponse> {
-        // Check if the idps have been retrieved before
-        if let Some(idps) = &self.cached_idps {
-            return Ok(IdentityProvidersResponse {
-                identity_providers: idps.clone(),
-            });
-        }
-
-        // We can use the `Self::get_login_flows` method to retrieve the idps as it saves
-        // them to the cache.
-        // This method would ultimately only fetch the login flows too.
-        let _ = self.get_login_flows(ctx).await?;
-
-        // If there is still nothing in the cache, no idps are available or single sign-on
-        // is not supported
-        // by the server. In this case we can just return an empty list.
-        let idps = if let Some(idps) = &self.cached_idps {
-            idps.clone()
-        } else {
-            Vec::new()
-        };
-
-        Ok(IdentityProvidersResponse {
-            identity_providers: idps,
-        })
-    }
-
-    async fn get_rooms(
-        &mut self,
-        _ctx: ClientContext,
-        request: RoomListRequest,
-    ) -> Result<RoomListResponse> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in()?;
-
-        let Some(user_id) = client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
-        };
-
-        let mut filter = RoomStateFilter::empty();
-
-        if request.include_joined {
-            filter |= RoomStateFilter::JOINED;
-        }
-
-        if request.include_unjoined {
-            filter |= RoomStateFilter::INVITED
-                | RoomStateFilter::LEFT
-                | RoomStateFilter::KNOCKED
-                | RoomStateFilter::BANNED;
-        }
-
-        let mut result = Vec::new();
-
-        for room in client.rooms_filtered(filter) {
-            if room.is_space() {
-                continue;
-            }
-
-            result.push(rooms::convert_to_proto(media_manager, room, user_id).await?);
-        }
-
-        Ok(RoomListResponse { room_list: result })
-    }
-
-    async fn send_message(
-        &mut self,
-        _ctx: ClientContext,
-        request: SendMessageRequest,
-    ) -> Result<SendMessageResponse> {
-        let room = self.get_matrix_room(&request.room_id)?;
-        let event = RoomMessageEventContent::text_plain(request.content);
-
-        let re = room
-            .send(event)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        Ok(SendMessageResponse {
-            message_id: re.event_id.to_string(),
-        })
-    }
-
-    async fn get_users(&mut self, _ctx: ClientContext) -> Result<UserListResponse> {
-        let client = self.get_client_logged_in()?;
-
-        // It is not possible to retrieve all known users using the matrix-sdk.
-        // As a workaround, we retrieve all rooms and get their members.
-        let rooms = client.rooms();
-
-        let mut result: Vec<User> = Vec::new();
-
-        for room in rooms {
-            let members = room
-                .members(RoomMemberships::all())
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
-            for member in members {
-                // Skip duplicates
-                if result.iter().any(|m| m.user_id == *member.user_id()) {
-                    continue;
-                }
-
-                // TODO:
-                //  - Presence state
-                //  - Avatar path
-
-                result.push(User {
-                    user_id: member.user_id().to_string(),
-                    display_name: member.display_name().map(str::to_string),
-                    presence_state: None,
-                    avatar_path: None,
-                });
-            }
-        }
-
-        Ok(UserListResponse { user_list: result })
-    }
-
-    async fn search_users(
-        &mut self,
-        _ctx: ClientContext,
-        request: UserSearchRequest,
-    ) -> Result<UserSearchResponse> {
-        let client = self.get_client_logged_in()?;
-
-        let UserSearchRequest { query, limit } = request;
-
-        let user_list = client
-            .search_users(&query, limit as u64)
-            .await
-            .map_err(errors::convert_http_error)?;
-
-        let mut result = Vec::new();
-
-        for user in user_list.results {
-            // TODO:
-            //  - Presence state
-            //  - Avatar path
-
-            result.push(User {
-                user_id: user.user_id.to_string(),
-                display_name: user.display_name,
-                presence_state: None,
-                avatar_path: None,
-            });
-        }
-
-        Ok(UserSearchResponse { user_list: result })
+        Ok(LoginSsoResponse { login_url })
     }
 
     async fn recovery_key_verification(
@@ -656,13 +528,13 @@ impl ClientAbstraction for MatrixClient {
     async fn cross_signing_confirm(
         &mut self,
         _ctx: ClientContext,
-        request: CrossSigningAcceptRequest,
+        request: CrossSigningConfirmRequest,
     ) -> Result<()> {
         let _ = self.get_client_logged_in()?;
 
         self.cleanup_verifications();
 
-        let CrossSigningAcceptRequest {
+        let CrossSigningConfirmRequest {
             verification_flow_id,
         } = request;
 
@@ -713,123 +585,112 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn create_direct_room(
-        &mut self,
-        _ctx: ClientContext,
-        request: CreateDirectRoomRequest,
-    ) -> Result<Room> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in()?;
+    async fn get_users(&mut self, _ctx: ClientContext) -> Result<UserListResponse> {
+        let client = self.get_client_logged_in()?;
 
-        let Some(our_user_id) = client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
-        };
+        // It is not possible to retrieve all known users using the matrix-sdk.
+        // As a workaround, we retrieve all rooms and get their members.
+        let rooms = client.rooms();
 
-        let invitee_user_id =
-            UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
+        let mut result: Vec<User> = Vec::new();
 
-        let room_request =
-            rooms::create_dm_room_request(request.display_name.clone(), invitee_user_id.to_owned());
+        for room in rooms {
+            let members = room
+                .members(RoomMemberships::all())
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
 
-        let room = client
-            .create_room(room_request)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            for member in members {
+                // Skip duplicates
+                if result.iter().any(|m| m.user_id == *member.user_id()) {
+                    continue;
+                }
 
-        if let Some(avatar_path) = request.avatar_path {
-            // TODO: Error handling
-            let _ = media_manager
-                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await;
+                // TODO:
+                //  - Presence state
+                //  - Avatar path
+
+                result.push(User {
+                    user_id: member.user_id().to_string(),
+                    display_name: member.display_name().map(str::to_string),
+                    presence_state: None,
+                    avatar_path: None,
+                });
+            }
         }
 
-        Ok(rooms::convert_to_proto(media_manager, room, our_user_id).await?)
+        Ok(UserListResponse { user_list: result })
     }
 
-    async fn create_group_room(
+    async fn search_users(
         &mut self,
         _ctx: ClientContext,
-        request: CreateGroupRoomRequest,
-    ) -> Result<Room> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in()?;
+        request: UserSearchRequest,
+    ) -> Result<UserSearchResponse> {
+        let client = self.get_client_logged_in()?;
 
-        let Some(user_id) = client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
-        };
+        let UserSearchRequest { query, limit } = request;
 
-        let CreateGroupRoomRequest {
-            display_name,
-            invitees,
-            join_rule,
-            avatar_path,
+        let user_list = client
+            .search_users(&query, limit as u64)
+            .await
+            .map_err(errors::convert_http_error)?;
+
+        let mut result = Vec::new();
+
+        for user in user_list.results {
+            // TODO:
+            //  - Presence state
+            //  - Avatar path
+
+            result.push(User {
+                user_id: user.user_id.to_string(),
+                display_name: user.display_name,
+                presence_state: None,
+                avatar_path: None,
+            });
+        }
+
+        Ok(UserSearchResponse { user_list: result })
+    }
+
+    async fn get_public_rooms(
+        &mut self,
+        _ctx: ClientContext,
+        request: PublicRoomListRequest,
+    ) -> Result<PublicRoomListResponse> {
+        use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
+        use ruma_common::directory::Filter;
+
+        let client = self.get_client_logged_in()?;
+
+        let PublicRoomListRequest {
+            limit,
+            since,
+            generic_search_term,
         } = request;
 
-        let join_rule = RoomJoinRule::try_from(join_rule)
-            .map_err(|_| errors::create_unknown("Invalid RoomJoinRule"))?;
+        let filter = assign!(Filter::default(), {
+            generic_search_term: generic_search_term,
+        });
 
-        let invitees: Vec<OwnedUserId> = invitees
-            .into_iter()
-            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
-            .collect::<Result<Vec<OwnedUserId>>>()?;
+        let request = assign!(get_public_rooms_filtered::v3::Request::default(), {
+            limit: limit.map(|f| f.into()),
+            since: since,
+            filter: filter,
+        });
 
-        let room_request = rooms::create_room_request(display_name.clone(), invitees, join_rule);
-
-        let room = client
-            .create_room(room_request)
+        let result = client
+            .public_rooms_filtered(request)
             .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .map_err(errors::convert_http_error)?;
 
-        if let Some(avatar_path) = avatar_path {
-            // TODO: Error handling
-            let _ = media_manager
-                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await;
-        }
+        let rooms = rooms::convert_public_rooms_chunk(result.chunk);
 
-        Ok(rooms::convert_to_proto(media_manager, room, user_id).await?)
-    }
-
-    async fn mark_as_read(
-        &mut self,
-        _ctx: ClientContext,
-        request: MarkAsReadRequest,
-    ) -> Result<RoomChangeEvent> {
-        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
-        use matrix_sdk::ruma::events::receipt::ReceiptThread;
-
-        let room = self.get_matrix_room(&request.room_id)?;
-        let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
-
-        let messages = room
-            .messages(options)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        let event = messages
-            .chunk
-            .first()
-            .ok_or(errors::create_unknown("No event found"))?;
-
-        let event_id = event
-            .event_id()
-            .ok_or(errors::create_unknown("Invalid event ID"))?;
-
-        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        Ok(
-            builder::RoomChangeEventBuilder::new(request.room_id.clone())
-                .change_unread_count(0)
-                .into_proto(),
-        )
+        Ok(PublicRoomListResponse {
+            room_list: rooms,
+            next_batch: result.next_batch,
+        })
     }
 
     async fn invite(
@@ -862,12 +723,136 @@ impl ClientAbstraction for MatrixClient {
         )
     }
 
+    async fn get_rooms(
+        &mut self,
+        _ctx: ClientContext,
+        request: RoomListRequest,
+    ) -> Result<RoomListResponse> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
+
+        let Some(user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
+        let mut filter = RoomStateFilter::empty();
+
+        if request.include_joined {
+            filter |= RoomStateFilter::JOINED;
+        }
+
+        if request.include_unjoined {
+            filter |= RoomStateFilter::INVITED
+                | RoomStateFilter::LEFT
+                | RoomStateFilter::KNOCKED
+                | RoomStateFilter::BANNED;
+        }
+
+        let mut result = Vec::new();
+
+        for room in client.rooms_filtered(filter) {
+            if room.is_space() {
+                continue;
+            }
+
+            result.push(rooms::convert_to_proto(media_manager, room, user_id).await?);
+        }
+
+        Ok(RoomListResponse { room_list: result })
+    }
+
+    async fn create_group_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: RoomCreateGroupRequest,
+    ) -> Result<Room> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
+
+        let Some(user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
+        let RoomCreateGroupRequest {
+            display_name,
+            invitees,
+            join_rule,
+            avatar_path,
+        } = request;
+
+        let join_rule = RoomJoinRule::try_from(join_rule)
+            .map_err(|_| errors::create_unknown("Invalid RoomJoinRule"))?;
+
+        let invitees: Vec<OwnedUserId> = invitees
+            .into_iter()
+            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
+            .collect::<Result<Vec<OwnedUserId>>>()?;
+
+        let room_request = rooms::create_room_request(display_name.clone(), invitees, join_rule);
+
+        let room = client
+            .create_room(room_request)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        if let Some(avatar_path) = avatar_path {
+            // TODO: Error handling
+            let _ = media_manager
+                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .await;
+        }
+
+        Ok(rooms::convert_to_proto(media_manager, room, user_id).await?)
+    }
+
+    async fn create_direct_room(
+        &mut self,
+        _ctx: ClientContext,
+        request: RoomCreateDirectRequest,
+    ) -> Result<Room> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
+
+        let Some(our_user_id) = client.user_id() else {
+            return Err(errors::create_unknown("Unable to retrieve user_id"));
+        };
+
+        let invitee_user_id =
+            UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
+
+        let room_request =
+            rooms::create_dm_room_request(request.display_name.clone(), invitee_user_id.to_owned());
+
+        let room = client
+            .create_room(room_request)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        if let Some(avatar_path) = request.avatar_path {
+            // TODO: Error handling
+            let _ = media_manager
+                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .await;
+        }
+
+        Ok(rooms::convert_to_proto(media_manager, room, our_user_id).await?)
+    }
+
     async fn change_room(
         &mut self,
         _ctx: ClientContext,
-        request: ChangeRoomRequest,
+        request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
-        let ChangeRoomRequest {
+        let RoomChangeRequest {
             room_id,
             display_name,
             join_rule,
@@ -909,7 +894,7 @@ impl ClientAbstraction for MatrixClient {
     async fn leave_room(
         &mut self,
         _ctx: ClientContext,
-        request: LeaveRoomRequest,
+        request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
         let room = self.get_matrix_room(&request.room_id)?;
 
@@ -924,7 +909,7 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn join_room(&mut self, _ctx: ClientContext, request: JoinRoomRequest) -> Result<Room> {
+    async fn join_room(&mut self, _ctx: ClientContext, request: RoomJoinRequest) -> Result<Room> {
         let InitializedData {
             client,
             media_manager,
@@ -946,10 +931,10 @@ impl ClientAbstraction for MatrixClient {
         Ok(rooms::convert_to_proto(media_manager, room, &user_id).await?)
     }
 
-    async fn knock_room(&mut self, _ctx: ClientContext, request: KnockRoomRequest) -> Result<()> {
+    async fn knock_room(&mut self, _ctx: ClientContext, request: RoomKnockRequest) -> Result<()> {
         let client = self.get_client_logged_in()?;
 
-        let KnockRoomRequest { room_id, message } = request;
+        let RoomKnockRequest { room_id, message } = request;
 
         let room_id =
             RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
@@ -962,63 +947,78 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn public_rooms(
+    async fn mark_as_read(
         &mut self,
         _ctx: ClientContext,
-        request: PublicRoomListRequest,
-    ) -> Result<PublicRoomListResponse> {
-        use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
-        use ruma_common::directory::Filter;
+        request: RoomMarkAsReadRequest,
+    ) -> Result<RoomChangeEvent> {
+        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+        use matrix_sdk::ruma::events::receipt::ReceiptThread;
 
-        let client = self.get_client_logged_in()?;
+        let room = self.get_matrix_room(&request.room_id)?;
+        let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
-        let PublicRoomListRequest {
-            limit,
-            since,
-            generic_search_term,
-        } = request;
-
-        let filter = assign!(Filter::default(), {
-            generic_search_term: generic_search_term,
-        });
-
-        let request = assign!(get_public_rooms_filtered::v3::Request::default(), {
-            limit: limit.map(|f| f.into()),
-            since: since,
-            filter: filter,
-        });
-
-        let result = client
-            .public_rooms_filtered(request)
+        let messages = room
+            .messages(options)
             .await
-            .map_err(errors::convert_http_error)?;
+            .map_err(errors::convert_matrix_sdk_error)?;
 
-        let rooms = rooms::convert_public_rooms_chunk(result.chunk);
+        let event = messages
+            .chunk
+            .first()
+            .ok_or(errors::create_unknown("No event found"))?;
 
-        Ok(PublicRoomListResponse {
-            room_list: rooms,
-            next_batch: result.next_batch,
+        let event_id = event
+            .event_id()
+            .ok_or(errors::create_unknown("Invalid event ID"))?;
+
+        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(
+            builder::RoomChangeEventBuilder::new(request.room_id.clone())
+                .change_unread_count(0)
+                .into_proto(),
+        )
+    }
+
+    async fn send_message(
+        &mut self,
+        _ctx: ClientContext,
+        request: MessageSendRequest,
+    ) -> Result<MessageSendResponse> {
+        let room = self.get_matrix_room(&request.room_id)?;
+        let event = RoomMessageEventContent::text_plain(request.content);
+
+        let re = room
+            .send(event)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(MessageSendResponse {
+            message_id: re.event_id.to_string(),
         })
     }
 
-    async fn create_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
-        let Reaction {
+    async fn remove_message(
+        &mut self,
+        _ctx: ClientContext,
+        request: MessageRemoveRequest,
+    ) -> Result<()> {
+        let MessageRemoveRequest {
             room_id,
             message_id,
-            reaction,
-            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id)?;
 
-        let message_id = OwnedEventId::try_from(message_id)
+        let event_id = EventId::parse(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
 
-        let event = ReactionEventContent::new(Annotation::new(message_id, reaction));
-
-        room.send(event)
+        room.redact(&event_id, None, None)
             .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .map_err(errors::convert_http_error)?;
 
         Ok(())
     }
@@ -1026,9 +1026,9 @@ impl ClientAbstraction for MatrixClient {
     async fn change_message(
         &mut self,
         _ctx: ClientContext,
-        request: ChangeMessageRequest,
+        request: MessageChangeRequest,
     ) -> Result<()> {
-        let ChangeMessageRequest {
+        let MessageChangeRequest {
             room_id,
             message_id,
             new_content,
@@ -1052,24 +1052,24 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn remove_message(
-        &mut self,
-        _ctx: ClientContext,
-        request: RemoveMessageRequest,
-    ) -> Result<()> {
-        let RemoveMessageRequest {
+    async fn create_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
+        let Reaction {
             room_id,
             message_id,
+            reaction,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id)?;
 
-        let event_id = EventId::parse(message_id)
+        let message_id = OwnedEventId::try_from(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
 
-        room.redact(&event_id, None, None)
+        let event = ReactionEventContent::new(Annotation::new(message_id, reaction));
+
+        room.send(event)
             .await
-            .map_err(errors::convert_http_error)?;
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         Ok(())
     }

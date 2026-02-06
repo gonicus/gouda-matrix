@@ -116,38 +116,9 @@ impl UiAttribute for InitializationRequest {
     }
 }
 
-impl UiAttribute for SsoLoginRequest {
+impl UiAttribute for LoginSsoRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, identity_provider);
-    }
-}
-
-impl UiAttribute for RoomListRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, include_joined);
-        ui_attribute!(self, ui, include_unjoined);
-    }
-}
-
-impl UiAttribute for SendMessageRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, mime_type);
-        ui_attribute!(self, ui, content);
-        ui_attribute!(self, ui, related_message_id);
-    }
-}
-
-impl UiAttribute for UserSearchRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, query);
-        ui_attribute!(self, ui, limit);
-    }
-}
-
-impl UiAttribute for VerificationAbortRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, verification_flow_id);
     }
 }
 
@@ -171,69 +142,22 @@ impl UiAttribute for CrossSigningMethodSelectedRequest {
     }
 }
 
-impl UiAttribute for CrossSigningAcceptRequest {
+impl UiAttribute for CrossSigningConfirmRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, verification_flow_id);
     }
 }
 
-impl UiAttribute for CreateDirectRoomRequest {
+impl UiAttribute for VerificationAbortRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, invitee);
-        ui_attribute!(self, ui, avatar_path);
+        ui_attribute!(self, ui, verification_flow_id);
     }
 }
 
-impl UiAttribute for CreateGroupRoomRequest {
+impl UiAttribute for UserSearchRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, invitees);
-        ui_attribute!(self, ui, join_rule);
-        ui_attribute!(self, ui, avatar_path);
-    }
-}
-
-impl UiAttribute for MarkAsReadRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-    }
-}
-
-impl UiAttribute for InvitationRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, invitees);
-        ui_attribute!(self, ui, invitation_text);
-    }
-}
-
-impl UiAttribute for ChangeRoomRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, join_rule);
-        ui_attribute!(self, ui, is_favorite);
-        ui_attribute!(self, ui, avatar_path);
-    }
-}
-
-impl UiAttribute for LeaveRoomRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-    }
-}
-
-impl UiAttribute for JoinRoomRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-    }
-}
-
-impl UiAttribute for KnockRoomRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message);
+        ui_attribute!(self, ui, query);
+        ui_attribute!(self, ui, limit);
     }
 }
 
@@ -245,16 +169,90 @@ impl UiAttribute for PublicRoomListRequest {
     }
 }
 
-impl UiAttribute for Reaction {
+impl UiAttribute for InvitationRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message_id);
-        ui_attribute!(self, ui, reaction);
-        ui_attribute!(self, ui, user_id);
+        ui_attribute!(self, ui, invitees);
+        ui_attribute!(self, ui, invitation_text);
     }
 }
 
-impl UiAttribute for ChangeMessageRequest {
+impl UiAttribute for RoomListRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, include_joined);
+        ui_attribute!(self, ui, include_unjoined);
+    }
+}
+
+impl UiAttribute for RoomCreateGroupRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, display_name);
+        ui_attribute!(self, ui, invitees);
+        ui_attribute!(self, ui, join_rule);
+        ui_attribute!(self, ui, avatar_path);
+    }
+}
+
+impl UiAttribute for RoomCreateDirectRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, display_name);
+        ui_attribute!(self, ui, invitee);
+        ui_attribute!(self, ui, avatar_path);
+    }
+}
+
+impl UiAttribute for RoomChangeRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, display_name);
+        ui_attribute!(self, ui, join_rule);
+        ui_attribute!(self, ui, is_favorite);
+        ui_attribute!(self, ui, avatar_path);
+    }
+}
+
+impl UiAttribute for RoomLeaveRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}
+
+impl UiAttribute for RoomJoinRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}
+
+impl UiAttribute for RoomKnockRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, message);
+    }
+}
+
+impl UiAttribute for RoomMarkAsReadRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+    }
+}
+
+impl UiAttribute for MessageSendRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, mime_type);
+        ui_attribute!(self, ui, content);
+        ui_attribute!(self, ui, related_message_id);
+    }
+}
+
+impl UiAttribute for MessageRemoveRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, message_id);
+    }
+}
+
+impl UiAttribute for MessageChangeRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
         ui_attribute!(self, ui, message_id);
@@ -262,9 +260,11 @@ impl UiAttribute for ChangeMessageRequest {
     }
 }
 
-impl UiAttribute for RemoveMessageRequest {
+impl UiAttribute for Reaction {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
         ui_attribute!(self, ui, message_id);
+        ui_attribute!(self, ui, reaction);
+        ui_attribute!(self, ui, user_id);
     }
 }
