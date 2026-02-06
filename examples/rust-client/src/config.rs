@@ -11,7 +11,7 @@ pub struct Config {
     pub recovery_key_verification: RecoveryKeyVerificationRequest,
     pub cross_signing_select_method: CrossSigningMethodSelectedRequest,
     pub cross_signing_start: CrossSigningStartRequest,
-    pub cross_signing_accept: CrossSigningConfirmRequest,
+    pub cross_signing_confirm: CrossSigningConfirmRequest,
     pub abort_verification: VerificationAbortRequest,
     pub user_search: UserSearchRequest,
     pub public_room_list: PublicRoomListRequest,
