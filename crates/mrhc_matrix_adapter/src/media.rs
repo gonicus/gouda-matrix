@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
-use matrix_sdk::ruma::events::room::avatar::RoomAvatarEventContent;
+use matrix_sdk::ruma::events::room::avatar::ImageInfo;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::Room;
 use thiserror::Error;
@@ -192,7 +191,7 @@ impl AssetManager {
 
         log::debug!("Uploading asset: {src:?}");
 
-        let extension = self.asset.upload(src.clone()).await?;
+        let upload = self.asset.upload(src.clone()).await?;
 
         log::debug!("Successfully uploaded asset");
 
@@ -203,10 +202,12 @@ impl AssetManager {
             self.delete_asset_and_info(&info).await;
         }
 
-        let asset_file_name = self.get_asset_file_name(&extension);
+        let asset_file_name = self.get_asset_file_name(&upload.file_extension);
+
         let info = AssetInfo {
             file: asset_file_name.clone(),
             download_ts: utils::get_unix_timestamp_seconds(),
+            upstream_url: upload.upstream_url,
         };
 
         let info_path_absolute = self.get_info_path_absolute();
@@ -232,7 +233,7 @@ impl AssetManager {
 
         log::debug!("Asset has already been downloaded before");
 
-        if self.is_up_to_date(info.download_ts).await {
+        if self.is_up_to_date(&info).await {
             log::debug!("Asset is still up-to-date");
             let path = self.get_asset_path_relative(&info.file);
             return Some(Ok(path.to_string_lossy().to_string()));
@@ -250,16 +251,13 @@ impl AssetManager {
     }
 
     /// Checks if the asset downloaded at the specified timestamp is up-to-date.
-    async fn is_up_to_date(&mut self, downloaded_at: u64) -> bool {
-        let Ok(upload_ts) = self.asset.upload_timestamp().await else {
-            log::warn!(
-                "Unable to retrieve the assets upload timestamp, assuming it's still up-to-date"
-            );
-
+    async fn is_up_to_date(&mut self, info: &AssetInfo) -> bool {
+        let Ok(result) = self.asset.is_up_to_date(info).await else {
+            log::warn!("Error checking if the asset is still up-to-date, assuming it is");
             return true;
         };
 
-        upload_ts <= downloaded_at
+        result
     }
 
     /// Deletes the downloaded asset as well as its info file from the file system.
@@ -290,21 +288,22 @@ impl AssetManager {
     async fn download_asset(&mut self) -> Result<String> {
         log::debug!("Downloading asset");
 
-        let (data, extension) = self.asset.download().await?;
+        let download = self.asset.download().await?;
 
         if let Some(existing_info) = self.read_info().await {
             log::debug!("Replacing the already downloaded asset");
             self.delete_asset_and_info(&existing_info).await;
         }
 
-        let data_file_name = self.get_asset_file_name(&extension);
+        let data_file_name = self.get_asset_file_name(&download.file_extension);
 
         let info = AssetInfo {
             file: data_file_name.clone(),
             download_ts: utils::get_unix_timestamp_seconds(),
+            upstream_url: download.upstream_url,
         };
 
-        self.write_info_and_asset(info, data).await?;
+        self.write_info_and_asset(info, download.data).await?;
 
         let relative_asset_path = self.get_asset_path_relative(&data_file_name);
 
@@ -430,6 +429,28 @@ struct AssetInfo {
     /// The UNIX timestamp in seconds at which we downloaded the asset.
     /// This is used to check if the asset is still up-to-date.
     download_ts: u64,
+    /// The upstream URL to the media file.
+    upstream_url: String,
+}
+
+/// Contains information of a download.
+#[derive(Debug, Clone)]
+struct Download {
+    /// The downloaded data.
+    data: Vec<u8>,
+    /// The file extension to use for the downloaded data.
+    file_extension: String,
+    /// The upstream URL to the media file.
+    upstream_url: String,
+}
+
+/// Contains information of an upload.
+#[derive(Debug, Clone)]
+struct Upload {
+    /// The file extension to use for the uploaded data.
+    file_extension: String,
+    /// The upstream URL to the uploaded media file.
+    upstream_url: String,
 }
 
 /// Trait that represents an object that actually implements an asset upload
@@ -439,68 +460,33 @@ trait Asset: Send + Sync {
     /// Gets the ID of the asset.
     fn asset_id(&self) -> &str;
 
-    /// Retrieves the timestamp of when the asset was uploaded to the upstream server.
-    async fn upload_timestamp(&mut self) -> Result<u64>;
+    /// Checks if the already downloaded asset is still up to date.
+    async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool>;
 
     /// If the asset was removed from the upstream server.
     async fn was_removed(&mut self) -> bool;
 
     /// Downloads the asset from the upstream server.
-    /// The first value of the tuple is the downloaded asset, while the second
-    /// specifies the file extension to be used.
-    /// Returns None if the asset was not found on the upstream server or if
-    /// a download error occurred.
-    async fn download(&mut self) -> Result<(Vec<u8>, String)>;
+    async fn download(&mut self) -> Result<Download>;
 
     /// Uploads the specified asset to the upstream server.
     /// Returns the file extension to be used for the asset file.
-    async fn upload(&mut self, src: PathBuf) -> Result<String>;
+    async fn upload(&mut self, src: PathBuf) -> Result<Upload>;
 }
 
 /// Manages the download and upload of an avatar from a specific room.
 struct RoomAvatarAsset {
     /// The room from which the avatar is to be downloaded or uploaded.
     room: Room,
-    /// Cached `RoomAvatarEventContent` and its origin server timestamp in seconds.
-    cached_event: Option<(RoomAvatarEventContent, u64)>,
 }
 
 impl RoomAvatarAsset {
     pub fn new(room: Room) -> Self {
-        Self {
-            room,
-            cached_event: None,
-        }
+        Self { room }
     }
 
     async fn is_available(&mut self) -> bool {
-        self.get_avatar_event_content().await.is_some()
-    }
-
-    /// Retrieves the content of the last room avatar event, including the server timestamp
-    /// of the event in seconds.
-    async fn get_avatar_event_content(&mut self) -> Option<(RoomAvatarEventContent, u64)> {
-        if let Some(cached) = self.cached_event.clone() {
-            return Some(cached);
-        }
-
-        let event = self
-            .room
-            .get_state_event_static::<RoomAvatarEventContent>()
-            .await
-            .ok()??
-            .deserialize()
-            .ok()?;
-
-        let timestamp: u64 = event.origin_server_ts()?.as_secs().into();
-
-        let content = match event {
-            SyncOrStrippedState::Stripped(event) => event.content,
-            SyncOrStrippedState::Sync(event) => event.as_original()?.content.clone(),
-        };
-
-        self.cached_event = Some((content, timestamp));
-        self.cached_event.clone()
+        self.room.avatar_url().is_some()
     }
 }
 
@@ -510,53 +496,49 @@ impl Asset for RoomAvatarAsset {
         self.room.room_id().as_str()
     }
 
-    async fn upload_timestamp(&mut self) -> Result<u64> {
-        Ok(self
-            .get_avatar_event_content()
-            .await
-            .ok_or(MediaError::NotFound)?
-            .1)
+    async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
+        let url = self
+            .room
+            .avatar_url()
+            .map(|f| f.to_string())
+            .ok_or(MediaError::NotFound)?;
+
+        Ok(url == info.upstream_url)
     }
 
     async fn was_removed(&mut self) -> bool {
-        if let Some(event) = self.get_avatar_event_content().await {
-            event.0.url.is_none()
-        } else {
-            false
-        }
+        self.room.avatar_url().is_none()
     }
 
-    async fn download(&mut self) -> Result<(Vec<u8>, String)> {
-        let event_content = self
-            .get_avatar_event_content()
-            .await
-            .ok_or_else(|| {
-                log::debug!("No room avatar event was found for this room");
-                MediaError::NotFound
-            })?
-            .0;
-
+    async fn download(&mut self) -> Result<Download> {
         log::info!("Downloading avatar image for room: {}", self.room.room_id());
 
         let client = self.room.client();
+        let avatar_url = self.room.avatar_url().ok_or(MediaError::NotFound)?;
 
         let request = MediaRequestParameters {
-            source: MediaSource::Plain(event_content.url.ok_or(MediaError::NotFound)?),
+            source: MediaSource::Plain(avatar_url.clone()),
             format: MediaFormat::File,
         };
 
         let content = unwrap_or_log_return_err!(
-            client.media().get_media_content(&request, true).await,
+            client.media().get_media_content(&request, false).await,
             "Error downloading room avatar"
         );
 
         let extension = determine_data_file_extension(&content)
             .ok_or(MediaError::UnableToDetermineFileExtension)?;
 
-        Ok((content, extension))
+        let download = Download {
+            data: content,
+            file_extension: extension,
+            upstream_url: avatar_url.to_string(),
+        };
+
+        Ok(download)
     }
 
-    async fn upload(&mut self, src: PathBuf) -> Result<String> {
+    async fn upload(&mut self, src: PathBuf) -> Result<Upload> {
         log::info!("Uploading room avatar: {src:?}");
 
         let data =
@@ -572,12 +554,28 @@ impl Asset for RoomAvatarAsset {
             .first()
             .ok_or(MediaError::UnableToDetermineMimeType)?;
 
-        unwrap_or_log_return_err!(
-            self.room.upload_avatar(&mime, data, None).await,
-            "Error uploading room avatar"
+        let response = unwrap_or_log_return_err!(
+            self.room.client().media().upload(&mime, data, None).await,
+            "Error uploading room avatar image to the matrix server"
         );
 
-        Ok(file_extension)
+        let mut info = ImageInfo::default();
+        info.blurhash = response.blurhash;
+        info.mimetype = Some(mime.to_string());
+
+        unwrap_or_log_return_err!(
+            self.room
+                .set_avatar_url(&response.content_uri, Some(info))
+                .await,
+            "Error sending room avatar state event"
+        );
+
+        let upload = Upload {
+            file_extension,
+            upstream_url: response.content_uri.to_string(),
+        };
+
+        Ok(upload)
     }
 }
 
@@ -613,25 +611,25 @@ mod tests {
 
     struct AssetMock {
         asset_id: String,
-        upload_timestamp: MockedResult<u64>,
+        is_up_to_date: MockedResult<bool>,
         was_removed: bool,
-        download: MockedResult<(Vec<u8>, String)>,
-        upload: MockedResult<String>,
+        download: MockedResult<Download>,
+        upload: MockedResult<Upload>,
     }
 
     impl AssetMock {
         pub fn new(asset_id: impl Into<String>) -> Self {
             Self {
                 asset_id: asset_id.into(),
-                upload_timestamp: Arc::new(|| Err(MediaError::NotFound)),
+                is_up_to_date: Arc::new(|| Err(MediaError::NotFound)),
                 was_removed: false,
                 download: Arc::new(|| Err(MediaError::NotFound)),
                 upload: Arc::new(|| Err(MediaError::NotFound)),
             }
         }
 
-        pub fn upload_timestamp(mut self, upload_timestamp: MockedResult<u64>) -> Self {
-            self.upload_timestamp = upload_timestamp;
+        pub fn is_up_to_date(mut self, is_up_to_date: MockedResult<bool>) -> Self {
+            self.is_up_to_date = is_up_to_date;
             self
         }
 
@@ -640,24 +638,29 @@ mod tests {
             self
         }
 
-        pub fn download(mut self, download: MockedResult<(Vec<u8>, String)>) -> Self {
+        pub fn download(mut self, download: MockedResult<Download>) -> Self {
             self.download = download;
             self
         }
 
-        pub fn upload(mut self, upload: MockedResult<String>) -> Self {
+        pub fn upload(mut self, upload: MockedResult<Upload>) -> Self {
             self.upload = upload;
             self
         }
 
-        /// Helper method for `Self::download` to return the specified data and extension.
-        pub fn download_result(self, data: Vec<u8>, extension: String) -> Self {
-            self.download(Arc::new(move || Ok((data.clone(), extension.to_owned()))))
+        /// Helper method for `Self::is_up_to_date` to return the specified result.
+        pub fn is_up_to_date_result(self, is_up_to_date: bool) -> Self {
+            self.is_up_to_date(Arc::new(move || Ok(is_up_to_date)))
+        }
+
+        /// Helper method for `Self::download` to return the specified download.
+        pub fn download_result(self, download: Download) -> Self {
+            self.download(Arc::new(move || Ok(download.clone())))
         }
 
         /// Helper method for `Self::upload` to return the specified file extension.
-        pub fn upload_result(self, extension: String) -> Self {
-            self.upload(Arc::new(move || Ok(extension.clone())))
+        pub fn upload_result(self, upload: Upload) -> Self {
+            self.upload(Arc::new(move || Ok(upload.clone())))
         }
     }
 
@@ -667,19 +670,19 @@ mod tests {
             &self.asset_id
         }
 
-        async fn upload_timestamp(&mut self) -> Result<u64> {
-            (self.upload_timestamp)()
+        async fn is_up_to_date(&mut self, _info: &AssetInfo) -> Result<bool> {
+            (self.is_up_to_date)()
         }
 
         async fn was_removed(&mut self) -> bool {
             self.was_removed
         }
 
-        async fn download(&mut self) -> Result<(Vec<u8>, String)> {
+        async fn download(&mut self) -> Result<Download> {
             (self.download)()
         }
 
-        async fn upload(&mut self, _src: PathBuf) -> Result<String> {
+        async fn upload(&mut self, _src: PathBuf) -> Result<Upload> {
             (self.upload)()
         }
     }
@@ -729,7 +732,13 @@ mod tests {
     }
 
     /// Creates the info and item file.
-    fn setup_asset(dir: impl AsRef<Path>, id: &str, content: Vec<u8>, extension: &str) {
+    fn setup_asset(
+        dir: impl AsRef<Path>,
+        id: &str,
+        content: Vec<u8>,
+        extension: &str,
+        upstream_url: impl Into<String>,
+    ) {
         let asset_file_name = format!("{id}.{extension}");
 
         let info_path = dir.as_ref().join(format!("{id}{INFO_FILE_SUFFIX}.json"));
@@ -738,6 +747,7 @@ mod tests {
         let info = AssetInfo {
             file: asset_file_name,
             download_ts: utils::get_unix_timestamp_seconds(),
+            upstream_url: upstream_url.into(),
         };
 
         let serialized = serde_json::to_string_pretty(&info).unwrap();
@@ -746,11 +756,12 @@ mod tests {
         fs::write(asset_path, content).unwrap();
     }
 
-    fn assert_info_file(info_file: impl AsRef<Path>, asset_file_name: &str) {
+    fn assert_info_file(info_file: impl AsRef<Path>, asset_file_name: &str, upstream_url: &str) {
         let content = fs::read(info_file).unwrap();
         let info: AssetInfo = serde_json::from_slice(&content).unwrap();
 
         assert_eq!(&info.file, asset_file_name);
+        assert_eq!(&info.upstream_url, upstream_url);
 
         // Make sure the download timestamp was within the allowed seconds and not in the future.
         let now = utils::get_unix_timestamp_seconds();
@@ -775,7 +786,13 @@ mod tests {
         let data: Vec<u8> = vec![1, 2, 3, 4];
         let extension: String = "png".to_owned();
 
-        let asset = AssetMock::new("some_asset").download_result(data.clone(), extension);
+        let download_result = Download {
+            data: data.clone(),
+            file_extension: extension,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").download_result(download_result);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -794,7 +811,7 @@ mod tests {
 
         test_utils::assert_file_content(&asset_path_absolute, &data);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -810,11 +827,10 @@ mod tests {
             "some_asset",
             content.clone(),
             "png",
+            "mxc://some_asset",
         );
 
-        let asset = AssetMock::new("some_asset")
-            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() - 10000)));
-
+        let asset = AssetMock::new("some_asset").is_up_to_date_result(true);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -833,7 +849,7 @@ mod tests {
 
         test_utils::assert_file_content(&asset_path_absolute, &content);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -842,15 +858,34 @@ mod tests {
         // Arrange
         let dirs = setup_directories();
 
-        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mrx://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mrx://some_asset2",
+        );
 
         let content_new = vec![10, 20];
         let extension = "png".to_owned();
 
+        let download_result = Download {
+            data: content_new.clone(),
+            file_extension: extension,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
         let asset = AssetMock::new("some_asset")
-            .download_result(content_new.clone(), extension)
-            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
+            .download_result(download_result)
+            .is_up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
@@ -875,7 +910,7 @@ mod tests {
 
         test_utils::assert_file_content(&asset_path_absolute, &content_new);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -884,15 +919,34 @@ mod tests {
         // Arrange
         let dirs = setup_directories();
 
-        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
 
         let content_new = vec![10, 20];
         let extension = "jpeg".to_owned();
 
+        let download_result = Download {
+            data: content_new.clone(),
+            file_extension: extension,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
         let asset = AssetMock::new("some_asset")
-            .download_result(content_new.clone(), extension)
-            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10)));
+            .download_result(download_result)
+            .is_up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
@@ -917,7 +971,7 @@ mod tests {
 
         test_utils::assert_file_content(&asset_path_absolute, &content_new);
 
-        assert_info_file(info_path_absolute, "some_asset.jpeg");
+        assert_info_file(info_path_absolute, "some_asset.jpeg", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -926,12 +980,25 @@ mod tests {
         // Arrange
         let dirs = setup_directories();
 
-        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset",
+        );
 
         let asset = AssetMock::new("some_asset")
             .was_removed(true)
-            .upload_timestamp(Arc::new(|| Ok(utils::get_unix_timestamp_seconds() + 10000)));
+            .is_up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
@@ -960,7 +1027,12 @@ mod tests {
         fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
-        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        let upload_result = Upload {
+            file_extension: "png".to_owned(),
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -980,7 +1052,7 @@ mod tests {
 
         test_utils::assert_file_content(asset_path_absolute, &asset_content);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -996,10 +1068,28 @@ mod tests {
         fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
-        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
 
-        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let upload_result = Upload {
+            file_extension: "png".to_owned(),
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -1024,7 +1114,7 @@ mod tests {
 
         test_utils::assert_file_content(asset_path_absolute, &asset_content);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -1040,10 +1130,28 @@ mod tests {
         fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
-        setup_asset(&dirs.asset_dir_absolute, "some_asset", vec![2, 3, 4], "png");
-        setup_asset(&dirs.asset_dir_absolute, "some_asset2", vec![5, 2], "png");
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
 
-        let asset = AssetMock::new("some_asset").upload_result("jpeg".to_owned());
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let upload_result = Upload {
+            file_extension: "jpeg".to_owned(),
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -1068,7 +1176,7 @@ mod tests {
 
         test_utils::assert_file_content(asset_path_absolute, &asset_content);
 
-        assert_info_file(info_path_absolute, "some_asset.jpeg");
+        assert_info_file(info_path_absolute, "some_asset.jpeg", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -1084,7 +1192,12 @@ mod tests {
         fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
-        let asset = AssetMock::new("some_asset").upload_result("png".to_owned());
+        let upload_result = Upload {
+            file_extension: "png".to_owned(),
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
         let mut manager = setup_asset_manager(&dirs, Box::new(asset));
 
         // Act
@@ -1104,6 +1217,6 @@ mod tests {
 
         test_utils::assert_file_content(asset_path_absolute, &asset_content);
 
-        assert_info_file(info_path_absolute, "some_asset.png");
+        assert_info_file(info_path_absolute, "some_asset.png", "mxc://some_asset");
     }
 }
