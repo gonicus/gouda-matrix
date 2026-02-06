@@ -502,13 +502,12 @@ impl Asset for RoomAvatarAsset {
     }
 
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
-        let url = self
-            .room
-            .avatar_url()
-            .map(|f| f.to_string())
-            .ok_or(MediaError::NotFound)?;
+        let url = self.room.avatar_url().map(|f| f.to_string());
 
-        Ok(url == info.upstream_url)
+        match url {
+            Some(url) => Ok(url == info.upstream_url),
+            None => Ok(false),
+        }
     }
 
     async fn was_removed(&mut self) -> bool {
