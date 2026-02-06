@@ -98,7 +98,7 @@ impl InputWindow {
                     self,
                     ui,
                     CrossSigningConfirm,
-                    self.config.cross_signing_accept.clone()
+                    self.config.cross_signing_confirm.clone()
                 );
                 ui_action!(
                     self,
