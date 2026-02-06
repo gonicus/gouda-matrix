@@ -8,13 +8,7 @@ use mrhc_core::{Client, Runner};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
-use mrhc_proto::chat::{
-    login_flows_response, status_update, Error, IdentityProvidersRequest,
-    IdentityProvidersResponse, InitializationRequest, LoginFlowsRequest, LoginFlowsResponse,
-    RequestContainer, ResponseContainer, RoomListRequest, RoomListResponse, SendMessageRequest,
-    SendMessageResponse, SsoLoginRequest, SsoLoginResponse, StatusUpdate, User, UserListRequest,
-    UserListResponse, UsernamePasswordLoginRequest,
-};
+use mrhc_proto::chat::*;
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
@@ -341,8 +335,8 @@ async fn test_login_username_password_request_on_success() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::UsernamePasswordLoginRequest(
-            UsernamePasswordLoginRequest::default(),
+        content: Some(RequestContent::LoginUsernamePasswordRequest(
+            LoginUsernamePasswordRequest::default(),
         )),
     };
 
@@ -387,8 +381,8 @@ async fn test_login_username_password_request_on_error() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::UsernamePasswordLoginRequest(
-            UsernamePasswordLoginRequest::default(),
+        content: Some(RequestContent::LoginUsernamePasswordRequest(
+            LoginUsernamePasswordRequest::default(),
         )),
     };
 
@@ -417,7 +411,7 @@ async fn test_login_username_password_request_on_error() {
 #[tokio::test]
 async fn test_login_sso_request_on_success() {
     // arrange
-    let response = SsoLoginResponse {
+    let response = LoginSsoResponse {
         login_url: "https://example.org/login".to_string(),
     };
 
@@ -432,7 +426,7 @@ async fn test_login_sso_request_on_success() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SsoLoginRequest(SsoLoginRequest::default())),
+        content: Some(RequestContent::LoginSsoRequest(LoginSsoRequest::default())),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
@@ -441,7 +435,7 @@ async fn test_login_sso_request_on_success() {
 
     let expected_response = ResponseContainer {
         tag: 1,
-        content: Some(ResponseContent::SsoLoginResponse(response)),
+        content: Some(ResponseContent::LoginSsoResponse(response)),
     };
 
     let expected_resp_payload: Vec<u8> = expected_response.encode_to_vec();
@@ -476,7 +470,7 @@ async fn test_login_sso_request_on_error() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SsoLoginRequest(SsoLoginRequest::default())),
+        content: Some(RequestContent::LoginSsoRequest(LoginSsoRequest::default())),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
@@ -680,7 +674,7 @@ async fn test_room_list_request_on_error() {
 #[tokio::test]
 async fn test_send_message_request_on_success() {
     // arrange
-    let response = SendMessageResponse {
+    let response = MessageSendResponse {
         message_id: "xy".to_string(),
     };
     let client: ClientMock = ClientMock {
@@ -694,8 +688,8 @@ async fn test_send_message_request_on_success() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SendMessageRequest(
-            SendMessageRequest::default(),
+        content: Some(RequestContent::MessageSendRequest(
+            MessageSendRequest::default(),
         )),
     };
 
@@ -705,7 +699,7 @@ async fn test_send_message_request_on_success() {
 
     let expected_response = ResponseContainer {
         tag: 1,
-        content: Some(ResponseContent::SendMessageResponse(response)),
+        content: Some(ResponseContent::MessageSendResponse(response)),
     };
 
     let expected_resp_payload = expected_response.encode_to_vec();
@@ -739,8 +733,8 @@ async fn test_send_message_request_on_error() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::SendMessageRequest(
-            SendMessageRequest::default(),
+        content: Some(RequestContent::MessageSendRequest(
+            MessageSendRequest::default(),
         )),
     };
 
