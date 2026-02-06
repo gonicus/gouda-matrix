@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
-use matrix_sdk::ruma::events::room::avatar::ImageInfo;
+use matrix_sdk::ruma::events::room::avatar::{ImageInfo, RoomAvatarEventContent};
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::Room;
 use thiserror::Error;
@@ -86,7 +86,7 @@ impl MediaManager {
 
         let mut asset = RoomAvatarAsset::new(room.clone());
 
-        if !asset.is_available().await {
+        if !asset.is_avatar_event_available().await {
             log::debug!("No avatar event found for the room");
             return None;
         }
@@ -485,8 +485,13 @@ impl RoomAvatarAsset {
         Self { room }
     }
 
-    async fn is_available(&mut self) -> bool {
-        self.room.avatar_url().is_some()
+    async fn is_avatar_event_available(&mut self) -> bool {
+        let result = self
+            .room
+            .get_state_event_static::<RoomAvatarEventContent>()
+            .await;
+
+        result.map(|op| op.is_some()).unwrap_or(false)
     }
 }
 
