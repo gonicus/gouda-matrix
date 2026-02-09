@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::client::InitializedData;
-use crate::{crypto, errors, events};
+use crate::{crypto, errors};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -144,12 +144,11 @@ impl Session {
 
         let InitializedData {
             client,
-            media_manager,
-            event_index,
+            event_manager,
             ..
         } = initialized_data;
 
-        events::setup_event_handlers(&client, ctx.clone(), media_manager, event_index);
+        event_manager.setup_event_handlers(&client);
 
         let handle = tokio::spawn(async move {
             let result = client
