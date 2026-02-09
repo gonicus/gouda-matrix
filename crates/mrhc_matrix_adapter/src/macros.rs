@@ -10,11 +10,11 @@ macro_rules! debug_assert_or_log {
 
 #[macro_export]
 macro_rules! unwrap_or_log_return {
-    ($expr:expr) => {
+    ($expr:expr, $msg:expr) => {
         match $expr {
             Ok(v) => v,
-            Err(e) => {
-                log::error!("Error: {e:?}");
+            Err(err) => {
+                log::error!("{}: {err:?}", $msg);
                 return;
             }
         }

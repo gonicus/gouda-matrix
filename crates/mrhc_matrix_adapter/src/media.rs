@@ -747,7 +747,7 @@ async fn fetch_user_profile_avatar_uri(
         .fetch_profile_field_of(user_id, ProfileFieldName::AvatarUrl)
         .await;
 
-    match unwrap_or_log_return_err!(result, "Error retreiving user profile field") {
+    match unwrap_or_log_return_err!(result, "Error retrieving user profile field") {
         Some(uri) => {
             if let ProfileFieldValue::AvatarUrl(url) = uri {
                 log::debug!("Successfully received avatar URL from user profile");
@@ -790,7 +790,7 @@ fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> Result<(String
     let file_extension = path
         .extension()
         .map(|f| f.to_string_lossy().to_string())
-        .or_else(|| determine_data_file_extension(&data))
+        .or_else(|| determine_data_file_extension(data))
         .ok_or(MediaError::UnableToDetermineFileExtension)?;
 
     let mime = mime_guess::from_ext(&file_extension)

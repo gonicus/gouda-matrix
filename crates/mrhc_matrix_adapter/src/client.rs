@@ -19,7 +19,7 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
 
-use crate::event_index::EventIndex;
+use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
@@ -42,8 +42,8 @@ pub struct InitializedData {
 
     /// Manages data stored on the file system, like avatars or downloaded chat images.
     pub media_manager: MediaManager,
-    /// Contains cached events with data that we may need after they have been redacted.
-    pub event_index: EventIndex,
+    /// Manages incoming events.
+    pub event_manager: EventManager,
 }
 
 #[derive(Default)]
@@ -119,15 +119,20 @@ impl MatrixClient {
         client: Client,
         session_file: PathBuf,
     ) -> InitializedData {
+        let media_manager =
+            MediaManager::new(client.clone(), PathBuf::from(request.data_root_path)).await;
+
+        let event_manager = EventManager::new(client.clone(), ctx, media_manager.clone());
+
         let data = InitializedData {
-            client: client.clone(),
+            client,
             device_display_name: request.device_display_name,
 
             session_file,
             session_passphrase: request.encryption_secret,
 
-            media_manager: MediaManager::new(client, PathBuf::from(request.data_root_path)).await,
-            event_index: EventIndex::new(ctx),
+            media_manager,
+            event_manager,
         };
 
         self.initialized_data = Some(data.clone());
