@@ -120,13 +120,13 @@ impl MatrixClient {
         session_file: PathBuf,
     ) -> InitializedData {
         let data = InitializedData {
-            client,
+            client: client.clone(),
             device_display_name: request.device_display_name,
 
             session_file,
             session_passphrase: request.encryption_secret,
 
-            media_manager: MediaManager::new(PathBuf::from(request.data_root_path)).await,
+            media_manager: MediaManager::new(client, PathBuf::from(request.data_root_path)).await,
             event_index: EventIndex::new(ctx),
         };
 
@@ -586,7 +586,11 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_users(&mut self, _ctx: ClientContext) -> Result<UserListResponse> {
-        let client = self.get_client_logged_in()?;
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
 
         // It is not possible to retrieve all known users using the matrix-sdk.
         // As a workaround, we retrieve all rooms and get their members.
@@ -608,13 +612,12 @@ impl ClientAbstraction for MatrixClient {
 
                 // TODO:
                 //  - Presence state
-                //  - Avatar path
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
                     display_name: member.display_name().map(str::to_string),
                     presence_state: None,
-                    avatar_path: None,
+                    avatar_path: media_manager.get_room_member_avatar_path(&member).await,
                 });
             }
         }
@@ -627,7 +630,11 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: UserSearchRequest,
     ) -> Result<UserSearchResponse> {
-        let client = self.get_client_logged_in()?;
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
 
         let UserSearchRequest { query, limit } = request;
 
@@ -641,13 +648,14 @@ impl ClientAbstraction for MatrixClient {
         for user in user_list.results {
             // TODO:
             //  - Presence state
-            //  - Avatar path
 
             result.push(User {
                 user_id: user.user_id.to_string(),
-                display_name: user.display_name,
+                display_name: user.display_name.clone(),
                 presence_state: None,
-                avatar_path: None,
+                avatar_path: media_manager
+                    .get_user_directory_user_avatar_path(&user)
+                    .await,
             });
         }
 
