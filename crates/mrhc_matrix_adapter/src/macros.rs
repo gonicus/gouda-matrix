@@ -1,4 +1,14 @@
 #[macro_export]
+macro_rules! debug_assert_or_log {
+    ($cond:expr, $($arg:tt)*) => {
+        debug_assert!($cond, $($arg)*);
+        if !$cond {
+            log::error!(concat!("DEBUG_ASSERT: ", $($arg)*));
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! unwrap_or_log_return {
     ($expr:expr) => {
         match $expr {

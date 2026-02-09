@@ -2,17 +2,35 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
-use matrix_sdk::ruma::events::room::avatar::{ImageInfo, RoomAvatarEventContent};
+use matrix_sdk::room::RoomMember;
+use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
+use matrix_sdk::ruma::api::client::user_directory::search_users::v3::User;
+use matrix_sdk::ruma::events::room::avatar::ImageInfo;
 use matrix_sdk::ruma::events::room::MediaSource;
-use matrix_sdk::Room;
+use matrix_sdk::{Client, Room};
+use mime::Mime;
+use ruma_common::{MxcUri, OwnedMxcUri, OwnedUserId};
 use thiserror::Error;
 use tokio::fs;
 
-use crate::{unwrap_or_log_return_err, unwrap_or_log_return_option, utils};
+use crate::{debug_assert_or_log, unwrap_or_log_return_err, unwrap_or_log_return_option, utils};
 
 const INFO_FILE_SUFFIX: &str = "_info";
 
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";
+const USER_AVATARS_FOLDER: &str = "user_avatars";
+
+macro_rules! log_avatar_result {
+    ($result:expr, $object:literal) => {
+        if let Err(err) = &$result {
+            if matches!(err, MediaError::NotFound) {
+                log::info!(concat!($object, " does not have an avatar"));
+            } else {
+                log::error!("Error downloading avatar: {err}");
+            }
+        }
+    };
+}
 
 #[derive(Error, Debug)]
 pub enum MediaError {
@@ -28,6 +46,9 @@ pub enum MediaError {
     #[error("the mime type of the data could not be determined")]
     UnableToDetermineMimeType,
 
+    #[error("the requested operation is not allowed")]
+    NotAllowed,
+
     #[error("io error")]
     Io(#[from] std::io::Error),
 
@@ -42,17 +63,25 @@ type Result<T> = std::result::Result<T, MediaError>;
 
 #[derive(Clone, Debug)]
 pub struct MediaManager {
+    /// The matrix_sdk client to use.
+    client: Client,
     /// The root directory where data should be stored.
     data_root_dir: PathBuf,
+
     /// The relative path from the `data_root_dir` where room avatars are stored.
     room_avatars_dir: PathBuf,
+    /// The relative path from the `data_root_dir` where user avatars are stored.
+    user_avatars_dir: PathBuf,
 }
 
 impl MediaManager {
-    pub async fn new(data_root_dir: impl Into<PathBuf>) -> Self {
+    pub async fn new(client: Client, data_root_dir: impl Into<PathBuf>) -> Self {
         let obj = Self {
+            client,
             data_root_dir: data_root_dir.into(),
+
             room_avatars_dir: PathBuf::from(ROOM_AVATARS_FOLDER),
+            user_avatars_dir: PathBuf::from(USER_AVATARS_FOLDER),
         };
 
         obj.init_dirs().await
@@ -61,6 +90,8 @@ impl MediaManager {
     /// Creates all necessary data directories if they do not already exist.
     async fn init_dirs(self) -> Self {
         self.init_dir(&self.data_root_dir.join(&self.room_avatars_dir))
+            .await;
+        self.init_dir(&self.data_root_dir.join(&self.user_avatars_dir))
             .await;
         self
     }
@@ -84,12 +115,7 @@ impl MediaManager {
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
         log::debug!("Receiving avatar for room: {}", room.room_id());
 
-        let mut asset = RoomAvatarAsset::new(room.clone());
-
-        if !asset.is_avatar_event_available().await {
-            log::debug!("No avatar event found for the room");
-            return None;
-        }
+        let asset = RoomAvatarAsset::new(self.client.clone(), room.clone());
 
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
@@ -97,7 +123,11 @@ impl MediaManager {
             Box::new(asset),
         );
 
-        asset_manager.download().await.ok()
+        let result = asset_manager.download().await;
+
+        log_avatar_result!(result, "Room");
+
+        result.ok()
     }
 
     /// Uploads a new avatar to the specified room.
@@ -127,10 +157,62 @@ impl MediaManager {
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.room_avatars_dir.clone(),
-            Box::new(RoomAvatarAsset::new(room.clone())),
+            Box::new(RoomAvatarAsset::new(self.client.clone(), room.clone())),
         );
 
-        asset_manager.upload(src).await
+        match asset_manager.upload(src).await {
+            Ok(path) => Ok(path),
+            Err(err) => {
+                log::error!("Error uploading avatar: {err}");
+                Err(err)
+            }
+        }
+    }
+
+    /// Returns the relative path to the users avatar, starting in the
+    /// data root directory. This method downloads the avatar
+    /// if it doesn't exist, or updates the existing one if a new avatar
+    /// has been uploaded to the Matrix server.
+    /// Returns None if no avatar is set for the user.
+    pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
+        log::info!("Receiving avatar for user: {}", &user.user_id);
+
+        let asset = UserAvatarAsset::new(self.client.clone(), user.user_id.clone()).await;
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            self.user_avatars_dir.clone(),
+            Box::new(asset),
+        );
+
+        let result = asset_manager.download().await;
+
+        log_avatar_result!(result, "User");
+
+        result.ok()
+    }
+
+    /// Returns the relative path to the room members avatar, starting in the
+    /// data root directory. This method downloads the avatar
+    /// if it doesn't exist, or updates the existing one if a new avatar
+    /// has been uploaded to the Matrix server.
+    /// Returns None if no avatar is set for the room member.
+    pub async fn get_room_member_avatar_path(&self, member: &RoomMember) -> Option<String> {
+        log::info!("Receiving avatar for room member: {}", member.user_id());
+
+        let asset = UserAvatarAsset::new(self.client.clone(), member.user_id().to_owned()).await;
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            self.user_avatars_dir.clone(),
+            Box::new(asset),
+        );
+
+        let result = asset_manager.download().await;
+
+        log_avatar_result!(result, "User");
+
+        result.ok()
     }
 }
 
@@ -458,7 +540,7 @@ struct Upload {
 #[async_trait]
 trait Asset: Send + Sync {
     /// Gets the ID of the asset.
-    fn asset_id(&self) -> &str;
+    fn asset_id(&self) -> String;
 
     /// Checks if the already downloaded asset is still up to date.
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool>;
@@ -470,35 +552,31 @@ trait Asset: Send + Sync {
     async fn download(&mut self) -> Result<Download>;
 
     /// Uploads the specified asset to the upstream server.
-    /// Returns the file extension to be used for the asset file.
     async fn upload(&mut self, src: PathBuf) -> Result<Upload>;
 }
 
 /// Manages the download and upload of an avatar from a specific room.
 struct RoomAvatarAsset {
+    /// The matrix sdk client to use.
+    client: Client,
     /// The room from which the avatar is to be downloaded or uploaded.
     room: Room,
+    /// The ID of the room.
+    id: String,
 }
 
 impl RoomAvatarAsset {
-    pub fn new(room: Room) -> Self {
-        Self { room }
-    }
+    pub fn new(client: Client, room: Room) -> Self {
+        let id = room.room_id().to_string();
 
-    async fn is_avatar_event_available(&mut self) -> bool {
-        let result = self
-            .room
-            .get_state_event_static::<RoomAvatarEventContent>()
-            .await;
-
-        result.map(|op| op.is_some()).unwrap_or(false)
+        Self { client, room, id }
     }
 }
 
 #[async_trait]
 impl Asset for RoomAvatarAsset {
-    fn asset_id(&self) -> &str {
-        self.room.room_id().as_str()
+    fn asset_id(&self) -> String {
+        self.id.clone()
     }
 
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
@@ -515,18 +593,12 @@ impl Asset for RoomAvatarAsset {
     }
 
     async fn download(&mut self) -> Result<Download> {
-        log::info!("Downloading avatar image for room: {}", self.room.room_id());
+        log::info!("Downloading avatar image for room: {}", &self.id);
 
-        let client = self.room.client();
         let avatar_url = self.room.avatar_url().ok_or(MediaError::NotFound)?;
 
-        let request = MediaRequestParameters {
-            source: MediaSource::Plain(avatar_url.clone()),
-            format: MediaFormat::File,
-        };
-
         let content = unwrap_or_log_return_err!(
-            client.media().get_media_content(&request, false).await,
+            download_mxc(&self.client, &avatar_url).await,
             "Error downloading room avatar"
         );
 
@@ -548,15 +620,7 @@ impl Asset for RoomAvatarAsset {
         let data =
             unwrap_or_log_return_err!(tokio::fs::read(&src).await, "Error reading source file");
 
-        let file_extension = src
-            .extension()
-            .map(|f| f.to_string_lossy().to_string())
-            .or_else(|| determine_data_file_extension(&data))
-            .ok_or(MediaError::UnableToDetermineFileExtension)?;
-
-        let mime = mime_guess::from_ext(&file_extension)
-            .first()
-            .ok_or(MediaError::UnableToDetermineMimeType)?;
+        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
 
         let response = unwrap_or_log_return_err!(
             self.room.client().media().upload(&mime, data, None).await,
@@ -583,6 +647,132 @@ impl Asset for RoomAvatarAsset {
     }
 }
 
+/// Manages the download of an user's avatar.
+struct UserAvatarAsset {
+    /// The matrix sdk client to use.
+    client: Client,
+    /// The ID of the room member.
+    user_id: OwnedUserId,
+    /// The cached user avatar uri.
+    /// If none, the avatar uri hasn't been successfully retrieved yet.
+    /// If the inner option is none, the user does not have an avatar set.
+    avatar_uri: Option<Option<OwnedMxcUri>>,
+}
+
+impl UserAvatarAsset {
+    pub async fn new(client: Client, user_id: OwnedUserId) -> Self {
+        let avatar_uri = fetch_user_profile_avatar_uri(&client, user_id.clone())
+            .await
+            .ok();
+
+        Self {
+            client,
+            user_id,
+            avatar_uri,
+        }
+    }
+
+    async fn get_avatar_uri(&mut self) -> Result<Option<OwnedMxcUri>> {
+        if let Some(uri) = &self.avatar_uri {
+            return Ok(uri.clone());
+        }
+
+        let result = fetch_user_profile_avatar_uri(&self.client, self.user_id.clone()).await;
+
+        if let Ok(uri) = &result {
+            self.avatar_uri = Some(uri.clone());
+        }
+
+        result
+    }
+}
+
+#[async_trait]
+impl Asset for UserAvatarAsset {
+    fn asset_id(&self) -> String {
+        self.user_id.to_string()
+    }
+
+    async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
+        self.get_avatar_uri()
+            .await
+            .map(|opt| opt.map(|uri| uri == info.upstream_url).unwrap_or(false))
+    }
+
+    async fn was_removed(&mut self) -> bool {
+        self.get_avatar_uri()
+            .await
+            .map(|opt| opt.is_none())
+            .unwrap_or(false)
+    }
+
+    async fn download(&mut self) -> Result<Download> {
+        log::info!("Downloading user avatar for user: {}", &self.user_id);
+
+        let avatar_uri = self.get_avatar_uri().await?.ok_or(MediaError::NotFound)?;
+
+        let content = unwrap_or_log_return_err!(
+            download_mxc(&self.client, &avatar_uri).await,
+            "Error downloading user avatar"
+        );
+
+        let extension = determine_data_file_extension(&content)
+            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+
+        let download = Download {
+            data: content,
+            file_extension: extension,
+            upstream_url: avatar_uri.to_string(),
+        };
+
+        Ok(download)
+    }
+
+    async fn upload(&mut self, _src: PathBuf) -> Result<Upload> {
+        debug_assert_or_log!(false, "Uploading an avatar for another user is not allowed");
+        Err(MediaError::NotAllowed)
+    }
+}
+
+/// Retrieves the avatar URL from the user profile using the specified user ID.
+/// Returns Ok(None) if the user does not have an avatar set.
+async fn fetch_user_profile_avatar_uri(
+    client: &Client,
+    user_id: OwnedUserId,
+) -> Result<Option<OwnedMxcUri>> {
+    use matrix_sdk::ruma::api::client::profile::ProfileFieldName;
+
+    let result = client
+        .account()
+        .fetch_profile_field_of(user_id, ProfileFieldName::AvatarUrl)
+        .await;
+
+    match unwrap_or_log_return_err!(result, "Error retreiving user profile field") {
+        Some(uri) => {
+            if let ProfileFieldValue::AvatarUrl(url) = uri {
+                log::debug!("Successfully received avatar URL from user profile");
+                Ok(Some(url))
+            } else {
+                log::error!("Received unexpected profile field value");
+                Err(MediaError::NotFound)
+            }
+        }
+        None => Ok(None),
+    }
+}
+
+/// Downloads the mrx resources at the specified URI.
+async fn download_mxc(client: &Client, mxc_uri: &MxcUri) -> Result<Vec<u8>> {
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(mxc_uri.to_owned()),
+        format: MediaFormat::File,
+    };
+
+    let content = client.media().get_media_content(&request, false).await?;
+
+    Ok(content)
+}
+
 /// Attempts to determine the file extension of the specified data.
 fn determine_data_file_extension(data: &[u8]) -> Option<String> {
     match infer::get(data) {
@@ -592,6 +782,22 @@ fn determine_data_file_extension(data: &[u8]) -> Option<String> {
             None
         }
     }
+}
+
+/// Attempts to determine the file extension as well as the mime type
+/// given the specific data and path.
+fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> Result<(String, Mime)> {
+    let file_extension = path
+        .extension()
+        .map(|f| f.to_string_lossy().to_string())
+        .or_else(|| determine_data_file_extension(&data))
+        .ok_or(MediaError::UnableToDetermineFileExtension)?;
+
+    let mime = mime_guess::from_ext(&file_extension)
+        .first()
+        .ok_or(MediaError::UnableToDetermineMimeType)?;
+
+    Ok((file_extension, mime))
 }
 
 #[cfg(test)]
@@ -670,8 +876,8 @@ mod tests {
 
     #[async_trait]
     impl Asset for AssetMock {
-        fn asset_id(&self) -> &str {
-            &self.asset_id
+        fn asset_id(&self) -> String {
+            self.asset_id.clone()
         }
 
         async fn is_up_to_date(&mut self, _info: &AssetInfo) -> Result<bool> {
