@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
@@ -61,49 +62,28 @@ pub enum MediaError {
 
 type Result<T> = std::result::Result<T, MediaError>;
 
+/// Manages persistent media.
+///
+/// All of the state is held in an `Arc` so the `MediaManager` can be cloned freely.
 #[derive(Clone, Debug)]
 pub struct MediaManager {
-    /// The matrix_sdk client to use.
-    client: Client,
-    /// The root directory where data should be stored.
-    data_root_dir: PathBuf,
-
-    /// The relative path from the `data_root_dir` where room avatars are stored.
-    room_avatars_dir: PathBuf,
-    /// The relative path from the `data_root_dir` where user avatars are stored.
-    user_avatars_dir: PathBuf,
+    inner: Arc<MediaManagerInner>,
 }
 
 impl MediaManager {
     pub async fn new(client: Client, data_root_dir: impl Into<PathBuf>) -> Self {
-        let obj = Self {
+        let inner = MediaManagerInner {
             client,
             data_root_dir: data_root_dir.into(),
 
             room_avatars_dir: PathBuf::from(ROOM_AVATARS_FOLDER),
             user_avatars_dir: PathBuf::from(USER_AVATARS_FOLDER),
-        };
+        }
+        .init_dirs()
+        .await;
 
-        obj.init_dirs().await
-    }
-
-    /// Creates all necessary data directories if they do not already exist.
-    async fn init_dirs(self) -> Self {
-        self.init_dir(&self.data_root_dir.join(&self.room_avatars_dir))
-            .await;
-        self.init_dir(&self.data_root_dir.join(&self.user_avatars_dir))
-            .await;
-        self
-    }
-
-    /// Creates a directory if it does not already exist.
-    async fn init_dir(&self, dir: &Path) {
-        if let Err(err) = fs::create_dir(dir).await {
-            if err.kind() != tokio::io::ErrorKind::AlreadyExists {
-                log::error!("Error initializing directory {dir:?}: {err}");
-            }
-        } else {
-            log::info!("Initialized directory: {dir:?}");
+        Self {
+            inner: Arc::new(inner),
         }
     }
 
@@ -114,20 +94,7 @@ impl MediaManager {
     /// Returns None if no avatar is set for the room.
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
         log::debug!("Receiving avatar for room: {}", room.room_id());
-
-        let asset = RoomAvatarAsset::new(self.client.clone(), room.clone());
-
-        let mut asset_manager = AssetManager::new(
-            self.data_root_dir.clone(),
-            self.room_avatars_dir.clone(),
-            Box::new(asset),
-        );
-
-        let result = asset_manager.download().await;
-
-        log_avatar_result!(result, "Room");
-
-        result.ok()
+        self.inner.get_room_avatar_path(room).await
     }
 
     /// Uploads a new avatar to the specified room.
@@ -151,16 +118,89 @@ impl MediaManager {
         avatar_path: impl AsRef<Path>,
     ) -> Result<String> {
         let src = avatar_path.as_ref();
-
         log::info!("Uploading room avatar {src:?} to room {}", room.room_id());
+        self.inner.upload_room_avatar(room, src).await
+    }
 
+    /// Returns the relative path to the users avatar, starting in the
+    /// data root directory. This method downloads the avatar
+    /// if it doesn't exist, or updates the existing one if a new avatar
+    /// has been uploaded to the Matrix server.
+    /// Returns None if no avatar is set for the user.
+    pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
+        log::info!("Receiving avatar for user: {}", &user.user_id);
+        self.inner.get_user_directory_user_avatar_path(user).await
+    }
+
+    /// Returns the relative path to the room members avatar, starting in the
+    /// data root directory. This method downloads the avatar
+    /// if it doesn't exist, or updates the existing one if a new avatar
+    /// has been uploaded to the Matrix server.
+    /// Returns None if no avatar is set for the room member.
+    pub async fn get_room_member_avatar_path(&self, member: &RoomMember) -> Option<String> {
+        log::info!("Receiving avatar for room member: {}", member.user_id());
+        self.inner.get_room_member_avatar_path(member).await
+    }
+}
+
+#[derive(Debug)]
+pub struct MediaManagerInner {
+    /// The matrix_sdk client to use.
+    client: Client,
+    /// The root directory where data should be stored.
+    data_root_dir: PathBuf,
+
+    /// The relative path from the `data_root_dir` where room avatars are stored.
+    room_avatars_dir: PathBuf,
+    /// The relative path from the `data_root_dir` where user avatars are stored.
+    user_avatars_dir: PathBuf,
+}
+
+impl MediaManagerInner {
+    /// Creates all necessary data directories if they do not already exist.
+    async fn init_dirs(self) -> Self {
+        self.init_dir(&self.data_root_dir.join(&self.room_avatars_dir))
+            .await;
+        self.init_dir(&self.data_root_dir.join(&self.user_avatars_dir))
+            .await;
+        self
+    }
+
+    /// Creates a directory if it does not already exist.
+    async fn init_dir(&self, dir: &Path) {
+        if let Err(err) = fs::create_dir(dir).await {
+            if err.kind() != tokio::io::ErrorKind::AlreadyExists {
+                log::error!("Error initializing directory {dir:?}: {err}");
+            }
+        } else {
+            log::info!("Initialized directory: {dir:?}");
+        }
+    }
+
+    pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
+        let asset = RoomAvatarAsset::new(self.client.clone(), room.clone());
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            self.room_avatars_dir.clone(),
+            Box::new(asset),
+        );
+
+        let result = asset_manager.download().await;
+
+        log_avatar_result!(result, "Room");
+
+        result.ok()
+    }
+
+    pub async fn upload_room_avatar(&self, room: &Room, avatar_path: &Path) -> Result<String> {
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.room_avatars_dir.clone(),
             Box::new(RoomAvatarAsset::new(self.client.clone(), room.clone())),
         );
 
-        match asset_manager.upload(src).await {
+        match asset_manager.upload(avatar_path).await {
             Ok(path) => Ok(path),
             Err(err) => {
                 log::error!("Error uploading avatar: {err}");
