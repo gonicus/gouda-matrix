@@ -127,9 +127,21 @@ impl MediaManager {
     /// if it doesn't exist, or updates the existing one if a new avatar
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the user.
+    pub async fn get_user_avatar_path(&self, user_id: OwnedUserId) -> Option<String> {
+        log::info!("Receiving avatar for user: {user_id}");
+        self.inner.get_user_avatar_path(user_id).await
+    }
+
+    /// Returns the relative path to the users avatar, starting in the
+    /// data root directory. This method downloads the avatar
+    /// if it doesn't exist, or updates the existing one if a new avatar
+    /// has been uploaded to the Matrix server.
+    /// Returns None if no avatar is set for the user.
     pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
         log::info!("Receiving avatar for user: {}", &user.user_id);
-        self.inner.get_user_directory_user_avatar_path(user).await
+        self.inner
+            .get_user_avatar_path(user.user_id.to_owned())
+            .await
     }
 
     /// Returns the relative path to the room members avatar, starting in the
@@ -139,7 +151,9 @@ impl MediaManager {
     /// Returns None if no avatar is set for the room member.
     pub async fn get_room_member_avatar_path(&self, member: &RoomMember) -> Option<String> {
         log::info!("Receiving avatar for room member: {}", member.user_id());
-        self.inner.get_room_member_avatar_path(member).await
+        self.inner
+            .get_user_avatar_path(member.user_id().to_owned())
+            .await
     }
 }
 
@@ -209,38 +223,8 @@ impl MediaManagerInner {
         }
     }
 
-    /// Returns the relative path to the users avatar, starting in the
-    /// data root directory. This method downloads the avatar
-    /// if it doesn't exist, or updates the existing one if a new avatar
-    /// has been uploaded to the Matrix server.
-    /// Returns None if no avatar is set for the user.
-    pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
-        log::info!("Receiving avatar for user: {}", &user.user_id);
-
-        let asset = UserAvatarAsset::new(self.client.clone(), user.user_id.clone()).await;
-
-        let mut asset_manager = AssetManager::new(
-            self.data_root_dir.clone(),
-            self.user_avatars_dir.clone(),
-            Box::new(asset),
-        );
-
-        let result = asset_manager.download().await;
-
-        log_avatar_result!(result, "User");
-
-        result.ok()
-    }
-
-    /// Returns the relative path to the room members avatar, starting in the
-    /// data root directory. This method downloads the avatar
-    /// if it doesn't exist, or updates the existing one if a new avatar
-    /// has been uploaded to the Matrix server.
-    /// Returns None if no avatar is set for the room member.
-    pub async fn get_room_member_avatar_path(&self, member: &RoomMember) -> Option<String> {
-        log::info!("Receiving avatar for room member: {}", member.user_id());
-
-        let asset = UserAvatarAsset::new(self.client.clone(), member.user_id().to_owned()).await;
+    pub async fn get_user_avatar_path(&self, user_id: OwnedUserId) -> Option<String> {
+        let asset = UserAvatarAsset::new(self.client.clone(), user_id).await;
 
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
@@ -774,6 +758,12 @@ impl Asset for UserAvatarAsset {
     }
 }
 
+fn is_profile_field_expected_error(err: &matrix_sdk::Error) -> bool {
+    // TODO: This should be made more robust in the future.
+    err.to_string()
+        .contains("invalid type: null, expected a string")
+}
+
 /// Retrieves the avatar URL from the user profile using the specified user ID.
 /// Returns Ok(None) if the user does not have an avatar set.
 async fn fetch_user_profile_avatar_uri(
@@ -787,7 +777,17 @@ async fn fetch_user_profile_avatar_uri(
         .fetch_profile_field_of(user_id, ProfileFieldName::AvatarUrl)
         .await;
 
-    match unwrap_or_log_return_err!(result, "Error retrieving user profile field") {
+    if let Err(err) = &result {
+        if is_profile_field_expected_error(err) {
+            log::debug!(
+                "Retrieving the user's avatar URI resulted in the expected error if the \
+                avatar was removed or not found"
+            );
+            return Ok(None);
+        }
+    }
+
+    match unwrap_or_log_return_err!(result, "Error retrieving user avatar uri") {
         Some(uri) => {
             if let ProfileFieldValue::AvatarUrl(url) = uri {
                 log::debug!("Successfully received avatar URL from user profile");

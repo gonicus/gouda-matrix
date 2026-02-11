@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::deserialized_responses::TimelineEventKind;
@@ -5,7 +6,9 @@ use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
-use matrix_sdk::ruma::events::room::member::{MembershipChange, OriginalSyncRoomMemberEvent};
+use matrix_sdk::ruma::events::room::member::{
+    Change, MembershipChange, OriginalSyncRoomMemberEvent,
+};
 use matrix_sdk::ruma::events::room::message::{
     MessageType, OriginalSyncRoomMessageEvent, Relation,
 };
@@ -20,7 +23,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::{Reaction as ChatReaction, *};
 use ruma_common::serde::Raw;
-use ruma_common::MilliSecondsSinceUnixEpoch;
+use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
@@ -60,10 +63,12 @@ fn is_historical_event(origin_server_ts: MilliSecondsSinceUnixEpoch) -> bool {
 }
 
 /// Manages incoming events from matrix.
-/// This manager is designed to be cloned and contains only a
-/// channel to the shared event executor.
+/// The `EventManager` is designed to be cloned. All state is held in a separate
+/// `EventExecutor` object which is accessed using an unbounded channel.
 #[derive(Clone)]
 pub struct EventManager {
+    /// Used to retrieve media based on events, for example if a room
+    /// avatar changes.
     media_manager: MediaManager,
     /// Sender to send requested actions to the event executor.
     action_sender: UnboundedSender<Event>,
@@ -171,12 +176,32 @@ enum Event {
 }
 
 #[derive(Debug)]
-pub struct Reaction {
+struct Reaction {
     pub event_id: String,
     pub room_id: String,
     pub message_id: String,
     pub user_id: String,
     pub emoji: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct UserChange {
+    pub displayname_change: Option<String>,
+    pub avatar_url_change: Option<String>,
+}
+
+impl UserChange {
+    pub fn new(
+        displayname_change: Option<Change<Option<&str>>>,
+        avatar_url_change: Option<Change<Option<&MxcUri>>>,
+    ) -> Self {
+        Self {
+            displayname_change: displayname_change
+                .map(|f| f.new.map(str::to_string).unwrap_or_default()),
+            avatar_url_change: avatar_url_change
+                .map(|f| f.new.map(MxcUri::to_string).unwrap_or_default()),
+        }
+    }
 }
 
 struct EventExecutor {
@@ -186,6 +211,7 @@ struct EventExecutor {
     media_manager: MediaManager,
 
     reactions: Vec<Reaction>,
+    user_changes: HashMap<String, UserChange>,
 }
 
 impl EventExecutor {
@@ -202,6 +228,7 @@ impl EventExecutor {
             media_manager,
 
             reactions: Vec::new(),
+            user_changes: HashMap::new(),
         }
     }
 
@@ -243,6 +270,19 @@ impl EventExecutor {
         };
 
         Some(self.reactions.remove(pos))
+    }
+
+    fn track_user_change(&mut self, user_id: impl Into<String>, change: UserChange) {
+        log::debug!("Tracking user change: {change:?}");
+        self.user_changes.insert(user_id.into(), change);
+    }
+
+    fn is_new_user_change(&self, user_id: impl AsRef<str>, change: &UserChange) -> bool {
+        if let Some(old) = self.user_changes.get(user_id.as_ref()) {
+            old != change
+        } else {
+            true
+        }
     }
 }
 
@@ -365,18 +405,32 @@ impl EventExecutor {
     async fn exec_room_name_event(&self, room: Room, event: OriginalSyncRoomNameEvent) {
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_display_name(event.content.name.clone())
-            .into_proto();
+            .to_proto();
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }
 
-    async fn exec_room_member_event(&self, room: Room, event: OriginalSyncRoomMemberEvent) {
-        // Check if our user's membership changed
+    async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
+        // Check if our user's membership has changed and if we need to handle this
+        // change differently than a membership change for other users.
         if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string())
-            && self.process_membership_change(&room, event).await
+            && self.process_own_membership_change(&room, &event).await
         {
             return;
         }
+
+        if let MembershipChange::ProfileChanged {
+            displayname_change,
+            avatar_url_change,
+        } = event.membership_change()
+        {
+            log::debug!("The users profile has changed, sending an UserChangeEvent");
+            self.process_profile_change(&event, displayname_change, avatar_url_change)
+                .await;
+            return;
+        }
+
+        log::debug!("General room member change, sending a RoomChangeEvent");
 
         let members = unwrap_or_log_return!(
             rooms::get_members(&room).await,
@@ -385,22 +439,29 @@ impl EventExecutor {
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_user_id_list(members)
-            .into_proto();
+            .to_proto();
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }
 
-    async fn process_membership_change(
+    async fn process_own_membership_change(
         &self,
         room: &Room,
-        event: OriginalSyncRoomMemberEvent,
+        event: &OriginalSyncRoomMemberEvent,
     ) -> bool {
+        log::debug!("The users own membership has changed");
+
         let reason = match event.membership_change() {
             MembershipChange::Left => RoomLeaveReason::User,
             MembershipChange::Kicked => RoomLeaveReason::Kicked,
             MembershipChange::Banned | MembershipChange::KickedAndBanned => RoomLeaveReason::Banned,
-            _ => return false,
+            _ => {
+                log::debug!("Treating it like any other membership change");
+                return false;
+            }
         };
+
+        log::debug!("Our own user left the room, sending a RoomLeftEvent instead");
 
         let proto = RoomLeftEvent {
             room_id: room.room_id().to_string(),
@@ -413,12 +474,46 @@ impl EventExecutor {
         true
     }
 
+    async fn process_profile_change(
+        &mut self,
+        event: &OriginalSyncRoomMemberEvent,
+        displayname_change: Option<Change<Option<&str>>>,
+        avatar_url_change: Option<Change<Option<&MxcUri>>>,
+    ) {
+        let user_id = event.sender.to_string();
+        let change = UserChange::new(displayname_change, avatar_url_change);
+
+        if !self.is_new_user_change(&user_id, &change) {
+            log::debug!("User profile change has already been processed before, nothing to do");
+            return;
+        }
+
+        let mut builder = builder::UserChangeEventBuilder::new(user_id.clone());
+
+        if let Some(displayname) = &change.displayname_change {
+            builder = builder.change_display_name(displayname.clone());
+        }
+
+        if change.avatar_url_change.is_some() {
+            let path = self
+                .media_manager
+                .get_user_avatar_path(event.sender.clone())
+                .await;
+            builder = builder.change_avatar_path(path.unwrap_or_default());
+        }
+
+        self.track_user_change(user_id, change);
+
+        let proto = builder.to_proto();
+        self.ctx.send_event(ResponseContent::UserChangeEvent(proto));
+    }
+
     async fn exec_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
         let join_rule = rooms::convert_join_rule(event.content.join_rule.clone());
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_join_rule(join_rule)
-            .into_proto();
+            .to_proto();
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }
@@ -432,7 +527,7 @@ impl EventExecutor {
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_avatar_path(avatar_path)
-            .into_proto();
+            .to_proto();
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }

@@ -732,7 +732,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(
             builder::RoomChangeEventBuilder::new(request.room_id.clone())
                 .change_user_id_list(members)
-                .into_proto(),
+                .to_proto(),
         )
     }
 
@@ -901,7 +901,7 @@ impl ClientAbstraction for MatrixClient {
                 .await;
         }
 
-        Ok(response.into_proto())
+        Ok(response.to_proto())
     }
 
     async fn leave_room(
@@ -992,7 +992,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(
             builder::RoomChangeEventBuilder::new(request.room_id.clone())
                 .change_unread_count(0)
-                .into_proto(),
+                .to_proto(),
         )
     }
 
