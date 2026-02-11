@@ -66,14 +66,10 @@ impl OutputProcessor {
                 let serialized = response.encode_to_vec();
                 let size = serialized.len().to_le_bytes().to_vec();
 
-                log::trace!("Writing size: {}", serialized.len());
-
                 self.writer
                     .write_all(&size)
                     .await
                     .expect("error writing size");
-
-                log::trace!("Writing response: {serialized:?}");
 
                 self.writer
                     .write_all(&serialized)

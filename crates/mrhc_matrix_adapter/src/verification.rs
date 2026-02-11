@@ -115,7 +115,6 @@ impl VerificationProcessor {
             tokio::select! {
                 state = stream.next() => {
                     if let Some(state) = state {
-                        log::debug!("Verification request proceeded into next state {:?}", state);
                         if self.process_state_change(state).await {
                             break;
                         }
@@ -139,13 +138,21 @@ impl VerificationProcessor {
     /// an error has occurred, or the process has been aborted.
     async fn process_state_change(&mut self, change: VerificationRequestState) -> bool {
         match change {
-            VerificationRequestState::Created { .. } => false,
-            VerificationRequestState::Requested { .. } => false,
+            VerificationRequestState::Created { .. } => {
+                log::debug!("Verification request transitioned into Created state");
+                false
+            }
+            VerificationRequestState::Requested { .. } => {
+                log::debug!("Verification request transitioned into Requested state");
+                false
+            }
             VerificationRequestState::Ready {
                 their_methods,
                 our_methods,
                 ..
             } => {
+                log::debug!("Verification request transitioned into Ready state");
+
                 let available_methods = get_available_methods(&our_methods, &their_methods);
 
                 self.ctx.send_event(ResponseContent::CrossSigningStartEvent(
@@ -158,10 +165,11 @@ impl VerificationProcessor {
                 false
             }
             VerificationRequestState::Transitioned { verification } => {
+                log::debug!("Verification request transitioned into Transitioned state");
+
                 let Verification::SasV1(sas) = verification else {
                     log::error!(
-                        "Verification request transitioned into an unsupported verification
-                        flow {verification:?}",
+                        "Verification request transitioned into an unsupported verification flow",
                     );
 
                     self.cancel_err(
@@ -188,8 +196,12 @@ impl VerificationProcessor {
 
                 true
             }
-            VerificationRequestState::Done => true,
+            VerificationRequestState::Done => {
+                log::debug!("Verification request transitioned into Done state");
+                true
+            }
             VerificationRequestState::Cancelled(_) => {
+                log::debug!("Verification request transitioned into Cancelled state");
                 send_verification_end_event(&mut self.ctx, self.flow_id.clone(), false);
                 true
             }

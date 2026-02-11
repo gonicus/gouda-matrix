@@ -47,7 +47,6 @@ impl<'a> SasVerificationManager<'a> {
             tokio::select! {
                 state = stream.next() => {
                     if let Some(state) = state {
-                        log::debug!("SAS verification proceeded into next state {:?}", state);
                         if self.process_state_change(state).await {
                             break;
                         }
@@ -71,15 +70,29 @@ impl<'a> SasVerificationManager<'a> {
     /// an error has occurred, or the process has been aborted.
     async fn process_state_change(&mut self, state: SasState) -> bool {
         match state {
-            SasState::Created { .. } => false,
-            SasState::Started { .. } => false,
-            SasState::Accepted { .. } => false,
+            SasState::Created { .. } => {
+                log::debug!("SAS verification transitioned into Created state");
+                false
+            }
+            SasState::Started { .. } => {
+                log::debug!("SAS verification transitioned into Started state");
+                false
+            }
+            SasState::Accepted { .. } => {
+                log::debug!("SAS verification transitioned into Accepted state");
+                false
+            }
             SasState::KeysExchanged { emojis, decimals } => {
+                log::debug!("SAS verification transitioned into KeysExchanged state");
                 self.present_sas(emojis, decimals);
                 false
             }
-            SasState::Confirmed => false,
+            SasState::Confirmed => {
+                log::debug!("SAS verification transitioned into Confirmed state");
+                false
+            }
             SasState::Done { .. } => {
+                log::debug!("SAS verification transitioned into Done state");
                 verification::send_verification_end_event(
                     &mut self.ctx,
                     self.flow_id.to_owned(),
@@ -88,6 +101,7 @@ impl<'a> SasVerificationManager<'a> {
                 true
             }
             SasState::Cancelled(_) => {
+                log::debug!("SAS verification transitioned into Cancelled state");
                 verification::send_verification_end_event(
                     &mut self.ctx,
                     self.flow_id.to_owned(),

@@ -5,6 +5,12 @@ fn main() {
 
     prost_build::Config::new()
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .skip_debug([
+            "InitializationRequest",
+            "RecoveryKeyVerificationRequest",
+            "LoginUsernamePasswordRequest",
+            "CrossSigningMethodSelectedEvent",
+        ])
         .compile_protos(&["chat.proto"], &[proto_dir])
         .expect("Failed to compile proto files");
 }
