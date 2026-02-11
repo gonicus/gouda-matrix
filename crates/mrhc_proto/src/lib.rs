@@ -7,6 +7,7 @@ pub mod chat {
         use super::*;
 
         /// Builder to easily create a `RoomChangeEvent` with desired changes.
+        #[derive(Default, PartialEq, Eq)]
         pub struct RoomChangeEventBuilder {
             room_id: String,
             user_id_list: Option<HashMap<String, i32>>,
@@ -21,18 +22,10 @@ pub mod chat {
         }
 
         impl RoomChangeEventBuilder {
-            pub fn new(room_id: String) -> Self {
+            pub fn new(room_id: impl Into<String>) -> Self {
                 Self {
-                    room_id,
-                    user_id_list: None,
-                    typing_user_id_list: None,
-                    display_name: None,
-                    unread_count: None,
-                    join_rule: None,
-                    is_direct: None,
-                    permissions: None,
-                    avatar_path: None,
-                    is_favourite: None,
+                    room_id: room_id.into(),
+                    ..Default::default()
                 }
             }
 
@@ -81,7 +74,7 @@ pub mod chat {
                 self
             }
 
-            pub fn into_proto(self) -> RoomChangeEvent {
+            pub fn to_proto(self) -> RoomChangeEvent {
                 let mut event = RoomChangeEvent {
                     room_id: self.room_id,
                     has_user_id_list_changed: false,
@@ -108,6 +101,48 @@ pub mod chat {
                 }
 
                 event
+            }
+        }
+
+        /// Builder to easily create a `UserChangeEvent` with desired changes.
+        #[derive(Default, PartialEq, Eq)]
+        pub struct UserChangeEventBuilder {
+            user_id: String,
+            presence_state: Option<PresenceState>,
+            display_name: Option<String>,
+            avatar_path: Option<String>,
+        }
+
+        impl UserChangeEventBuilder {
+            pub fn new(user_id: impl Into<String>) -> Self {
+                Self {
+                    user_id: user_id.into(),
+                    ..Default::default()
+                }
+            }
+
+            pub fn change_presence_state(mut self, presence_state: PresenceState) -> Self {
+                self.presence_state = Some(presence_state);
+                self
+            }
+
+            pub fn change_display_name(mut self, display_name: String) -> Self {
+                self.display_name = Some(display_name);
+                self
+            }
+
+            pub fn change_avatar_path(mut self, avatar_path: String) -> Self {
+                self.avatar_path = Some(avatar_path);
+                self
+            }
+
+            pub fn to_proto(self) -> UserChangeEvent {
+                UserChangeEvent {
+                    user_id: self.user_id,
+                    presence_state: self.presence_state.map(|f| f.into()),
+                    display_name: self.display_name,
+                    avatar_path: self.avatar_path,
+                }
             }
         }
     }
