@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use matrix_sdk::config::SyncSettings;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
@@ -23,7 +22,7 @@ use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
-use crate::{errors, rooms, session, utils};
+use crate::{errors, rooms, session, user, utils};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -198,13 +197,9 @@ impl ClientAbstraction for MatrixClient {
                         .initialize_data(ctx.clone(), request, client.clone(), session_file.clone())
                         .await;
 
-                    let sync_settings = SyncSettings::new();
+                    session.initial_sync(&mut ctx, &client).await?;
 
-                    session
-                        .initial_sync(&mut ctx, &client, sync_settings.clone())
-                        .await?;
-
-                    session.start_background_sync(initialized_data, ctx, sync_settings)?;
+                    session.start_background_sync(initialized_data, ctx)?;
 
                     return Ok(StatusUpdate {
                         code: status_update::StatusCode::LoggedIn as i32,
@@ -334,13 +329,11 @@ impl ClientAbstraction for MatrixClient {
 
         session.save().await?;
 
-        let sync_settings = SyncSettings::new();
-
         session
-            .initial_sync(&mut ctx, &initialized_data.client, sync_settings.clone())
+            .initial_sync(&mut ctx, &initialized_data.client)
             .await?;
 
-        session.start_background_sync(initialized_data.clone(), ctx, sync_settings)?;
+        session.start_background_sync(initialized_data.clone(), ctx)?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -407,10 +400,8 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            let sync_settings = SyncSettings::new();
-
             if let Err(err) = session
-                .initial_sync(&mut ctx, &initialized_data.client, sync_settings.clone())
+                .initial_sync(&mut ctx, &initialized_data.client)
                 .await
             {
                 ctx.send_error(err);
@@ -418,7 +409,7 @@ impl ClientAbstraction for MatrixClient {
             }
 
             if session
-                .start_background_sync(initialized_data, ctx.clone(), sync_settings)
+                .start_background_sync(initialized_data, ctx.clone())
                 .is_err()
             {
                 ctx.send_error(errors::create_unknown("Error starting background sync"));
@@ -615,13 +606,12 @@ impl ClientAbstraction for MatrixClient {
                     continue;
                 }
 
-                // TODO:
-                //  - Presence state
+                let presence = user::request_user_presence(&client, member.user_id()).await;
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
                     display_name: member.display_name().map(str::to_string),
-                    presence_state: None,
+                    presence_state: Some(presence.into()),
                     avatar_path: media_manager.get_room_member_avatar_path(&member).await,
                 });
             }
@@ -651,13 +641,12 @@ impl ClientAbstraction for MatrixClient {
         let mut result = Vec::new();
 
         for user in user_list.results {
-            // TODO:
-            //  - Presence state
+            let presence = user::request_user_presence(&client, &user.user_id).await;
 
             result.push(User {
                 user_id: user.user_id.to_string(),
                 display_name: user.display_name.clone(),
-                presence_state: None,
+                presence_state: Some(presence.into()),
                 avatar_path: media_manager
                     .get_user_directory_user_avatar_path(&user)
                     .await,

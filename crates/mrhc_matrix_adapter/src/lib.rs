@@ -12,6 +12,7 @@ mod sas;
 mod session;
 #[cfg(test)]
 mod test_utils;
+mod user;
 mod utils;
 mod verification;
 
