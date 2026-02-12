@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
+use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
@@ -27,15 +28,23 @@ use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
-use crate::{rooms, unwrap_or_log_return};
+use crate::{rooms, unwrap_or_log_return, user};
 
 // After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
 
-macro_rules! impl_event_handler {
+macro_rules! impl_room_event_handler {
     ($event:ident, $handler_name:ident, $processor_name:ident) => {
         async fn $handler_name(event: $event, room: Room, event_manager: Ctx<EventManager>) {
             event_manager.$processor_name(room, event);
+        }
+    };
+}
+
+macro_rules! impl_event_handler {
+    ($event:ident, $handler_name:ident, $processor_name:ident) => {
+        async fn $handler_name(event: $event, event_manager: Ctx<EventManager>) {
+            event_manager.$processor_name(event);
         }
     };
 }
@@ -98,6 +107,7 @@ impl EventManager {
         client.add_event_handler(room_avatar_event_handler);
         client.add_event_handler(room_message_event_handler);
         client.add_event_handler(reaction_event_handler);
+        client.add_event_handler(presence_event_handler);
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
@@ -142,6 +152,11 @@ impl EventManager {
         log::debug!("Received OriginalSyncReactionEvent: {event:?}");
         let _ = self.action_sender.send(Event::Reaction { room, event });
     }
+
+    pub fn process_presence_event(&self, event: PresenceEvent) {
+        log::debug!("Received PresenceEvent: {event:?}");
+        let _ = self.action_sender.send(Event::Presence(event));
+    }
 }
 
 enum Event {
@@ -173,6 +188,7 @@ enum Event {
         room: Room,
         event: OriginalSyncReactionEvent,
     },
+    Presence(PresenceEvent),
 }
 
 #[derive(Debug)]
@@ -186,21 +202,50 @@ struct Reaction {
 
 #[derive(Debug, PartialEq, Eq)]
 struct UserChange {
-    pub displayname_change: Option<String>,
-    pub avatar_url_change: Option<String>,
+    pub displayname: Option<String>,
+    pub avatar_uri: Option<String>,
+    pub presence_state: Option<PresenceState>,
 }
 
 impl UserChange {
-    pub fn new(
-        displayname_change: Option<Change<Option<&str>>>,
-        avatar_url_change: Option<Change<Option<&MxcUri>>>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
-            displayname_change: displayname_change
-                .map(|f| f.new.map(str::to_string).unwrap_or_default()),
-            avatar_url_change: avatar_url_change
-                .map(|f| f.new.map(MxcUri::to_string).unwrap_or_default()),
+            displayname: None,
+            avatar_uri: None,
+            presence_state: None,
         }
+    }
+
+    pub fn new_profile_change(
+        displayname_change: Option<Change<Option<&str>>>,
+        avatar_uri_change: Option<Change<Option<&MxcUri>>>,
+    ) -> Self {
+        let mut obj = Self::new();
+
+        if let Some(change) = displayname_change {
+            obj = obj.displayname(change);
+        }
+
+        if let Some(change) = avatar_uri_change {
+            obj = obj.avatar_uri(change);
+        }
+
+        obj
+    }
+
+    pub fn displayname(mut self, change: Change<Option<&str>>) -> Self {
+        self.displayname = Some(change.new.map(str::to_string).unwrap_or_default());
+        self
+    }
+
+    pub fn avatar_uri(mut self, change: Change<Option<&MxcUri>>) -> Self {
+        self.avatar_uri = Some(change.new.map(MxcUri::to_string).unwrap_or_default());
+        self
+    }
+
+    pub fn presence_state(mut self, presence_state: PresenceState) -> Self {
+        self.presence_state = Some(presence_state);
+        self
     }
 }
 
@@ -253,6 +298,7 @@ impl EventExecutor {
             Event::RoomAvatar { room, event } => self.exec_room_avatar_event(room, event).await,
             Event::RoomMessage { room, event } => self.exec_room_message_event(room, event).await,
             Event::Reaction { room, event } => self.exec_reaction_event(room, event).await,
+            Event::Presence(event) => self.exec_presence_event(event).await,
         }
     }
 
@@ -273,7 +319,8 @@ impl EventExecutor {
     }
 
     fn track_user_change(&mut self, user_id: impl Into<String>, change: UserChange) {
-        log::debug!("Tracking user change: {change:?}");
+        let user_id = user_id.into();
+        log::debug!("Tracking change for user {user_id}: {change:?}");
         self.user_changes.insert(user_id.into(), change);
     }
 
@@ -481,20 +528,20 @@ impl EventExecutor {
         avatar_url_change: Option<Change<Option<&MxcUri>>>,
     ) {
         let user_id = event.sender.to_string();
-        let change = UserChange::new(displayname_change, avatar_url_change);
+        let change = UserChange::new_profile_change(displayname_change, avatar_url_change);
 
         if !self.is_new_user_change(&user_id, &change) {
-            log::debug!("User profile change has already been processed before, nothing to do");
+            log::debug!("User profile change for {user_id} has already been processed before, nothing to do");
             return;
         }
 
         let mut builder = builder::UserChangeEventBuilder::new(user_id.clone());
 
-        if let Some(displayname) = &change.displayname_change {
+        if let Some(displayname) = &change.displayname {
             builder = builder.change_display_name(displayname.clone());
         }
 
-        if change.avatar_url_change.is_some() {
+        if change.avatar_uri.is_some() {
             let path = self
                 .media_manager
                 .get_user_avatar_path(event.sender.clone())
@@ -598,46 +645,71 @@ impl EventExecutor {
         self.ctx
             .send_event(ResponseContent::ReactionCreatedEvent(proto));
     }
+
+    async fn exec_presence_event(&mut self, event: PresenceEvent) {
+        let user_id = event.sender.to_string();
+        let presence = user::convert_presence_state(event.content.presence);
+        let change = UserChange::new().presence_state(presence);
+
+        if !self.is_new_user_change(&user_id, &change) {
+            log::debug!("User profile change for {user_id} has already been processed before, nothing to do");
+            return;
+        }
+
+        self.track_user_change(&user_id, change);
+
+        let proto = builder::UserChangeEventBuilder::new(user_id)
+            .change_presence_state(presence)
+            .to_proto();
+
+        self.ctx.send_event(ResponseContent::UserChangeEvent(proto));
+    }
 }
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomRedactionEvent,
     room_redaction_event_handler,
     process_room_redaction_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomNameEvent,
     room_name_event_handler,
     process_room_name_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomMemberEvent,
     room_member_event_handler,
     process_room_member_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomJoinRulesEvent,
     room_join_rules_event_handler,
     process_room_join_rules_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomAvatarEvent,
     room_avatar_event_handler,
     process_room_avatar_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncRoomMessageEvent,
     room_message_event_handler,
     process_room_message_event
 );
 
-impl_event_handler!(
+impl_room_event_handler!(
     OriginalSyncReactionEvent,
     reaction_event_handler,
     process_reaction_event
+);
+
+impl_event_handler!(
+    PresenceEvent,
+    presence_event_handler,
+    process_presence_event
 );

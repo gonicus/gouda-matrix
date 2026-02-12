@@ -100,13 +100,10 @@ impl Session {
     /// The session is automatically persisted once a new sync token is received.
     /// Note that the token specified in `sync_settings` will be overwritten.
     /// This method should be called every time the client is being logged in.
-    pub async fn initial_sync(
-        &mut self,
-        ctx: &mut ClientContext,
-        client: &Client,
-        mut sync_settings: SyncSettings,
-    ) -> Result<()> {
+    pub async fn initial_sync(&mut self, ctx: &mut ClientContext, client: &Client) -> Result<()> {
         log::info!("Starting initial sync");
+
+        let mut sync_settings = SyncSettings::new();
 
         if let Some(token) = &self.sync_token {
             sync_settings = sync_settings.token(token);
@@ -136,8 +133,9 @@ impl Session {
         self,
         initialized_data: InitializedData,
         ctx: ClientContext,
-        mut sync_settings: SyncSettings,
     ) -> Result<JoinHandle<()>> {
+        let mut sync_settings = SyncSettings::new();
+
         if let Some(token) = &self.sync_token {
             sync_settings = sync_settings.token(token);
         }
