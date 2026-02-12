@@ -156,9 +156,6 @@ mod tests {
             )),
         };
 
-        use prost::Message;
-        std::fs::write("expected.proto", expected.encode_to_vec()).unwrap();
-
         let result = read_request(&mut data.as_ref(), data.len() as u64).await;
 
         assert_eq!(result, expected);
