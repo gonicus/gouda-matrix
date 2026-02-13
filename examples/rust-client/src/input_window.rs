@@ -115,6 +115,12 @@ impl InputWindow {
                     self.config.public_room_list.clone()
                 );
                 ui_action!(self, ui, Invite, self.config.invite.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    InvitationReply,
+                    self.config.invitation_reply.clone()
+                );
                 ui_action!(self, ui, RoomList, self.config.room_list);
                 ui_action!(
                     self,

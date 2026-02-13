@@ -606,7 +606,7 @@ impl ClientAbstraction for MatrixClient {
                     continue;
                 }
 
-                let presence = user::request_user_presence(&client, member.user_id()).await;
+                let presence = user::request_user_presence(client, member.user_id()).await;
 
                 result.push(User {
                     user_id: member.user_id().to_string(),
@@ -641,7 +641,7 @@ impl ClientAbstraction for MatrixClient {
         let mut result = Vec::new();
 
         for user in user_list.results {
-            let presence = user::request_user_presence(&client, &user.user_id).await;
+            let presence = user::request_user_presence(client, &user.user_id).await;
 
             result.push(User {
                 user_id: user.user_id.to_string(),
@@ -723,6 +723,47 @@ impl ClientAbstraction for MatrixClient {
                 .change_user_id_list(members)
                 .to_proto(),
         )
+    }
+
+    async fn invitation_reply(&mut self, ctx: ClientContext, request: InvitedReply) -> Result<()> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in()?;
+
+        let Some(user_id) = client.user_id() else {
+            log::error!("Error retrieving the user ID of the current user");
+            return Err(errors::create_unknown(
+                "Error retrieving the user ID of the current user",
+            ));
+        };
+
+        let InvitedReply { room_id, accepted } = request;
+
+        let room = self.get_matrix_room(&room_id)?;
+
+        if !accepted {
+            room.leave()
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
+
+            log::info!("Successfully declined invitation for room: {room_id:?}");
+
+            return Ok(());
+        }
+
+        room.join()
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        log::info!("Successfully accepted invitation for room: {room_id:?}");
+
+        let proto = rooms::convert_to_proto(media_manager, room, user_id).await?;
+
+        ctx.send_event(ResponseContent::RoomCreatedEvent(proto));
+
+        Ok(())
     }
 
     async fn get_rooms(

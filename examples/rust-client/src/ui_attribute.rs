@@ -177,6 +177,13 @@ impl UiAttribute for InvitationRequest {
     }
 }
 
+impl UiAttribute for InvitedReply {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, accepted);
+    }
+}
+
 impl UiAttribute for RoomListRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, include_joined);

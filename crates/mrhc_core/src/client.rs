@@ -163,6 +163,11 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
+    async fn invitation_reply(&mut self, ctx: ClientContext, request: InvitedReply) -> Result<()> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
     async fn get_rooms(
         &mut self,
         ctx: ClientContext,

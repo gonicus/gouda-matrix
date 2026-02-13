@@ -46,6 +46,10 @@
     ],
     "invitation_text": null
   },
+  "invitation-reply": {
+    "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
+    "accepted": true
+  },
   "room-list": {
     "include_joined": true,
     "include_unjoined": false

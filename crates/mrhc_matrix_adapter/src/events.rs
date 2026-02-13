@@ -8,7 +8,7 @@ use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
 use matrix_sdk::ruma::events::room::member::{
-    Change, MembershipChange, OriginalSyncRoomMemberEvent,
+    Change, MembershipChange, MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent,
 };
 use matrix_sdk::ruma::events::room::message::{
     MessageType, OriginalSyncRoomMessageEvent, Relation,
@@ -103,6 +103,7 @@ impl EventManager {
         client.add_event_handler(room_redaction_event_handler);
         client.add_event_handler(room_name_event_handler);
         client.add_event_handler(room_member_event_handler);
+        client.add_event_handler(stripped_room_member_event_handler);
         client.add_event_handler(room_join_rules_event_handler);
         client.add_event_handler(room_avatar_event_handler);
         client.add_event_handler(room_message_event_handler);
@@ -127,6 +128,13 @@ impl EventManager {
         log::debug!("Received OriginalSyncRoomMemberEvent: {event:?}");
         skip_historical_event!(event);
         let _ = self.action_sender.send(Event::RoomMember { room, event });
+    }
+
+    pub fn process_stripped_room_member_event(&self, room: Room, event: StrippedRoomMemberEvent) {
+        log::debug!("Received StrippedRoomMemberEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Event::StrippedRoomMember { room, event });
     }
 
     pub fn process_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
@@ -171,6 +179,10 @@ enum Event {
     RoomMember {
         room: Room,
         event: OriginalSyncRoomMemberEvent,
+    },
+    StrippedRoomMember {
+        room: Room,
+        event: StrippedRoomMemberEvent,
     },
     RoomJoinRules {
         room: Room,
@@ -292,6 +304,9 @@ impl EventExecutor {
             }
             Event::RoomName { room, event } => self.exec_room_name_event(room, event).await,
             Event::RoomMember { room, event } => self.exec_room_member_event(room, event).await,
+            Event::StrippedRoomMember { room, event } => {
+                self.exec_stripped_room_member_event(room, event).await
+            }
             Event::RoomJoinRules { room, event } => {
                 self.exec_room_join_rules_event(room, event).await
             }
@@ -321,7 +336,7 @@ impl EventExecutor {
     fn track_user_change(&mut self, user_id: impl Into<String>, change: UserChange) {
         let user_id = user_id.into();
         log::debug!("Tracking change for user {user_id}: {change:?}");
-        self.user_changes.insert(user_id.into(), change);
+        self.user_changes.insert(user_id, change);
     }
 
     fn is_new_user_change(&self, user_id: impl AsRef<str>, change: &UserChange) -> bool {
@@ -498,16 +513,34 @@ impl EventExecutor {
     ) -> bool {
         log::debug!("The users own membership has changed");
 
-        let reason = match event.membership_change() {
-            MembershipChange::Left => RoomLeaveReason::User,
-            MembershipChange::Kicked => RoomLeaveReason::Kicked,
-            MembershipChange::Banned | MembershipChange::KickedAndBanned => RoomLeaveReason::Banned,
+        match event.membership_change() {
+            MembershipChange::Left => {
+                self.process_own_leave_change(room, event, RoomLeaveReason::User)
+                    .await;
+            }
+            MembershipChange::Kicked => {
+                self.process_own_leave_change(room, event, RoomLeaveReason::Kicked)
+                    .await;
+            }
+            MembershipChange::Banned | MembershipChange::KickedAndBanned => {
+                self.process_own_leave_change(room, event, RoomLeaveReason::Banned)
+                    .await;
+            }
             _ => {
                 log::debug!("Treating it like any other membership change");
                 return false;
             }
-        };
+        }
 
+        true
+    }
+
+    async fn process_own_leave_change(
+        &self,
+        room: &Room,
+        event: &OriginalSyncRoomMemberEvent,
+        reason: RoomLeaveReason,
+    ) {
         log::debug!("Our own user left the room, sending a RoomLeftEvent instead");
 
         let proto = RoomLeftEvent {
@@ -517,8 +550,30 @@ impl EventExecutor {
         };
 
         self.ctx.send_event(ResponseContent::RoomLeftEvent(proto));
+    }
 
-        true
+    async fn exec_stripped_room_member_event(
+        &mut self,
+        room: Room,
+        event: StrippedRoomMemberEvent,
+    ) {
+        if Some(event.state_key.to_string()) != self.client.user_id().map(|f| f.to_string()) {
+            log::debug!("Our user did not trigger this event, nothing to do");
+            return;
+        }
+
+        if event.content.membership != MembershipState::Invite {
+            log::debug!("Our user is not in invited state, nothing to do");
+            return;
+        }
+
+        let proto = InvitedEvent {
+            room_id: room.room_id().to_string(),
+            invitation_text: event.content.reason.clone(),
+            room_display_name: room.display_name().await.ok().map(|n| n.to_string()),
+        };
+
+        self.ctx.send_event(ResponseContent::InvitedEvent(proto));
     }
 
     async fn process_profile_change(
@@ -531,7 +586,9 @@ impl EventExecutor {
         let change = UserChange::new_profile_change(displayname_change, avatar_url_change);
 
         if !self.is_new_user_change(&user_id, &change) {
-            log::debug!("User profile change for {user_id} has already been processed before, nothing to do");
+            log::debug!(
+                "User profile change for {user_id} has already been processed before, nothing to do"
+            );
             return;
         }
 
@@ -652,7 +709,9 @@ impl EventExecutor {
         let change = UserChange::new().presence_state(presence);
 
         if !self.is_new_user_change(&user_id, &change) {
-            log::debug!("User profile change for {user_id} has already been processed before, nothing to do");
+            log::debug!(
+                "User profile change for {user_id} has already been processed before, nothing to do"
+            );
             return;
         }
 
@@ -682,6 +741,12 @@ impl_room_event_handler!(
     OriginalSyncRoomMemberEvent,
     room_member_event_handler,
     process_room_member_event
+);
+
+impl_room_event_handler!(
+    StrippedRoomMemberEvent,
+    stripped_room_member_event_handler,
+    process_stripped_room_member_event
 );
 
 impl_room_event_handler!(
