@@ -47,6 +47,9 @@ pub struct ClientMock {
     pub invite_response: Result<RoomChangeEvent>,
     pub invite_call_count: u32,
 
+    pub invitation_reply_response: Result<()>,
+    pub invitation_reply_call_count: u32,
+
     pub get_rooms_response: Result<RoomListResponse>,
     pub get_rooms_call_count: u32,
 
@@ -128,6 +131,9 @@ impl Default for ClientMock {
 
             invite_response: Ok(RoomChangeEvent::default()),
             invite_call_count: 0,
+
+            invitation_reply_response: Ok(()),
+            invitation_reply_call_count: 0,
 
             get_rooms_response: Ok(RoomListResponse::default()),
             get_rooms_call_count: 0,
@@ -229,6 +235,10 @@ impl ClientMock {
 
     pub fn assert_invite_called_n(&self, n: u32) {
         assert!(self.invite_call_count == n);
+    }
+
+    pub fn assert_invitation_reply_called_n(&self, n: u32) {
+        assert!(self.invitation_reply_call_count == n);
     }
 
     pub fn assert_get_rooms_called_n(&self, n: u32) {
@@ -411,6 +421,12 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.invite_call_count += 1;
         self.invite_response.clone()
+    }
+
+    async fn invitation_reply(&mut self, ctx: ClientContext, _request: InvitedReply) -> Result<()> {
+        self.received_ctx = Some(ctx);
+        self.invitation_reply_call_count += 1;
+        self.invitation_reply_response.clone()
     }
 
     async fn get_rooms(

@@ -16,6 +16,7 @@ pub struct Config {
     pub user_search: UserSearchRequest,
     pub public_room_list: PublicRoomListRequest,
     pub invite: InvitationRequest,
+    pub invitation_reply: InvitedReply,
     pub room_list: RoomListRequest,
     pub create_group_room: RoomCreateGroupRequest,
     pub create_direct_room: RoomCreateDirectRequest,
