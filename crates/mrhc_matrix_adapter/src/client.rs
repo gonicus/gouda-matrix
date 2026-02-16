@@ -900,7 +900,7 @@ impl ClientAbstraction for MatrixClient {
             display_name,
             join_rule,
             avatar_path,
-            ..
+            is_favorite,
         } = request;
 
         let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
@@ -927,8 +927,18 @@ impl ClientAbstraction for MatrixClient {
         if let Some(avatar_path) = avatar_path {
             // TODO: Error handling
             let _ = media_manager
-                .upload_room_avatar(&room, &PathBuf::from(avatar_path))
+                .upload_room_avatar(&room, &PathBuf::from(&avatar_path))
                 .await;
+
+            response = response.change_avatar_path(avatar_path);
+        }
+
+        if let Some(is_favourite) = is_favorite {
+            room.set_is_favourite(is_favourite, None)
+                .await
+                .map_err(errors::convert_matrix_sdk_error)?;
+
+            response = response.change_is_favourite(is_favourite);
         }
 
         Ok(response.to_proto())
