@@ -243,12 +243,50 @@ impl UiAttribute for RoomMarkAsReadRequest {
     }
 }
 
+impl UiAttribute for message_send_request::Content {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        match self {
+            Self::Text(content) => content.update(ui),
+            Self::Image(content) => content.update(ui),
+        }
+    }
+}
+
+impl UiAttribute for message_change_event::Content {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        match self {
+            Self::Text(content) => content.update(ui),
+            Self::Image(content) => content.update(ui),
+        }
+    }
+}
+
+impl UiAttribute for message_change_request::Content {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        match self {
+            Self::Text(content) => content.update(ui),
+            Self::Image(content) => content.update(ui),
+        }
+    }
+}
+
+impl UiAttribute for MessageContentText {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, content);
+    }
+}
+
+impl UiAttribute for MessageContentImage {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, image_path);
+    }
+}
+
 impl UiAttribute for MessageSendRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, mime_type);
-        ui_attribute!(self, ui, content);
         ui_attribute!(self, ui, related_message_id);
+        ui_attribute!(self, ui, content);
     }
 }
 
@@ -263,7 +301,7 @@ impl UiAttribute for MessageChangeRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
         ui_attribute!(self, ui, message_id);
-        ui_attribute!(self, ui, new_content);
+        ui_attribute!(self, ui, content);
     }
 }
 

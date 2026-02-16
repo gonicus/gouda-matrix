@@ -90,7 +90,9 @@
   },
   "send-message": {
     "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
-    "content": "Hallo YAMA",
+    "content": { "Text": {
+        "content": "Hallo YAMA"
+    }},
     "mime_type": "text/plain"
   },
   "remove-message": {
@@ -100,7 +102,9 @@
   "change-message": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
-    "new_content": "Hello World!"
+    "content": { "Text": {
+        "content": "Hello world!"
+    }}
   },
   "create-reaction": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
