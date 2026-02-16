@@ -15,11 +15,13 @@ use matrix_sdk::ruma::events::room::message::{
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
+use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
 };
 use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
+use mrhc_proto::chat::builder::RoomChangeEventBuilder;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::{Reaction as ChatReaction, *};
@@ -109,6 +111,7 @@ impl EventManager {
         client.add_event_handler(room_message_event_handler);
         client.add_event_handler(reaction_event_handler);
         client.add_event_handler(presence_event_handler);
+        client.add_event_handler(tag_event_handler);
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
@@ -165,6 +168,11 @@ impl EventManager {
         log::debug!("Received PresenceEvent: {event:?}");
         let _ = self.action_sender.send(Event::Presence(event));
     }
+
+    pub fn process_tag_event(&self, room: Room, event: TagEvent) {
+        log::debug!("Received TagEvent: {event:?}");
+        let _ = self.action_sender.send(Event::Tag { room, event });
+    }
 }
 
 enum Event {
@@ -201,6 +209,10 @@ enum Event {
         event: OriginalSyncReactionEvent,
     },
     Presence(PresenceEvent),
+    Tag {
+        room: Room,
+        event: TagEvent,
+    },
 }
 
 #[derive(Debug)]
@@ -314,6 +326,7 @@ impl EventExecutor {
             Event::RoomMessage { room, event } => self.exec_room_message_event(room, event).await,
             Event::Reaction { room, event } => self.exec_reaction_event(room, event).await,
             Event::Presence(event) => self.exec_presence_event(event).await,
+            Event::Tag { room, event } => self.exec_tag_event(room, event).await,
         }
     }
 
@@ -723,6 +736,16 @@ impl EventExecutor {
 
         self.ctx.send_event(ResponseContent::UserChangeEvent(proto));
     }
+
+    async fn exec_tag_event(&mut self, room: Room, event: TagEvent) {
+        let is_favourite = event.content.tags.get(&TagName::Favorite);
+
+        let proto = RoomChangeEventBuilder::new(room.room_id().to_string())
+            .change_is_favourite(is_favourite.is_some())
+            .to_proto();
+
+        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+    }
 }
 
 impl_room_event_handler!(
@@ -778,3 +801,5 @@ impl_event_handler!(
     presence_event_handler,
     process_presence_event
 );
+
+impl_room_event_handler!(TagEvent, tag_event_handler, process_tag_event);
