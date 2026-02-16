@@ -444,9 +444,13 @@ impl EventExecutor {
     }
 
     async fn redact_room_message(&self, room: Room, event_id: String) {
+        // TODO: Support reason
+
         let proto = MessageRemoveEvent {
             room_id: room.room_id().to_string(),
             message_id: event_id,
+            reason: None,
+            origin: EventOrigin::UserOrigin.into(),
         };
 
         self.ctx
@@ -659,12 +663,18 @@ impl EventExecutor {
             return;
         };
 
-        if let Some(Relation::Replacement(relation)) = event.content.relates_to {
-            let content = text_content.body.strip_prefix("* ");
+        let content = text_content.body.strip_prefix("* ")
+            .unwrap_or(text_content.body.as_str());
 
+        let content = MessageContentText {
+            content: content.to_string(),
+        };
+
+        if let Some(Relation::Replacement(relation)) = event.content.relates_to {
             let proto = MessageChangeEvent {
+                room_id: room.room_id().to_string(),
                 message_id: relation.event_id.to_string(),
-                content: Some(content.unwrap_or(text_content.body.as_str()).to_string()),
+                content: Some(message_change_event::Content::Text(content)),
                 is_encrypted: None,
                 is_pinned: None,
             };
@@ -675,19 +685,16 @@ impl EventExecutor {
             return;
         }
 
-        let proto = MessageReceivedEvent {
-            message_content: Some(Message {
-                message_id: Some(event.event_id.to_string()),
-                room_id: room.room_id().to_string(),
-                sender_id: event.sender.to_string(),
-                timestamp: event.origin_server_ts.get().into(),
-                mime_type: "text/plain".to_owned(),
-                content: text_content.body,
-                related_message_id: None,
-                is_pinned: false,
-                is_encrypted: false,
-                reactions: Vec::new(),
-            }),
+        let proto = Message {
+            message_id: Some(event.event_id.to_string()),
+            room_id: room.room_id().to_string(),
+            sender_id: Some(event.sender.to_string()),
+            timestamp: event.origin_server_ts.get().into(),
+            content: Some(message::Content::Text(content)),
+            related_message_id: None,
+            is_pinned: false,
+            is_encrypted: false,
+            reactions: Vec::new(),
         };
 
         self.ctx

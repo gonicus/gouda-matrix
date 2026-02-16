@@ -42,6 +42,24 @@ pub mod chat {
         }
     }
 
+    impl Default for message_send_request::Content {
+        fn default() -> Self {
+            Self::Text(MessageContentText::default())
+        }
+    }
+
+    impl Default for message_change_request::Content {
+        fn default() -> Self {
+            Self::Text(MessageContentText::default())
+        }
+    }
+
+    impl Default for message_change_event::Content {
+        fn default() -> Self {
+            Self::Text(MessageContentText::default())
+        }
+    }
+
     pub mod builder {
         use std::collections::HashMap;
 

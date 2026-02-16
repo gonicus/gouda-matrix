@@ -1041,8 +1041,20 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
+        use message_send_request::Content;
+
         let room = self.get_matrix_room(&request.room_id)?;
-        let event = RoomMessageEventContent::text_plain(request.content);
+
+        let Some(content) = request.content else {
+            return Err(errors::create_unknown("Message content not set"));
+        };
+
+        let event = match content {
+            Content::Text(text) => RoomMessageEventContent::text_plain(text.content),
+            Content::Image(_) => {
+                return Err(errors::create_error(ErrorType::NotImplemented));
+            }
+        };
 
         let re = room
             .send(event)
@@ -1081,10 +1093,12 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: MessageChangeRequest,
     ) -> Result<()> {
+        use message_change_request::Content;
+
         let MessageChangeRequest {
             room_id,
             message_id,
-            new_content,
+            content,
         } = request;
 
         let room = self.get_matrix_room(&room_id)?;
@@ -1092,7 +1106,17 @@ impl ClientAbstraction for MatrixClient {
         let event_id = EventId::parse(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
 
-        let content = RoomMessageEventContentWithoutRelation::text_plain(new_content);
+        let Some(content) = content else {
+            return Err(errors::create_unknown("Message content not set"));
+        };
+
+        let content = match content {
+            Content::Text(text) => RoomMessageEventContentWithoutRelation::text_plain(text.content),
+            Content::Image(_) => {
+                return Err(errors::create_error(ErrorType::NotImplemented));
+            }
+        };
+
         let event = room
             .make_edit_event(&event_id, EditedContent::RoomMessage(content))
             .await
