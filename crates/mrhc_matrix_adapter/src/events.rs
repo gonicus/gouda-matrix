@@ -686,9 +686,9 @@ impl EventExecutor {
         }
 
         let proto = Message {
-            message_id: Some(event.event_id.to_string()),
+            message_id: event.event_id.to_string(),
             room_id: room.room_id().to_string(),
-            sender_id: Some(event.sender.to_string()),
+            sender_id: event.sender.to_string(),
             timestamp: event.origin_server_ts.get().into(),
             content: Some(message::Content::Text(content)),
             related_message_id: None,
