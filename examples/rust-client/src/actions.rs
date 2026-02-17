@@ -59,9 +59,9 @@ pub enum Action {
     LeaveRoom(Box<RoomLeaveRequest>),
     JoinRoom(Box<RoomJoinRequest>),
     KnockRoom(Box<RoomKnockRequest>),
+    RoomMessages(Box<RoomMessagesRequest>),
     MarkAsRead(Box<RoomMarkAsReadRequest>),
     SendMessage(Box<MessageSendRequest>),
-    RoomMessages(Box<RoomMessagesRequest>),
     RemoveMessage(Box<MessageRemoveRequest>),
     ChangeMessage(Box<MessageChangeRequest>),
     CreateReaction(Box<Reaction>),
@@ -95,10 +95,10 @@ impl Action {
             Self::LeaveRoom(request) => run_leave_room(tag, sender, *request),
             Self::JoinRoom(request) => run_join_room(tag, sender, *request),
             Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
+            Self::RoomMessages(request) => run_room_messages(tag, sender, *request),
             Self::MarkAsRead(request) => run_mark_as_read(tag, sender, *request),
             Self::SendMessage(request) => run_send_message(tag, sender, *request),
             Self::RemoveMessage(request) => run_remove_message(tag, sender, *request),
-            Self::RoomMessages(request) => run_room_messages(tag, sender, *request),
             Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
             Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
         }
@@ -129,9 +129,9 @@ impl UiAttribute for Action {
             Self::LeaveRoom(request) => request.update(ui),
             Self::JoinRoom(request) => request.update(ui),
             Self::KnockRoom(request) => request.update(ui),
+            Self::RoomMessages(request) => request.update(ui),
             Self::MarkAsRead(request) => request.update(ui),
             Self::SendMessage(request) => request.update(ui),
-            Self::RoomMessages(request) => request.update(ui),
             Self::RemoveMessage(request) => request.update(ui),
             Self::ChangeMessage(request) => request.update(ui),
             Self::CreateReaction(request) => request.update(ui),
@@ -189,7 +189,6 @@ impl_run!(
 impl_run!(run_invite, InvitationRequest, InvitationRequest);
 impl_run!(run_invitation_reply, InvitedReply, InvitedReply);
 impl_run!(run_room_list, RoomListRequest, RoomListRequest);
-impl_run!(run_room_messages, RoomMessagesRequest, RoomMessagesRequest);
 impl_run!(
     run_create_group_room,
     RoomCreateGroupRequest,
@@ -205,6 +204,7 @@ impl_run!(run_leave_room, RoomLeaveRequest, RoomLeaveRequest);
 impl_run!(run_join_room, RoomJoinRequest, RoomJoinRequest);
 
 impl_run!(run_knock_room, RoomKnockRequest, RoomKnockRequest);
+impl_run!(run_room_messages, RoomMessagesRequest, RoomMessagesRequest);
 impl_run!(
     run_mark_as_read,
     RoomMarkAsReadRequest,

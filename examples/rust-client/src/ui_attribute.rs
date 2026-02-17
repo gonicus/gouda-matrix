@@ -237,6 +237,15 @@ impl UiAttribute for RoomKnockRequest {
     }
 }
 
+impl UiAttribute for RoomMessagesRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, order);
+        ui_attribute!(self, ui, from_message_id);
+        ui_attribute!(self, ui, limit);
+    }
+}
+
 impl UiAttribute for RoomMarkAsReadRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, room_id);
@@ -311,14 +320,5 @@ impl UiAttribute for Reaction {
         ui_attribute!(self, ui, message_id);
         ui_attribute!(self, ui, reaction);
         ui_attribute!(self, ui, user_id);
-    }
-}
-
-impl UiAttribute for RoomMessagesRequest {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, order);
-        ui_attribute!(self, ui, from_message_id);
-        ui_attribute!(self, ui, limit);
     }
 }
