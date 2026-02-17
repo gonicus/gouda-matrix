@@ -24,12 +24,12 @@ pub struct Config {
     pub leave_room: RoomLeaveRequest,
     pub join_room: RoomJoinRequest,
     pub knock_room: RoomKnockRequest,
+    pub room_messages: RoomMessagesRequest,
     pub mark_as_read: RoomMarkAsReadRequest,
     pub send_message: MessageSendRequest,
     pub remove_message: MessageRemoveRequest,
     pub change_message: MessageChangeRequest,
     pub create_reaction: Reaction,
-    pub room_messages: RoomMessagesRequest,
 }
 
 impl Config {

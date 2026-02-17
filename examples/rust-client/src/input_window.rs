@@ -138,6 +138,7 @@ impl InputWindow {
                 ui_action!(self, ui, LeaveRoom, self.config.leave_room.clone());
                 ui_action!(self, ui, JoinRoom, self.config.join_room.clone());
                 ui_action!(self, ui, KnockRoom, self.config.knock_room.clone());
+                ui_action!(self, ui, RoomMessages, self.config.room_messages.clone());
                 ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
                 ui_action!(self, ui, SendMessage, self.config.send_message.clone());
                 ui_action!(self, ui, RemoveMessage, self.config.remove_message.clone());
@@ -148,7 +149,6 @@ impl InputWindow {
                     CreateReaction,
                     self.config.create_reaction.clone()
                 );
-                ui_action!(self, ui, RoomMessages, self.config.room_messages.clone());
             });
     }
 }

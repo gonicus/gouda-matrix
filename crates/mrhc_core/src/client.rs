@@ -89,15 +89,6 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn get_room_messages(
-        &mut self,
-        ctx: &ClientContext,
-        request: &RoomMessagesRequest,
-    ) -> Result<RoomMessagesResponse> {
-        not_implemented_error()
-    }
-
-    #[allow(unused_variables)]
     async fn recovery_key_verification(
         &mut self,
         ctx: ClientContext,
@@ -228,6 +219,15 @@ pub trait Client: Send {
 
     #[allow(unused_variables)]
     async fn knock_room(&mut self, ctx: ClientContext, request: RoomKnockRequest) -> Result<()> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
+    async fn get_room_messages(
+        &mut self,
+        ctx: &ClientContext,
+        request: &RoomMessagesRequest,
+    ) -> Result<RoomMessagesResponse> {
         not_implemented_error()
     }
 
