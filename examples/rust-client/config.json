@@ -99,6 +99,11 @@
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k"
   },
+  "room-messages": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "order": 1,
+    "limit": 10
+  },
   "change-message": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",

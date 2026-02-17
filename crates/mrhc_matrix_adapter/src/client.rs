@@ -1,14 +1,17 @@
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use matrix_sdk::room::edit::EditedContent;
-use matrix_sdk::room::MessagesOptions;
+use matrix_sdk::room::{MessagesOptions, Room as MatrixRoom};
+use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::{
     RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
 };
-use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
+use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UInt, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
 use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
@@ -16,8 +19,13 @@ use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
+use tokio::sync::mpsc;
 use url::Url;
 
+use crate::chat_cache::{
+    cache_room_messages_response, get_or_create_room, get_sequence_chunk, retry_decryption,
+    CacheError, CachedData, MatrixRoomClient,
+};
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
@@ -53,6 +61,8 @@ pub struct MatrixClient {
     /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
     /// is called, as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
+    // The chronologically-resolved room message cache
+    cached_data: Arc<RwLock<CachedData>>,
     /// The current active verification processes.
     verification_requests: Vec<VerificationManager>,
 }
@@ -165,6 +175,97 @@ impl MatrixClient {
 
         Ok(room)
     }
+
+    async fn fetch_messages_from_sdk(
+        cached_data: Arc<RwLock<CachedData>>,
+        order: MessagesOrder,
+        room: &MatrixRoom,
+        next: String,
+        limit: u32,
+    ) -> Result<usize> {
+        let mut options: MessagesOptions;
+        let chronological: bool;
+
+        match order {
+            MessagesOrder::Forward => {
+                options = MessagesOptions::forward();
+                chronological = true;
+            }
+            MessagesOrder::Backward => {
+                options = MessagesOptions::backward();
+                chronological = false;
+            }
+        }
+
+        options.from = Some(next);
+        options.filter = RoomEventFilter::default();
+        options.limit = UInt::from((limit * 3).div_ceil(2));
+
+        let messages = room
+            .messages(options)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        if messages.chunk.is_empty() {
+            log::debug!("Reached end of room data - returning N < limit messages");
+
+            return Ok(0);
+        }
+
+        cache_room_messages_response(
+            cached_data.clone(),
+            &messages,
+            room.room_id().to_owned(),
+            chronological,
+        )
+        .map_err(errors::convert_cache_error)?;
+
+        Ok(messages.chunk.len())
+    }
+
+    async fn setup_room_key_listener(
+        room_id: &OwnedRoomId,
+        client: &Client,
+    ) -> Result<mpsc::Receiver<()>> {
+        log::debug!("setting up key listener for room {room_id}");
+
+        let (tx, rx) = mpsc::channel(100);
+        let key_stream = client
+            .encryption()
+            .backups()
+            .room_keys_for_room_stream(room_id);
+
+        tokio::spawn(async move {
+            // pinning is needed before calling next
+            tokio::pin!(key_stream);
+
+            log::debug!("Now listening on room keys");
+
+            while let Some(result) = key_stream.next().await {
+                match result {
+                    Ok(session_ids) => {
+                        // session_ids is a mapping of sender_key to set of session_ids
+                        let total_keys: usize = session_ids.values().map(|s| s.len()).sum();
+                        log::info!(
+                            "Room keys downloaded from backup: {} sessions keys from {} senders",
+                            total_keys,
+                            session_ids.len()
+                        );
+                        log::debug!("Downloaded session keys: {session_ids:#?}");
+                        // Notify listener that new keys have arrived
+                        let _ = tx.send(()).await;
+                    }
+                    Err(e) => {
+                        log::warn!("Error receiving room key notification: {e:?}");
+                    }
+                }
+            }
+
+            log::debug!("Ending room key listener");
+        });
+
+        Ok(rx)
+    }
 }
 
 #[async_trait]
@@ -180,6 +281,7 @@ impl ClientAbstraction for MatrixClient {
         let session_dir = PathBuf::from(&request.data_root_path).join(SESSION_DIR);
         let session_file = session_dir.join(SESSION_FILE);
         let session_passphrase = request.encryption_secret.clone();
+        let cached_data = self.cached_data.clone();
 
         if session_file.exists() {
             let result = session::restore_session(
@@ -188,6 +290,7 @@ impl ClientAbstraction for MatrixClient {
                 session_passphrase.clone(),
                 &session_dir,
                 &request.persistent_storage_secret,
+                cached_data,
             )
             .await;
 
@@ -316,6 +419,8 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
+        let cached_data = self.cached_data.clone();
+
         log::info!(
             "Successfully logged in as {:?}",
             initialized_data.client.user_id()
@@ -325,6 +430,7 @@ impl ClientAbstraction for MatrixClient {
             &initialized_data.client,
             initialized_data.session_file.to_path_buf(),
             initialized_data.session_passphrase.clone(),
+            cached_data,
         )?;
 
         session.save().await?;
@@ -346,6 +452,8 @@ impl ClientAbstraction for MatrixClient {
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
         let initialized_data = self.get_initialized_data()?;
+
+        let cached_data = self.cached_data.clone();
 
         if initialized_data.client.matrix_auth().logged_in() {
             return Err(errors::create_error_msg(
@@ -388,9 +496,12 @@ impl ClientAbstraction for MatrixClient {
                 initialized_data.client.user_id()
             );
 
-            let Ok(mut session) =
-                Session::new(&initialized_data.client, session_file, session_passphrase)
-            else {
+            let Ok(mut session) = Session::new(
+                &initialized_data.client,
+                session_file,
+                session_passphrase,
+                cached_data,
+            ) else {
                 ctx.send_error(errors::create_unknown("Error creating session"));
                 return;
             };
@@ -618,6 +729,131 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(UserListResponse { user_list: result })
+    }
+
+    async fn get_room_messages(
+        &mut self,
+        ctx: &ClientContext,
+        request: &RoomMessagesRequest,
+    ) -> Result<RoomMessagesResponse> {
+        let room = self.get_matrix_room(request.room_id.as_str())?;
+        let room_id = OwnedRoomId::try_from(request.room_id.as_str())
+            .map_err(|_| errors::create_unknown("invalid room id"))?;
+
+        let key_change_rx =
+            MatrixClient::setup_room_key_listener(&room_id, self.get_client_logged_in()?).await?;
+
+        let request_clone = request.clone();
+
+        let from_id = request_clone.from_message_id;
+        let limit = request_clone.limit.unwrap_or(5);
+
+        let cached_room = get_or_create_room(self.cached_data.clone(), &room_id)
+            .map_err(errors::convert_cache_error)?;
+
+        // use default backward sorting on any error or missing option
+        let order = request
+            .order
+            .and_then(|v| MessagesOrder::try_from(v).ok())
+            .unwrap_or(MessagesOrder::Backward);
+
+        let room_client = MatrixRoomClient::new(&room);
+
+        let response;
+        let mut seq;
+
+        loop {
+            seq = get_sequence_chunk(
+                &cached_room.clone(),
+                from_id.as_deref(),
+                limit,
+                order,
+                &room_client,
+            )
+            .await
+            .map_err(|err| mrhc_proto::chat::Error {
+                r#type: 0,
+                error_string: Some(err.to_string()),
+            })?;
+
+            if seq.is_complete {
+                log::debug!("Retrieved all requested messages from SequenceChunk");
+
+                response = RoomMessagesResponse {
+                    message_list: seq
+                        .messages
+                        .clone()
+                        .ok_or_else(|| errors::convert_cache_error(CacheError::Unexpected))?,
+                };
+
+                break;
+            }
+
+            match (seq.messages.as_ref(), seq.next) {
+                (None, _) => {
+                    // can happen when a room has no displayable messages
+                    // OR when an unknown message ID is requested - as long as follow-up context request is not implemented
+                    log::debug!("Retrieved empty messages from SequenceChunk");
+
+                    response = RoomMessagesResponse {
+                        message_list: vec![],
+                    };
+
+                    break;
+                }
+                (Some(val), None) => {
+                    log::warn!("No sync token available for further fetching");
+
+                    response = RoomMessagesResponse {
+                        message_list: val.clone(),
+                    };
+
+                    break;
+                }
+                (Some(val), Some(next)) => {
+                    log::debug!("Attempting to fetch further messages from sdk");
+                    let fetched = MatrixClient::fetch_messages_from_sdk(
+                        self.cached_data.clone(),
+                        order,
+                        &room,
+                        next,
+                        limit,
+                    )
+                    .await?;
+
+                    if fetched == 0 {
+                        response = RoomMessagesResponse {
+                            message_list: val.clone(),
+                        };
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        let ctx = ctx.clone();
+        let room_id = room_id.clone();
+        let room_client = room_client.clone();
+        let cached_data = self.cached_data.clone();
+
+        tokio::spawn(async move {
+            let result = retry_decryption(
+                seq.messages,
+                &room_id,
+                &room_client,
+                cached_data,
+                key_change_rx,
+                &ctx,
+            )
+            .await;
+
+            if let Err(err) = result {
+                ctx.send_error(errors::convert_cache_error(err));
+            }
+        });
+
+        Ok(response)
     }
 
     async fn search_users(

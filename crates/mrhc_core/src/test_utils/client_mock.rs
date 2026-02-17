@@ -20,6 +20,9 @@ pub struct ClientMock {
     pub login_sso_response: Result<LoginSsoResponse>,
     pub login_sso_call_count: u32,
 
+    pub get_room_messages_response: Result<RoomMessagesResponse>,
+    pub get_room_messages_call_count: u32,
+
     pub recovery_key_verification_response: Result<VerificationEndEvent>,
     pub recovery_key_verification_call_count: u32,
 
@@ -104,6 +107,9 @@ impl Default for ClientMock {
 
             login_sso_response: Ok(LoginSsoResponse::default()),
             login_sso_call_count: 0,
+
+            get_room_messages_response: Ok(RoomMessagesResponse::default()),
+            get_room_messages_call_count: 0,
 
             recovery_key_verification_response: Ok(VerificationEndEvent::default()),
             recovery_key_verification_call_count: 0,
@@ -199,6 +205,10 @@ impl ClientMock {
 
     pub fn assert_login_sso_called_n(&self, n: u32) {
         assert!(self.login_sso_call_count == n);
+    }
+
+    pub fn assert_get_room_messages_called_n(&self, n: u32) {
+        assert!(self.get_room_messages_call_count == n);
     }
 
     pub fn assert_recovery_key_verification_called_n(&self, n: u32) {
@@ -335,6 +345,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.login_sso_call_count += 1;
         self.login_sso_response.clone()
+    }
+
+    async fn get_room_messages(
+        &mut self,
+        ctx: &ClientContext,
+        _request: &RoomMessagesRequest,
+    ) -> Result<RoomMessagesResponse> {
+        self.received_ctx = Some(ctx.clone());
+        self.get_room_messages_call_count += 1;
+        self.get_room_messages_response.clone()
     }
 
     async fn recovery_key_verification(

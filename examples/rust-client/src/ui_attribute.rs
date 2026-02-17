@@ -313,3 +313,12 @@ impl UiAttribute for Reaction {
         ui_attribute!(self, ui, user_id);
     }
 }
+
+impl UiAttribute for RoomMessagesRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, room_id);
+        ui_attribute!(self, ui, order);
+        ui_attribute!(self, ui, from_message_id);
+        ui_attribute!(self, ui, limit);
+    }
+}
