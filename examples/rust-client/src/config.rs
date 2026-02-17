@@ -29,6 +29,7 @@ pub struct Config {
     pub remove_message: MessageRemoveRequest,
     pub change_message: MessageChangeRequest,
     pub create_reaction: Reaction,
+    pub room_messages: RoomMessagesRequest,
 }
 
 impl Config {

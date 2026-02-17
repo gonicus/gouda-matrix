@@ -126,6 +126,10 @@ impl Executor {
                 let result = self.client.get_users(ctx).await;
                 self.send_response(tag, result.map(ResponseContent::UserListResponse));
             }
+            RequestContent::RoomMessagesRequest(request) => {
+                let result = self.client.get_room_messages(&ctx, &request).await;
+                self.send_response(tag, result.map(ResponseContent::RoomMessagesResponse));
+            }
             RequestContent::UserSearchRequest(request) => {
                 let result = self.client.search_users(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::UserSearchResponse));
@@ -225,6 +229,8 @@ mod tests {
     use mrhc_proto::chat::error::ErrorType;
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
+    use mrhc_proto::chat::MessageContentText;
+    use mrhc_proto::chat::message::Content as MessageContent;
     use mrhc_proto::chat::*;
     use tokio::sync::mpsc;
 
@@ -677,6 +683,100 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_login_sso_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_messages_request() {
+        // Arrange
+        let request = RequestContent::RoomMessagesRequest(RoomMessagesRequest::default());
+        let response = RoomMessagesResponse {
+            message_list: vec![
+                Message {
+                    message_id: "message-1".to_owned(),
+                    room_id: "room-1".to_owned(),
+                    sender_id: "user-1".to_owned(),
+                    timestamp: 38473834,
+                    content: Some(MessageContent::Text(MessageContentText{content: "Hello world!".to_owned()})),
+                    related_message_id: None,
+                    is_pinned: false,
+                    is_encrypted: false,
+                    ..Default::default()
+                },
+                Message {
+                    message_id: "message-2".to_owned(),
+                    room_id: "room-1".to_owned(),
+                    sender_id: "user-2".to_owned(),
+                    timestamp: 4729845738,
+                    content: Some(MessageContent::Text(MessageContentText{content: "Hello world!".to_owned()})),
+                    related_message_id: None,
+                    is_pinned: true,
+                    is_encrypted: false,
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let client = ClientMock {
+            get_room_messages_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_room_messages_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::RoomMessagesResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_messages_request_err() {
+        // Arrange
+        let request = RequestContent::RoomMessagesRequest(RoomMessagesRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            get_room_messages_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_room_messages_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

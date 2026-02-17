@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::{Client, LoopCtrl};
 use mrhc_core::{ClientContext, Result};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
@@ -12,7 +14,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::client::InitializedData;
-use crate::{crypto, errors};
+use crate::{chat_cache, crypto, errors};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,12 +29,19 @@ pub struct Session {
     file: PathBuf,
     #[serde(skip)]
     passphrase: String,
+    #[serde(skip)]
+    cached_data: Arc<RwLock<chat_cache::CachedData>>,
 }
 
 impl Session {
     /// Creates a new session from a Matrix client.
     /// This should only be used if the session is new and has not yet been saved.
-    pub fn new(client: &Client, file: PathBuf, passphrase: String) -> Result<Self> {
+    pub fn new(
+        client: &Client,
+        file: PathBuf,
+        passphrase: String,
+        cached_data: Arc<RwLock<chat_cache::CachedData>>,
+    ) -> Result<Self> {
         let user_session = client.matrix_auth().session();
 
         let Some(user_session) = user_session else {
@@ -46,6 +55,7 @@ impl Session {
             sync_token: None,
             file,
             passphrase,
+            cached_data,
         })
     }
 
@@ -116,6 +126,13 @@ impl Session {
 
         self.sync_token = Some(response.next_batch.clone());
 
+        chat_cache::cache_sync_response(
+            self.cached_data.clone(),
+            &response,
+            chat_cache::SyncSource::InitialSync,
+        )
+        .map_err(errors::create_unknown)?;
+
         log::info!("Initial sync finished");
         log::debug!("Checking verification status");
 
@@ -127,7 +144,7 @@ impl Session {
         Ok(())
     }
 
-    /// Starts an infinitely long sync of the client in a separate tokio task,
+    /// Starts an indefinite sync loop in a separate tokio task,
     /// making this function non blocking.
     pub fn start_background_sync(
         self,
@@ -155,7 +172,15 @@ impl Session {
 
                     async move {
                         let response = sync_result?;
-                        session.sync_token = Some(response.next_batch);
+                        session.sync_token = Some(response.next_batch.clone());
+
+                        if let Err(err) = chat_cache::cache_sync_response(
+                            session.cached_data.clone(),
+                            &response,
+                            chat_cache::SyncSource::ContinuousSync,
+                        ) {
+                            log::warn!("Failed to cache sync response: {err}");
+                        }
 
                         match session.save().await {
                             Ok(_) => Ok(LoopCtrl::Continue),
@@ -232,13 +257,14 @@ pub async fn restore_session(
     session_passphrase: String,
     db_dir: &Path,
     db_passphrase: &str,
+    cached_data: Arc<RwLock<chat_cache::CachedData>>,
 ) -> Result<(Client, Session)> {
     log::debug!(
         "Previous session found in '{}'",
         session_file.to_string_lossy()
     );
 
-    let session = Session::read_from_file(session_file, session_passphrase).await?;
+    let mut session = Session::read_from_file(session_file, session_passphrase).await?;
     let client = build_client(homeserver, db_dir, db_passphrase).await?;
 
     log::info!(
@@ -251,6 +277,8 @@ pub async fn restore_session(
         .await
         .map_err(errors::convert_matrix_sdk_error)?;
 
+    session.cached_data = cached_data;
+
     log::info!("Successfully restored session as {:?}", client.user_id());
 
     Ok((client, session))
@@ -261,6 +289,11 @@ pub async fn build_client(homeserver: &Url, db_dir: &Path, db_passphrase: &str) 
     let client = Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(db_dir, Some(db_passphrase))
+        .with_encryption_settings(EncryptionSettings {
+            auto_enable_cross_signing: true,
+            auto_enable_backups: true,
+            backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        })
         .build()
         .await
         .map_err(errors::convert_client_build_error)?;

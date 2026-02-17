@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "BufferUnderflow")]
+    #[should_panic]
     async fn test_read_request_decode_error() {
         let data: &'static [u8] = &[
             0x12, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,

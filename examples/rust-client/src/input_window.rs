@@ -148,6 +148,7 @@ impl InputWindow {
                     CreateReaction,
                     self.config.create_reaction.clone()
                 );
+                ui_action!(self, ui, RoomMessages, self.config.room_messages.clone());
             });
     }
 }
