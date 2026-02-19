@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use matrix_sdk::attachment::AttachmentConfig;
 use matrix_sdk::media::{MediaEventContent, MediaFormat, MediaRequestParameters};
 use matrix_sdk::room::RoomMember;
-use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
 use matrix_sdk::ruma::api::client::user_directory::search_users::v3::User;
 use matrix_sdk::ruma::events::room::avatar::ImageInfo;
 use matrix_sdk::ruma::events::room::MediaSource;
@@ -18,7 +17,7 @@ use tokio::fs;
 
 use crate::{
     debug_assert_or_log, errors, unwrap_or_log_return, unwrap_or_log_return_err,
-    unwrap_or_log_return_option, utils,
+    unwrap_or_log_return_option, user, utils,
 };
 
 const INFO_FILE_SUFFIX: &str = "_info";
@@ -59,6 +58,9 @@ pub enum MediaError {
     // This error is most likely a bug in the code!
     #[error("the id of the asset is not specified")]
     AssetIdNotSpecified,
+
+    #[error("chat error")]
+    ChatError(#[from] mrhc_proto::chat::Error),
 
     #[error("io error")]
     Io(#[from] std::io::Error),
@@ -813,9 +815,7 @@ struct UserAvatarAsset {
 
 impl UserAvatarAsset {
     pub async fn new(client: Client, user_id: OwnedUserId) -> Self {
-        let avatar_uri = fetch_user_profile_avatar_uri(&client, user_id.clone())
-            .await
-            .ok();
+        let avatar_uri = user::fetch_avatar_uri(&client, user_id.clone()).await.ok();
 
         Self {
             client,
@@ -829,13 +829,13 @@ impl UserAvatarAsset {
             return Ok(uri.clone());
         }
 
-        let result = fetch_user_profile_avatar_uri(&self.client, self.user_id.clone()).await;
+        let result = user::fetch_avatar_uri(&self.client, self.user_id.clone()).await;
 
         if let Ok(uri) = &result {
             self.avatar_uri = Some(uri.clone());
         }
 
-        result
+        result.map_err(MediaError::from)
     }
 }
 
@@ -1027,49 +1027,6 @@ impl<C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<C> {
     async fn upload(&mut self, _src: PathBuf) -> Result<Upload> {
         debug_assert_or_log!(false, "Uploading using the MediaEventAsset is not allowed");
         Err(MediaError::NotAllowed)
-    }
-}
-
-fn is_profile_field_expected_error(err: &matrix_sdk::Error) -> bool {
-    // TODO: This should be made more robust in the future.
-    err.to_string()
-        .contains("invalid type: null, expected a string")
-}
-
-/// Retrieves the avatar URL from the user profile using the specified user ID.
-/// Returns Ok(None) if the user does not have an avatar set.
-async fn fetch_user_profile_avatar_uri(
-    client: &Client,
-    user_id: OwnedUserId,
-) -> Result<Option<OwnedMxcUri>> {
-    use matrix_sdk::ruma::api::client::profile::ProfileFieldName;
-
-    let result = client
-        .account()
-        .fetch_profile_field_of(user_id, ProfileFieldName::AvatarUrl)
-        .await;
-
-    if let Err(err) = &result {
-        if is_profile_field_expected_error(err) {
-            log::debug!(
-                "Retrieving the user's avatar URI resulted in the expected error if the \
-                avatar was removed or not found"
-            );
-            return Ok(None);
-        }
-    }
-
-    match unwrap_or_log_return_err!(result, "Error retrieving user avatar uri") {
-        Some(uri) => {
-            if let ProfileFieldValue::AvatarUrl(url) = uri {
-                log::debug!("Successfully received avatar URL from user profile");
-                Ok(Some(url))
-            } else {
-                log::error!("Received unexpected profile field value");
-                Err(MediaError::NotFound)
-            }
-        }
-        None => Ok(None),
     }
 }
 

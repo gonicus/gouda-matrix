@@ -3,6 +3,18 @@ pub mod chat {
 
     include!(concat!(env!("OUT_DIR"), "/de.gonicus.gonnect.rs"));
 
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            if let Some(msg) = &self.error_string {
+                f.write_str(&format!("{} {}", self.r#type, msg))
+            } else {
+                f.write_str(&self.r#type.to_string())
+            }
+        }
+    }
+
+    impl std::error::Error for Error {}
+
     impl std::fmt::Debug for InitializationRequest {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("InitializationRequest")
