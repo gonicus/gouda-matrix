@@ -60,6 +60,32 @@ macro_rules! skip_historical_event {
     };
 }
 
+macro_rules! generate_message_content {
+    ($media_manager:expr, $room:expr, $src_event:expr, $dest_proto_message:ident) => {
+        match $src_event.content.msgtype {
+            MessageType::Text(text) => {
+                let content = text.body.strip_prefix("* ").unwrap_or(text.body.as_str());
+                $dest_proto_message::Content::Text(MessageContentText {
+                    content: content.to_string(),
+                })
+            }
+            MessageType::Image(image) => {
+                let path = unwrap_or_log_return!(
+                    $media_manager
+                        .download_from_media_event_content(&$room, &$src_event.event_id, image)
+                        .await,
+                    "Error downloading attached image"
+                );
+                $dest_proto_message::Content::Image(MessageContentImage { image_path: path })
+            }
+            _ => {
+                log::warn!("Unsupported message type");
+                return;
+            }
+        }
+    };
+}
+
 /// Checks if the event at the given timestamp counts as historical.
 /// This is to prevent us from responding to old state events,
 /// as the chat is not designed for such use.
@@ -659,38 +685,27 @@ impl EventExecutor {
             return;
         }
 
-        let MessageType::Text(text_content) = event.content.msgtype else {
-            return;
-        };
-
-        let content = text_content.body.strip_prefix("* ")
-            .unwrap_or(text_content.body.as_str());
-
-        let content = MessageContentText {
-            content: content.to_string(),
-        };
-
-        if let Some(Relation::Replacement(relation)) = event.content.relates_to {
-            let proto = MessageChangeEvent {
-                room_id: room.room_id().to_string(),
-                message_id: relation.event_id.to_string(),
-                content: Some(message_change_event::Content::Text(content)),
-                is_encrypted: None,
-                is_pinned: None,
-            };
-
-            self.ctx
-                .send_event(ResponseContent::MessageChangeEvent(proto));
-
+        if let Some(Relation::Replacement(relation)) = event.content.relates_to.clone() {
+            self.process_replacement_message(&room, event, relation.event_id.to_string())
+                .await;
             return;
         }
 
+        self.process_new_message(room, event).await;
+    }
+
+    async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         let proto = Message {
             message_id: event.event_id.to_string(),
             room_id: room.room_id().to_string(),
             sender_id: event.sender.to_string(),
             timestamp: event.origin_server_ts.get().into(),
-            content: Some(message::Content::Text(content)),
+            content: Some(generate_message_content!(
+                self.media_manager,
+                room,
+                event,
+                message
+            )),
             related_message_id: None,
             is_pinned: false,
             is_encrypted: false,
@@ -699,6 +714,29 @@ impl EventExecutor {
 
         self.ctx
             .send_event(ResponseContent::MessageReceivedEvent(proto));
+    }
+
+    async fn process_replacement_message(
+        &self,
+        room: &Room,
+        event: OriginalSyncRoomMessageEvent,
+        original_messag_id: String,
+    ) {
+        let proto = MessageChangeEvent {
+            room_id: room.room_id().to_string(),
+            message_id: original_messag_id,
+            content: Some(generate_message_content!(
+                self.media_manager,
+                room,
+                event,
+                message_change_event
+            )),
+            is_encrypted: None,
+            is_pinned: None,
+        };
+
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(proto));
     }
 
     async fn exec_reaction_event(&mut self, room: Room, event: OriginalSyncReactionEvent) {

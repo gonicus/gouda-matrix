@@ -8,9 +8,7 @@ use matrix_sdk::room::{MessagesOptions, Room as MatrixRoom};
 use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
-use matrix_sdk::ruma::events::room::message::{
-    RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-};
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UInt, UserId};
 use matrix_sdk::{Client, RoomMemberships};
 use matrix_sdk_base::RoomStateFilter;
@@ -30,7 +28,7 @@ use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
-use crate::{errors, rooms, session, user, utils};
+use crate::{errors, messages, rooms, session, user, utils};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -1279,27 +1277,20 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<MessageSendResponse> {
         use message_send_request::Content;
 
+        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
+
         let room = self.get_matrix_room(&request.room_id)?;
 
         let Some(content) = request.content else {
             return Err(errors::create_unknown("Message content not set"));
         };
 
-        let event = match content {
-            Content::Text(text) => RoomMessageEventContent::text_plain(text.content),
-            Content::Image(_) => {
-                return Err(errors::create_error(ErrorType::NotImplemented));
+        match content {
+            Content::Text(content) => messages::send_text_message(room, content).await,
+            Content::Image(content) => {
+                messages::send_image_message(media_manager, room, content).await
             }
-        };
-
-        let re = room
-            .send(event)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        Ok(MessageSendResponse {
-            message_id: re.event_id.to_string(),
-        })
+        }
     }
 
     async fn remove_message(

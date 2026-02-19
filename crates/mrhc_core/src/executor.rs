@@ -227,11 +227,10 @@ mod tests {
     use std::collections::HashMap;
 
     use mrhc_proto::chat::error::ErrorType;
+    use mrhc_proto::chat::message::Content as MessageContent;
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
-    use mrhc_proto::chat::MessageContentText;
-    use mrhc_proto::chat::message::Content as MessageContent;
-    use mrhc_proto::chat::*;
+    use mrhc_proto::chat::{MessageContentText, *};
     use tokio::sync::mpsc;
 
     use super::*;
@@ -2028,7 +2027,9 @@ mod tests {
                     room_id: "room-1".to_owned(),
                     sender_id: "user-1".to_owned(),
                     timestamp: 38473834,
-                    content: Some(MessageContent::Text(MessageContentText{content: "Hello world!".to_owned()})),
+                    content: Some(MessageContent::Text(MessageContentText {
+                        content: "Hello world!".to_owned(),
+                    })),
                     related_message_id: None,
                     is_pinned: false,
                     is_encrypted: false,
@@ -2039,7 +2040,9 @@ mod tests {
                     room_id: "room-1".to_owned(),
                     sender_id: "user-2".to_owned(),
                     timestamp: 4729845738,
-                    content: Some(MessageContent::Text(MessageContentText{content: "Hello world!".to_owned()})),
+                    content: Some(MessageContent::Text(MessageContentText {
+                        content: "Hello world!".to_owned(),
+                    })),
                     related_message_id: None,
                     is_pinned: true,
                     is_encrypted: false,
