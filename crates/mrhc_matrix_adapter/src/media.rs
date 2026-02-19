@@ -484,11 +484,11 @@ where
         log::info!("Deleting asset with ID '{:?}'", self.asset.asset_id());
 
         let info_path =
-            unwrap_or_log_return!(self.get_info_path_absolute(), "Error retriving asset ID");
+            unwrap_or_log_return!(self.get_info_path_absolute(), "Error retrieving asset ID");
 
         let asset_path = unwrap_or_log_return!(
             self.get_asset_path_absolute(&info.file),
-            "Error retriving asset ID"
+            "Error retrieving asset ID"
         );
 
         log::debug!("Deleting asset info file: {info_path:?}");
@@ -596,14 +596,16 @@ where
 
     /// Gets the file name of the asset information file.
     fn get_info_file_name(&self) -> Result<String> {
-        let asset_id = unwrap_or_log_return_err!(self.asset.asset_id(), "Error retreving asset ID");
+        let asset_id =
+            unwrap_or_log_return_err!(self.asset.asset_id(), "Error retrieving asset ID");
 
         Ok(format!("{asset_id}{INFO_FILE_SUFFIX}.json"))
     }
 
     /// Gets the file name of the downloaded asset.
     fn get_asset_file_name(&self, extension: &str) -> Result<String> {
-        let asset_id = unwrap_or_log_return_err!(self.asset.asset_id(), "Error retreving asset ID");
+        let asset_id =
+            unwrap_or_log_return_err!(self.asset.asset_id(), "Error retrieving asset ID");
 
         Ok(format!("{asset_id}.{extension}"))
     }
