@@ -720,11 +720,11 @@ impl EventExecutor {
         &self,
         room: &Room,
         event: OriginalSyncRoomMessageEvent,
-        original_messag_id: String,
+        original_message_id: String,
     ) {
         let proto = MessageChangeEvent {
             room_id: room.room_id().to_string(),
-            message_id: original_messag_id,
+            message_id: original_message_id,
             content: Some(generate_message_content!(
                 self.media_manager,
                 room,
