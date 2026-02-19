@@ -1202,9 +1202,11 @@ async fn resolve_from_id<T: RoomClient>(
         Some(val) => Ok(Some(
             OwnedEventId::try_from(val).map_err(|_| CacheError::InvalidEventId)?,
         )),
-        None => room_client
-            .fetch_room_messages_at_edge(cached_room, (limit * 3).div_ceil(2), order)
-            .await,
+        None => {
+            room_client
+                .fetch_room_messages_at_edge(cached_room, (limit * 3).div_ceil(2), order)
+                .await
+        }
     }
 }
 
