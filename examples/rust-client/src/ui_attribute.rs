@@ -254,28 +254,82 @@ impl UiAttribute for RoomMarkAsReadRequest {
 
 impl UiAttribute for message_send_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
-        match self {
-            Self::Text(content) => content.update(ui),
-            Self::Image(content) => content.update(ui),
-        }
+        let text = match self {
+            Self::Text(_) => "Text",
+            Self::Image(_) => "Image",
+        };
+
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_salt("message_send_request_content")
+                .selected_text(text)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
+                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                });
+
+            match self {
+                Self::Text(content) => content.update(ui),
+                Self::Image(content) => content.update(ui),
+            }
+        });
+    }
+
+    fn is_multiline(&self) -> bool {
+        true
     }
 }
 
 impl UiAttribute for message_change_event::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
-        match self {
-            Self::Text(content) => content.update(ui),
-            Self::Image(content) => content.update(ui),
-        }
+        let text = match self {
+            Self::Text(_) => "Text",
+            Self::Image(_) => "Image",
+        };
+
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_salt("message_change_event_content")
+                .selected_text(text)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
+                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                });
+
+            match self {
+                Self::Text(content) => content.update(ui),
+                Self::Image(content) => content.update(ui),
+            }
+        });
+    }
+
+    fn is_multiline(&self) -> bool {
+        true
     }
 }
 
 impl UiAttribute for message_change_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
-        match self {
-            Self::Text(content) => content.update(ui),
-            Self::Image(content) => content.update(ui),
-        }
+        let text = match self {
+            Self::Text(_) => "Text",
+            Self::Image(_) => "Image",
+        };
+
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_salt("message_change_request_content")
+                .selected_text(text)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
+                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                });
+
+            match self {
+                Self::Text(content) => content.update(ui),
+                Self::Image(content) => content.update(ui),
+            }
+        });
+    }
+
+    fn is_multiline(&self) -> bool {
+        true
     }
 }
 

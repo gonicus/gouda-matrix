@@ -8,6 +8,7 @@ mod errors;
 mod events;
 mod macros;
 mod media;
+mod messages;
 mod rooms;
 mod sas;
 mod session;

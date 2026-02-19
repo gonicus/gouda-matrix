@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+use matrix_sdk::attachment::AttachmentConfig;
+use matrix_sdk::media::{MediaEventContent, MediaFormat, MediaRequestParameters};
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
 use matrix_sdk::ruma::api::client::user_directory::search_users::v3::User;
@@ -10,16 +11,21 @@ use matrix_sdk::ruma::events::room::avatar::ImageInfo;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::{Client, Room};
 use mime::Mime;
-use ruma_common::{MxcUri, OwnedMxcUri, OwnedUserId};
+use mrhc_proto::chat::Error as ChatError;
+use ruma_common::{EventId, MxcUri, OwnedMxcUri, OwnedUserId};
 use thiserror::Error;
 use tokio::fs;
 
-use crate::{debug_assert_or_log, unwrap_or_log_return_err, unwrap_or_log_return_option, utils};
+use crate::{
+    debug_assert_or_log, errors, unwrap_or_log_return, unwrap_or_log_return_err,
+    unwrap_or_log_return_option, utils,
+};
 
 const INFO_FILE_SUFFIX: &str = "_info";
 
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";
 const USER_AVATARS_FOLDER: &str = "user_avatars";
+const ATTACHMENTS_FOLDER: &str = "attachments";
 
 macro_rules! log_avatar_result {
     ($result:expr, $object:literal) => {
@@ -50,6 +56,10 @@ pub enum MediaError {
     #[error("the requested operation is not allowed")]
     NotAllowed,
 
+    // This error is most likely a bug in the code!
+    #[error("the id of the asset is not specified")]
+    AssetIdNotSpecified,
+
     #[error("io error")]
     Io(#[from] std::io::Error),
 
@@ -58,6 +68,10 @@ pub enum MediaError {
 
     #[error("matrix error")]
     MatrixError(#[from] matrix_sdk::Error),
+}
+
+pub fn convert_error(err: MediaError) -> ChatError {
+    errors::create_unknown(err.to_string())
 }
 
 type Result<T> = std::result::Result<T, MediaError>;
@@ -78,6 +92,7 @@ impl MediaManager {
 
             room_avatars_dir: PathBuf::from(ROOM_AVATARS_FOLDER),
             user_avatars_dir: PathBuf::from(USER_AVATARS_FOLDER),
+            attachments_dir: PathBuf::from(ATTACHMENTS_FOLDER),
         }
         .init_dirs()
         .await;
@@ -155,6 +170,55 @@ impl MediaManager {
             .get_user_avatar_path(member.user_id().to_owned())
             .await
     }
+
+    /// Uploads and sends a new attachment to the specified room.
+    /// This method moves the attachment to the correct directory after upload.
+    ///
+    /// # Arguments
+    ///
+    /// * `room` - The room for which the attachment should be uploaded.
+    /// * `attachment_path` - The relative path to the attachment starting from
+    ///   the data root directory.
+    ///
+    /// # Returns
+    ///
+    /// Returns the ID of the created message.
+    pub async fn send_room_attachment(
+        &self,
+        room: &Room,
+        attachment_path: impl AsRef<Path>,
+    ) -> Result<String> {
+        let src = attachment_path.as_ref();
+        log::info!("Sending room attachment {src:?} to room {}", room.room_id());
+        self.inner.send_room_attachment(room, src).await
+    }
+
+    /// Downloads the attachment from a media event.
+    ///
+    /// # Arguments
+    ///
+    /// * `room` - The room in which the event was send in
+    /// * `event_id` - The ID of the event.
+    /// * `content` - The actual content of the event, e.g. `ImageMessageEventContent`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the relative path starting from the data root directory to the
+    /// downloaded media file.
+    pub async fn download_from_media_event_content<C: MediaEventContent + Send + Sync>(
+        &self,
+        room: &Room,
+        event_id: &EventId,
+        content: C,
+    ) -> Result<String> {
+        log::info!(
+            "Downloading media event content from room {}",
+            room.room_id()
+        );
+        self.inner
+            .download_from_media_event_content(room, event_id, content)
+            .await
+    }
 }
 
 #[derive(Debug)]
@@ -168,21 +232,25 @@ pub struct MediaManagerInner {
     room_avatars_dir: PathBuf,
     /// The relative path from the `data_root_dir` where user avatars are stored.
     user_avatars_dir: PathBuf,
+    /// The relative path from the `data_root_dir` where attachments are stored.
+    attachments_dir: PathBuf,
 }
 
 impl MediaManagerInner {
     /// Creates all necessary data directories if they do not already exist.
     async fn init_dirs(self) -> Self {
-        self.init_dir(&self.data_root_dir.join(&self.room_avatars_dir))
-            .await;
-        self.init_dir(&self.data_root_dir.join(&self.user_avatars_dir))
-            .await;
+        self.init_dir_relative(&self.room_avatars_dir).await;
+        self.init_dir_relative(&self.user_avatars_dir).await;
+        self.init_dir_relative(&self.attachments_dir).await;
         self
     }
 
-    /// Creates a directory if it does not already exist.
-    async fn init_dir(&self, dir: &Path) {
-        if let Err(err) = fs::create_dir(dir).await {
+    /// Creates the directory with the specified relative path starting from the
+    /// data root directory.
+    async fn init_dir_relative(&self, dir: &Path) {
+        let absolute = self.data_root_dir.join(dir);
+
+        if let Err(err) = fs::create_dir(absolute).await {
             if err.kind() != tokio::io::ErrorKind::AlreadyExists {
                 log::error!("Error initializing directory {dir:?}: {err}");
             }
@@ -192,12 +260,10 @@ impl MediaManagerInner {
     }
 
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
-        let asset = RoomAvatarAsset::new(self.client.clone(), room.clone());
-
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.room_avatars_dir.clone(),
-            Box::new(asset),
+            RoomAvatarAsset::new(room.clone()),
         );
 
         let result = asset_manager.download().await;
@@ -211,7 +277,7 @@ impl MediaManagerInner {
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.room_avatars_dir.clone(),
-            Box::new(RoomAvatarAsset::new(self.client.clone(), room.clone())),
+            RoomAvatarAsset::new(room.clone()),
         );
 
         match asset_manager.upload(avatar_path).await {
@@ -224,12 +290,10 @@ impl MediaManagerInner {
     }
 
     pub async fn get_user_avatar_path(&self, user_id: OwnedUserId) -> Option<String> {
-        let asset = UserAvatarAsset::new(self.client.clone(), user_id).await;
-
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             self.user_avatars_dir.clone(),
-            Box::new(asset),
+            UserAvatarAsset::new(self.client.clone(), user_id).await,
         );
 
         let result = asset_manager.download().await;
@@ -238,20 +302,66 @@ impl MediaManagerInner {
 
         result.ok()
     }
+
+    pub async fn send_room_attachment(
+        &self,
+        room: &Room,
+        attachment_path: &Path,
+    ) -> Result<String> {
+        let attachments_room_dir = self.attachments_dir.join(room.room_id().as_str());
+        self.init_dir_relative(&attachments_room_dir).await;
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            attachments_room_dir,
+            RoomAttachmentAsset::new(room.clone()),
+        );
+
+        if let Err(err) = asset_manager.upload(attachment_path).await {
+            log::error!("Error uploading and sending room attachment: {err}");
+            return Err(err);
+        }
+
+        asset_manager.asset().asset_id()
+    }
+
+    pub async fn download_from_media_event_content<C: MediaEventContent + Send + Sync>(
+        &self,
+        room: &Room,
+        event_id: &EventId,
+        content: C,
+    ) -> Result<String> {
+        let attachments_room_dir = self.attachments_dir.join(room.room_id().as_str());
+        self.init_dir_relative(&attachments_room_dir).await;
+
+        let mut asset_manager = AssetManager::new(
+            self.data_root_dir.clone(),
+            attachments_room_dir,
+            MediaEventAsset::new(self.client.clone(), event_id.to_string(), content),
+        );
+
+        asset_manager.download().await
+    }
 }
 
 /// Manages a single asset.
-struct AssetManager {
+struct AssetManager<T>
+where
+    T: Asset,
+{
     /// The root directory where data is stored.
     data_root_dir: PathBuf,
     /// The relative path starting from the `data_root_dir` to the directory
     /// where the asset is stored.
     asset_dir: PathBuf,
     /// The asset that is being managed.
-    asset: Box<dyn Asset>,
+    asset: T,
 }
 
-impl AssetManager {
+impl<T> AssetManager<T>
+where
+    T: Asset,
+{
     /// Creates a new asset manager.
     ///
     /// # Arguments
@@ -260,16 +370,17 @@ impl AssetManager {
     /// * `asset_dir` - The relative path to the asset directory,
     ///   starting from the data root directory.
     /// * `asset` - The asset that is being managed.
-    pub fn new(
-        data_root_dir: impl Into<PathBuf>,
-        asset_dir: impl Into<PathBuf>,
-        asset: Box<dyn Asset>,
-    ) -> Self {
+    pub fn new(data_root_dir: impl Into<PathBuf>, asset_dir: impl Into<PathBuf>, asset: T) -> Self {
         Self {
             data_root_dir: data_root_dir.into(),
             asset_dir: asset_dir.into(),
             asset,
         }
+    }
+
+    /// Returns a reference to the asset being managed.
+    pub fn asset(&self) -> &T {
+        &self.asset
     }
 
     /// Downloads the asset if it hasn't been done already.
@@ -308,7 +419,7 @@ impl AssetManager {
             self.delete_asset_and_info(&info).await;
         }
 
-        let asset_file_name = self.get_asset_file_name(&upload.file_extension);
+        let asset_file_name = self.get_asset_file_name(&upload.file_extension)?;
 
         let info = AssetInfo {
             file: asset_file_name.clone(),
@@ -316,15 +427,15 @@ impl AssetManager {
             upstream_url: upload.upstream_url,
         };
 
-        let info_path_absolute = self.get_info_path_absolute();
-        let asset_path_absolute = self.get_asset_path_absolute(&asset_file_name);
+        let info_path_absolute = self.get_info_path_absolute()?;
+        let asset_path_absolute = self.get_asset_path_absolute(&asset_file_name)?;
 
         log::debug!("Moving uploaded asset from {src:?} to {asset_path_absolute:?}");
         tokio::fs::rename(src, asset_path_absolute).await?;
 
         self.write_info(&info_path_absolute, info).await?;
 
-        let asset_path_relative = self.get_asset_path_relative(&asset_file_name);
+        let asset_path_relative = self.get_asset_path_relative(&asset_file_name)?;
 
         Ok(asset_path_relative.to_string_lossy().to_string())
     }
@@ -341,8 +452,10 @@ impl AssetManager {
 
         if self.is_up_to_date(&info).await {
             log::debug!("Asset is still up-to-date");
-            let path = self.get_asset_path_relative(&info.file);
-            return Some(Ok(path.to_string_lossy().to_string()));
+            return match self.get_asset_path_relative(&info.file) {
+                Ok(path) => Some(Ok(path.to_string_lossy().to_string())),
+                Err(err) => Some(Err(err)),
+            };
         }
 
         log::debug!("Downloaded asset is no longer up-to-date");
@@ -368,10 +481,15 @@ impl AssetManager {
 
     /// Deletes the downloaded asset as well as its info file from the file system.
     async fn delete_asset_and_info(&mut self, info: &AssetInfo) {
-        log::info!("Deleting asset with ID '{}'", self.asset.asset_id());
+        log::info!("Deleting asset with ID '{:?}'", self.asset.asset_id());
 
-        let info_path = self.get_info_path_absolute();
-        let asset_path = self.get_asset_path_absolute(&info.file);
+        let info_path =
+            unwrap_or_log_return!(self.get_info_path_absolute(), "Error retriving asset ID");
+
+        let asset_path = unwrap_or_log_return!(
+            self.get_asset_path_absolute(&info.file),
+            "Error retriving asset ID"
+        );
 
         log::debug!("Deleting asset info file: {info_path:?}");
 
@@ -401,7 +519,7 @@ impl AssetManager {
             self.delete_asset_and_info(&existing_info).await;
         }
 
-        let data_file_name = self.get_asset_file_name(&download.file_extension);
+        let data_file_name = self.get_asset_file_name(&download.file_extension)?;
 
         let info = AssetInfo {
             file: data_file_name.clone(),
@@ -411,7 +529,7 @@ impl AssetManager {
 
         self.write_info_and_asset(info, download.data).await?;
 
-        let relative_asset_path = self.get_asset_path_relative(&data_file_name);
+        let relative_asset_path = self.get_asset_path_relative(&data_file_name)?;
 
         Ok(relative_asset_path.to_string_lossy().to_string())
     }
@@ -419,7 +537,7 @@ impl AssetManager {
     /// Reads the asset information from the file system.
     /// Returns None if the requested asset hasn't been downloaded yet.
     async fn read_info(&self) -> Option<AssetInfo> {
-        let path = self.get_info_path_absolute();
+        let path = self.get_info_path_absolute().ok()?;
 
         if !path.exists() {
             return None;
@@ -441,8 +559,8 @@ impl AssetManager {
     /// Writes the asset information as well as the actual downloaded asset
     /// to the file system.
     async fn write_info_and_asset(&self, info: AssetInfo, asset: Vec<u8>) -> Result<()> {
-        let info_path = self.get_info_path_absolute();
-        let item_path = self.get_asset_path_absolute(&info.file);
+        let info_path = self.get_info_path_absolute()?;
+        let item_path = self.get_asset_path_absolute(&info.file)?;
 
         self.write_asset(&item_path, &asset).await?;
         self.write_info(&info_path, info).await?;
@@ -477,13 +595,17 @@ impl AssetManager {
     }
 
     /// Gets the file name of the asset information file.
-    fn get_info_file_name(&self) -> String {
-        format!("{}{INFO_FILE_SUFFIX}.json", self.asset.asset_id())
+    fn get_info_file_name(&self) -> Result<String> {
+        let asset_id = unwrap_or_log_return_err!(self.asset.asset_id(), "Error retreving asset ID");
+
+        Ok(format!("{asset_id}{INFO_FILE_SUFFIX}.json"))
     }
 
     /// Gets the file name of the downloaded asset.
-    fn get_asset_file_name(&self, extension: &str) -> String {
-        format!("{}.{}", self.asset.asset_id(), extension)
+    fn get_asset_file_name(&self, extension: &str) -> Result<String> {
+        let asset_id = unwrap_or_log_return_err!(self.asset.asset_id(), "Error retreving asset ID");
+
+        Ok(format!("{asset_id}.{extension}"))
     }
 
     /// Builds the relative path to the download directory starting from
@@ -498,30 +620,30 @@ impl AssetManager {
     }
 
     /// Gets the absolute path to the asset information file.
-    fn get_info_path_absolute(&self) -> PathBuf {
-        let file_name = self.get_info_file_name();
-        self.get_download_dir_absolute().join(file_name)
+    fn get_info_path_absolute(&self) -> Result<PathBuf> {
+        let file_name = self.get_info_file_name()?;
+        Ok(self.get_download_dir_absolute().join(file_name))
     }
 
     /// Gets the relative path to the asset information file starting
     /// from the data root directory.
-    fn get_info_path_relative(&self) -> PathBuf {
-        let file_name = self.get_info_file_name();
-        self.get_download_dir_relative().join(file_name)
+    fn get_info_path_relative(&self) -> Result<PathBuf> {
+        let file_name = self.get_info_file_name()?;
+        Ok(self.get_download_dir_relative().join(file_name))
     }
 
     /// Gets the absolute path to the asset.
-    fn get_asset_path_absolute(&self, file_name: &str) -> PathBuf {
-        let mut path = self.get_info_path_absolute();
+    fn get_asset_path_absolute(&self, file_name: &str) -> Result<PathBuf> {
+        let mut path = self.get_info_path_absolute()?;
         path.set_file_name(file_name);
-        path
+        Ok(path)
     }
 
     /// Gets the relative path to the asset starting from the data root directory.
-    fn get_asset_path_relative(&self, file_name: &str) -> PathBuf {
-        let mut path = self.get_info_path_relative();
+    fn get_asset_path_relative(&self, file_name: &str) -> Result<PathBuf> {
+        let mut path = self.get_info_path_relative()?;
         path.set_file_name(file_name);
-        path
+        Ok(path)
     }
 }
 
@@ -564,7 +686,7 @@ struct Upload {
 #[async_trait]
 trait Asset: Send + Sync {
     /// Gets the ID of the asset.
-    fn asset_id(&self) -> String;
+    fn asset_id(&self) -> Result<String>;
 
     /// Checks if the already downloaded asset is still up to date.
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool>;
@@ -590,17 +712,21 @@ struct RoomAvatarAsset {
 }
 
 impl RoomAvatarAsset {
-    pub fn new(client: Client, room: Room) -> Self {
+    pub fn new(room: Room) -> Self {
         let id = room.room_id().to_string();
 
-        Self { client, room, id }
+        Self {
+            client: room.client(),
+            room,
+            id,
+        }
     }
 }
 
 #[async_trait]
 impl Asset for RoomAvatarAsset {
-    fn asset_id(&self) -> String {
-        self.id.clone()
+    fn asset_id(&self) -> Result<String> {
+        Ok(self.id.clone())
     }
 
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
@@ -713,8 +839,8 @@ impl UserAvatarAsset {
 
 #[async_trait]
 impl Asset for UserAvatarAsset {
-    fn asset_id(&self) -> String {
-        self.user_id.to_string()
+    fn asset_id(&self) -> Result<String> {
+        Ok(self.user_id.to_string())
     }
 
     async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
@@ -754,6 +880,153 @@ impl Asset for UserAvatarAsset {
 
     async fn upload(&mut self, _src: PathBuf) -> Result<Upload> {
         debug_assert_or_log!(false, "Uploading an avatar for another user is not allowed");
+        Err(MediaError::NotAllowed)
+    }
+}
+
+/// Manages upload of a room attachment.
+struct RoomAttachmentAsset {
+    /// The room from which the avatar is to be downloaded or uploaded.
+    room: Room,
+    /// The ID of the attachment.
+    asset_id: Option<String>,
+}
+
+impl RoomAttachmentAsset {
+    pub fn new(room: Room) -> Self {
+        Self {
+            room,
+            asset_id: None,
+        }
+    }
+}
+
+#[async_trait]
+impl Asset for RoomAttachmentAsset {
+    fn asset_id(&self) -> Result<String> {
+        self.asset_id.clone().ok_or(MediaError::AssetIdNotSpecified)
+    }
+
+    async fn is_up_to_date(&mut self, _info: &AssetInfo) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn was_removed(&mut self) -> bool {
+        false
+    }
+
+    async fn download(&mut self) -> Result<Download> {
+        debug_assert_or_log!(
+            false,
+            "Downloading using the RoomAttachmentAsset is not allowed"
+        );
+        Err(MediaError::NotAllowed)
+    }
+
+    async fn upload(&mut self, src: PathBuf) -> Result<Upload> {
+        log::info!("Uploading and sending room attachment: {src:?}");
+
+        let data =
+            unwrap_or_log_return_err!(tokio::fs::read(&src).await, "Error reading source file");
+
+        let file_name = src
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
+        let config = AttachmentConfig::default();
+
+        let response = unwrap_or_log_return_err!(
+            self.room
+                .send_attachment(file_name, &mime, data, config)
+                .await,
+            "Error uploading room avatar image to the matrix server"
+        );
+
+        self.asset_id = Some(response.event_id.to_string());
+
+        let upload = Upload {
+            file_extension,
+            upstream_url: String::new(),
+        };
+
+        Ok(upload)
+    }
+}
+
+/// Manages the download of a media event.
+struct MediaEventAsset<C: MediaEventContent + Send + Sync> {
+    /// The matrix sdk client to use.
+    client: Client,
+    /// The ID of the media.
+    asset_id: String,
+    /// The event content of the media.
+    content: C,
+}
+
+impl<C: MediaEventContent + Send + Sync> MediaEventAsset<C> {
+    pub fn new(client: Client, asset_id: String, content: C) -> Self {
+        Self {
+            client,
+            asset_id,
+            content,
+        }
+    }
+
+    fn get_upstream_url(&self) -> Result<String> {
+        let source = self
+            .content
+            .source()
+            .ok_or(MediaError::NotFound)?;
+
+        match source {
+            MediaSource::Plain(url) => Ok(url.to_string()),
+            MediaSource::Encrypted(info) => Ok(info.url.to_string()),
+        }
+    }
+}
+
+#[async_trait]
+impl<C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<C> {
+    fn asset_id(&self) -> Result<String> {
+        Ok(self.asset_id.clone())
+    }
+
+    async fn is_up_to_date(&mut self, info: &AssetInfo) -> Result<bool> {
+        Ok(self.get_upstream_url()? == info.upstream_url)
+    }
+
+    async fn was_removed(&mut self) -> bool {
+        matches!(self.get_upstream_url(), Err(MediaError::NotFound))
+    }
+
+    async fn download(&mut self) -> Result<Download> {
+        log::info!("Downloading asset of media event: {}", self.asset_id);
+
+        let url = self.get_upstream_url()?;
+
+        let data = self
+            .client
+            .media()
+            .get_file(&self.content, true)
+            .await?
+            .ok_or(MediaError::NotFound)?;
+
+        let extension = determine_data_file_extension(&data)
+            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+
+        let download = Download {
+            data,
+            file_extension: extension,
+            upstream_url: url,
+        };
+
+        Ok(download)
+    }
+
+    async fn upload(&mut self, _src: PathBuf) -> Result<Upload> {
+        debug_assert_or_log!(false, "Uploading using the MediaEventAsset is not allowed");
         Err(MediaError::NotAllowed)
     }
 }
@@ -860,7 +1133,7 @@ mod tests {
     type MockedResult<T> = Arc<dyn Fn() -> Result<T> + Send + Sync>;
 
     struct AssetMock {
-        asset_id: String,
+        asset_id: MockedResult<String>,
         is_up_to_date: MockedResult<bool>,
         was_removed: bool,
         download: MockedResult<Download>,
@@ -869,8 +1142,10 @@ mod tests {
 
     impl AssetMock {
         pub fn new(asset_id: impl Into<String>) -> Self {
+            let asset_id = asset_id.into();
+
             Self {
-                asset_id: asset_id.into(),
+                asset_id: Arc::new(move || Ok(asset_id.clone())),
                 is_up_to_date: Arc::new(|| Err(MediaError::NotFound)),
                 was_removed: false,
                 download: Arc::new(|| Err(MediaError::NotFound)),
@@ -916,8 +1191,8 @@ mod tests {
 
     #[async_trait]
     impl Asset for AssetMock {
-        fn asset_id(&self) -> String {
-            self.asset_id.clone()
+        fn asset_id(&self) -> Result<String> {
+            (self.asset_id)()
         }
 
         async fn is_up_to_date(&mut self, _info: &AssetInfo) -> Result<bool> {
@@ -977,7 +1252,10 @@ mod tests {
     }
 
     /// Creates the asset manager.
-    fn setup_asset_manager(dirs: &Directories, asset: Box<dyn Asset>) -> AssetManager {
+    fn setup_asset_manager<T>(dirs: &Directories, asset: T) -> AssetManager<T>
+    where
+        T: Asset,
+    {
         AssetManager::new(&dirs.data_root_dir, &dirs.asset_dir_relative, asset)
     }
 
@@ -1043,7 +1321,7 @@ mod tests {
         };
 
         let asset = AssetMock::new("some_asset").download_result(download_result);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.download().await.unwrap();
@@ -1081,7 +1359,7 @@ mod tests {
         );
 
         let asset = AssetMock::new("some_asset").is_up_to_date_result(true);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.download().await.unwrap();
@@ -1137,7 +1415,7 @@ mod tests {
             .download_result(download_result)
             .is_up_to_date_result(false);
 
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.download().await.unwrap();
@@ -1198,7 +1476,7 @@ mod tests {
             .download_result(download_result)
             .is_up_to_date_result(false);
 
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.download().await.unwrap();
@@ -1250,7 +1528,7 @@ mod tests {
             .was_removed(true)
             .is_up_to_date_result(false);
 
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.download().await;
@@ -1283,7 +1561,7 @@ mod tests {
         };
 
         let asset = AssetMock::new("some_asset").upload_result(upload_result);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.upload(upload_path_relative).await.unwrap();
@@ -1340,7 +1618,7 @@ mod tests {
         };
 
         let asset = AssetMock::new("some_asset").upload_result(upload_result);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.upload(upload_path_relative).await.unwrap();
@@ -1402,7 +1680,7 @@ mod tests {
         };
 
         let asset = AssetMock::new("some_asset").upload_result(upload_result);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.upload(upload_path_relative).await.unwrap();
@@ -1448,7 +1726,7 @@ mod tests {
         };
 
         let asset = AssetMock::new("some_asset").upload_result(upload_result);
-        let mut manager = setup_asset_manager(&dirs, Box::new(asset));
+        let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
         let result = manager.upload(upload_path_relative).await.unwrap();

@@ -21,11 +21,11 @@ use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use mrhc_core::ClientContext;
+use mrhc_proto::chat::message::Content as MessageContent;
+use mrhc_proto::chat::message_change_event::Content as MessageChangeContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    EventOrigin, Message, MessageChangeEvent, MessageRemoveEvent, MessagesOrder,
-    message_change_event::Content as MessageChangeContent,
-    message::Content as MessageContent, MessageContentText,
+    EventOrigin, Message, MessageChangeEvent, MessageContentText, MessageRemoveEvent, MessagesOrder,
 };
 use tokio::sync::mpsc;
 
@@ -964,7 +964,7 @@ impl fmt::Display for CacheError {
                 write!(f, "attempt to access an unknown message sequence")
             }
             CacheError::UncachedRoomAccess => write!(f, "attempt to access an unknown room"),
-            CacheError::Unexpected => write!(f, "an unexpected error occured"),
+            CacheError::Unexpected => write!(f, "an unexpected error occurred"),
             CacheError::Context { message, source } => write!(f, "{}: {}", message, source),
         }
     }
@@ -1204,8 +1204,7 @@ async fn resolve_from_id<T: RoomClient>(
         )),
         None => room_client
             .fetch_room_messages_at_edge(cached_room, (limit * 3).div_ceil(2), order)
-            .await
-            .map_err(Into::into),
+            .await,
     }
 }
 
@@ -1382,7 +1381,7 @@ async fn assemble_proto_message<T: RoomClient>(
     }
 
     if let Some(content) = get_latest_content(cached_msg.clone(), room_client).await? {
-        result.content = Some(MessageContent::Text(MessageContentText{content}));
+        result.content = Some(MessageContent::Text(MessageContentText { content }));
     };
 
     if let Some(replied_to_id) = get_replied_to_id(cached_msg.clone(), room_client).await? {
@@ -1740,8 +1739,8 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
         let mut still_pending = Vec::new();
 
         for event in pending.drain(..) {
-            let id = OwnedEventId::try_from(event.message_id)
-                .map_err(|_| CacheError::InvalidEventId)?;
+            let id =
+                OwnedEventId::try_from(event.message_id).map_err(|_| CacheError::InvalidEventId)?;
 
             match assemble_proto_message(room.clone(), id.clone(), room_client).await? {
                 Some(msg) => {
@@ -1763,7 +1762,9 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                             room_id: room_client.room_id(),
                             is_pinned: Some(msg.is_pinned),
                             is_encrypted: Some(false),
-                            content: Some(MessageChangeContent::Text(MessageContentText{content})),
+                            content: Some(MessageChangeContent::Text(MessageContentText {
+                                content,
+                            })),
                         };
                         ctx.send_event(ResponseContent::MessageChangeEvent(response));
                         decrypted_count += 1;
@@ -1882,7 +1883,9 @@ pub struct MatrixRoomClient {
 
 impl MatrixRoomClient {
     pub fn new(room_client: &matrix_sdk::Room) -> MatrixRoomClient {
-        MatrixRoomClient { room_client: room_client.clone() }
+        MatrixRoomClient {
+            room_client: room_client.clone(),
+        }
     }
 
     async fn try_fresh_decrypt(
