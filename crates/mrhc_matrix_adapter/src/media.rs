@@ -975,10 +975,7 @@ impl<C: MediaEventContent + Send + Sync> MediaEventAsset<C> {
     }
 
     fn get_upstream_url(&self) -> Result<String> {
-        let source = self
-            .content
-            .source()
-            .ok_or(MediaError::NotFound)?;
+        let source = self.content.source().ok_or(MediaError::NotFound)?;
 
         match source {
             MediaSource::Plain(url) => Ok(url.to_string()),
