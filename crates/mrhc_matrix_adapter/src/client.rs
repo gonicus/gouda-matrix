@@ -920,7 +920,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn create_group_room(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: RoomCreateGroupRequest,
     ) -> Result<Room> {
         let InitializedData {
@@ -956,10 +956,14 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         if let Some(avatar_path) = avatar_path {
-            // TODO: Error handling
-            let _ = media_manager
+            let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await;
+                .await
+                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
+
+            if let Err(err) = result {
+                ctx.send_error(err);
+            }
         }
 
         Ok(rooms::convert_to_proto(media_manager, room, user_id).await?)
@@ -967,7 +971,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn create_direct_room(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: RoomCreateDirectRequest,
     ) -> Result<Room> {
         let InitializedData {
@@ -992,10 +996,14 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         if let Some(avatar_path) = request.avatar_path {
-            // TODO: Error handling
-            let _ = media_manager
+            let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await;
+                .await
+                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
+
+            if let Err(err) = result {
+                ctx.send_error(err);
+            }
         }
 
         Ok(rooms::convert_to_proto(media_manager, room, our_user_id).await?)
@@ -1003,7 +1011,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn change_room(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
         let RoomChangeRequest {
@@ -1036,12 +1044,16 @@ impl ClientAbstraction for MatrixClient {
         }
 
         if let Some(avatar_path) = avatar_path {
-            // TODO: Error handling
-            let _ = media_manager
+            let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(&avatar_path))
-                .await;
+                .await
+                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
 
-            response = response.change_avatar_path(avatar_path);
+            if let Err(err) = result {
+                ctx.send_error(err);
+            } else {
+                response = response.change_avatar_path(avatar_path);
+            }
         }
 
         if let Some(is_favourite) = is_favorite {
