@@ -73,7 +73,15 @@ pub enum MediaError {
 }
 
 pub fn convert_error(err: MediaError) -> ChatError {
+    // TODO: Improve error handling
     errors::create_unknown(err.to_string())
+}
+
+impl From<MediaError> for ChatError {
+    // TODO: Improve error handling
+    fn from(value: MediaError) -> ChatError {
+        errors::create_unknown(value.to_string())
+    }
 }
 
 type Result<T> = std::result::Result<T, MediaError>;

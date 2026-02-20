@@ -36,7 +36,7 @@ pub async fn fetch_display_name(client: &Client, user_id: OwnedUserId) -> Option
         ProfileFieldValue::DisplayName(display_name) => Some(display_name),
         _ => {
             log::error!("Received unexpected profile field value when fetching display name");
-            return None;
+            None
         }
     }
 }
