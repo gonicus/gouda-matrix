@@ -19,6 +19,7 @@ use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
 };
+use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
 use mrhc_core::ClientContext;
 use mrhc_proto::chat::builder::RoomChangeEventBuilder;
@@ -26,7 +27,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::{Reaction as ChatReaction, *};
 use ruma_common::serde::Raw;
-use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri};
+use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
@@ -187,7 +188,7 @@ pub struct EventManager {
     /// avatar changes.
     media_manager: MediaManager,
     /// Sender to send requested actions to the event executor.
-    action_sender: UnboundedSender<Event>,
+    action_sender: UnboundedSender<Action>,
 }
 
 impl EventManager {
@@ -217,32 +218,50 @@ impl EventManager {
         client.add_event_handler(reaction_event_handler);
         client.add_event_handler(presence_event_handler);
         client.add_event_handler(tag_event_handler);
+
+        self.clone().subscribe_to_room_updates(client);
+    }
+
+    fn subscribe_to_room_updates(self, client: &Client) {
+        let mut stream = client.subscribe_to_all_room_updates();
+
+        tokio::spawn(async move {
+            while let Ok(updates) = stream.recv().await {
+                for (room_id, update) in updates.joined {
+                    self.process_joined_room_update(room_id, update);
+                }
+            }
+        });
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
         log::debug!("Received OriginalSyncRoomRedactionEvent: {event:?}");
         let _ = self
             .action_sender
-            .send(Event::RoomRedaction { room, event });
+            .send(Action::RoomRedactionEvent { room, event });
     }
 
     pub fn process_room_name_event(&self, room: Room, event: OriginalSyncRoomNameEvent) {
         log::debug!("Received OriginalSyncRoomNameEvent: {event:?}");
         skip_historical_event!(event);
-        let _ = self.action_sender.send(Event::RoomName { room, event });
+        let _ = self
+            .action_sender
+            .send(Action::RoomNameEvent { room, event });
     }
 
     pub fn process_room_member_event(&self, room: Room, event: OriginalSyncRoomMemberEvent) {
         log::debug!("Received OriginalSyncRoomMemberEvent: {event:?}");
         skip_historical_event!(event);
-        let _ = self.action_sender.send(Event::RoomMember { room, event });
+        let _ = self
+            .action_sender
+            .send(Action::RoomMemberEvent { room, event });
     }
 
     pub fn process_stripped_room_member_event(&self, room: Room, event: StrippedRoomMemberEvent) {
         log::debug!("Received StrippedRoomMemberEvent: {event:?}");
         let _ = self
             .action_sender
-            .send(Event::StrippedRoomMember { room, event });
+            .send(Action::StrippedRoomMemberEvent { room, event });
     }
 
     pub fn process_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
@@ -250,73 +269,90 @@ impl EventManager {
         skip_historical_event!(event);
         let _ = self
             .action_sender
-            .send(Event::RoomJoinRules { room, event });
+            .send(Action::RoomJoinRulesEvent { room, event });
     }
 
     pub fn process_room_avatar_event(&self, room: Room, event: OriginalSyncRoomAvatarEvent) {
         log::debug!("Received OriginalSyncRoomAvatarEvent: {event:?}");
         skip_historical_event!(event);
-        let _ = self.action_sender.send(Event::RoomAvatar { room, event });
+        let _ = self
+            .action_sender
+            .send(Action::RoomAvatarEvent { room, event });
     }
 
     pub fn process_room_message_event(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         log::debug!("Received OriginalSyncRoomMessageEvent: {event:?}");
-        let _ = self.action_sender.send(Event::RoomMessage { room, event });
+        let _ = self
+            .action_sender
+            .send(Action::RoomMessageEvent { room, event });
     }
 
     pub fn process_reaction_event(&self, room: Room, event: OriginalSyncReactionEvent) {
         log::debug!("Received OriginalSyncReactionEvent: {event:?}");
-        let _ = self.action_sender.send(Event::Reaction { room, event });
+        let _ = self
+            .action_sender
+            .send(Action::ReactionEvent { room, event });
     }
 
     pub fn process_presence_event(&self, event: PresenceEvent) {
         log::debug!("Received PresenceEvent: {event:?}");
-        let _ = self.action_sender.send(Event::Presence(event));
+        let _ = self.action_sender.send(Action::PresenceEvent(event));
     }
 
     pub fn process_tag_event(&self, room: Room, event: TagEvent) {
         log::debug!("Received TagEvent: {event:?}");
-        let _ = self.action_sender.send(Event::Tag { room, event });
+        let _ = self.action_sender.send(Action::TagEvent { room, event });
+    }
+
+    pub fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
+        log::debug!("Received JoinedRoomUpdate: {update:?}");
+        let _ = self
+            .action_sender
+            .send(Action::JoinedRoomUpdate { room_id, update });
     }
 }
 
-enum Event {
-    RoomRedaction {
+enum Action {
+    RoomRedactionEvent {
         room: Room,
         event: OriginalSyncRoomRedactionEvent,
     },
-    RoomName {
+    RoomNameEvent {
         room: Room,
         event: OriginalSyncRoomNameEvent,
     },
-    RoomMember {
+    RoomMemberEvent {
         room: Room,
         event: OriginalSyncRoomMemberEvent,
     },
-    StrippedRoomMember {
+    StrippedRoomMemberEvent {
         room: Room,
         event: StrippedRoomMemberEvent,
     },
-    RoomJoinRules {
+    RoomJoinRulesEvent {
         room: Room,
         event: OriginalSyncRoomJoinRulesEvent,
     },
-    RoomAvatar {
+    RoomAvatarEvent {
         room: Room,
         event: OriginalSyncRoomAvatarEvent,
     },
-    RoomMessage {
+    RoomMessageEvent {
         room: Room,
         event: OriginalSyncRoomMessageEvent,
     },
-    Reaction {
+    ReactionEvent {
         room: Room,
         event: OriginalSyncReactionEvent,
     },
-    Presence(PresenceEvent),
-    Tag {
+    PresenceEvent(PresenceEvent),
+    TagEvent {
         room: Room,
         event: TagEvent,
+    },
+    JoinedRoomUpdate {
+        room_id: OwnedRoomId,
+        update: JoinedRoomUpdate,
     },
 }
 
@@ -381,18 +417,19 @@ impl UserChange {
 struct EventExecutor {
     client: Client,
     ctx: ClientContext,
-    recv: UnboundedReceiver<Event>,
+    recv: UnboundedReceiver<Action>,
     media_manager: MediaManager,
 
     reactions: Vec<Reaction>,
     user_changes: HashMap<String, UserChange>,
+    room_changes: HashMap<String, RoomChangeEvent>,
 }
 
 impl EventExecutor {
     pub fn new(
         client: Client,
         ctx: ClientContext,
-        recv: UnboundedReceiver<Event>,
+        recv: UnboundedReceiver<Action>,
         media_manager: MediaManager,
     ) -> Self {
         Self {
@@ -403,6 +440,7 @@ impl EventExecutor {
 
             reactions: Vec::new(),
             user_changes: HashMap::new(),
+            room_changes: HashMap::new(),
         }
     }
 
@@ -414,24 +452,33 @@ impl EventExecutor {
         });
     }
 
-    async fn exec_event(&mut self, event: Event) {
+    async fn exec_event(&mut self, event: Action) {
         match event {
-            Event::RoomRedaction { room, event } => {
+            Action::RoomRedactionEvent { room, event } => {
                 self.exec_room_redaction_event(room, event).await
             }
-            Event::RoomName { room, event } => self.exec_room_name_event(room, event).await,
-            Event::RoomMember { room, event } => self.exec_room_member_event(room, event).await,
-            Event::StrippedRoomMember { room, event } => {
+            Action::RoomNameEvent { room, event } => self.exec_room_name_event(room, event).await,
+            Action::RoomMemberEvent { room, event } => {
+                self.exec_room_member_event(room, event).await
+            }
+            Action::StrippedRoomMemberEvent { room, event } => {
                 self.exec_stripped_room_member_event(room, event).await
             }
-            Event::RoomJoinRules { room, event } => {
+            Action::RoomJoinRulesEvent { room, event } => {
                 self.exec_room_join_rules_event(room, event).await
             }
-            Event::RoomAvatar { room, event } => self.exec_room_avatar_event(room, event).await,
-            Event::RoomMessage { room, event } => self.exec_room_message_event(room, event).await,
-            Event::Reaction { room, event } => self.exec_reaction_event(room, event).await,
-            Event::Presence(event) => self.exec_presence_event(event).await,
-            Event::Tag { room, event } => self.exec_tag_event(room, event).await,
+            Action::RoomAvatarEvent { room, event } => {
+                self.exec_room_avatar_event(room, event).await
+            }
+            Action::RoomMessageEvent { room, event } => {
+                self.exec_room_message_event(room, event).await
+            }
+            Action::ReactionEvent { room, event } => self.exec_reaction_event(room, event).await,
+            Action::PresenceEvent(event) => self.exec_presence_event(event).await,
+            Action::TagEvent { room, event } => self.exec_tag_event(room, event).await,
+            Action::JoinedRoomUpdate { room_id, update } => {
+                self.exec_joined_room_update(room_id, update).await
+            }
         }
     }
 
@@ -459,6 +506,20 @@ impl EventExecutor {
 
     fn is_new_user_change(&self, user_id: impl AsRef<str>, change: &UserChange) -> bool {
         if let Some(old) = self.user_changes.get(user_id.as_ref()) {
+            old != change
+        } else {
+            true
+        }
+    }
+
+    fn track_room_change(&mut self, change: RoomChangeEvent) {
+        let room_id = change.room_id.clone();
+        log::debug!("Tracking change for room {room_id}: {change:?}");
+        self.room_changes.insert(room_id, change);
+    }
+
+    fn is_new_room_change(&self, change: &RoomChangeEvent) -> bool {
+        if let Some(old) = self.room_changes.get(&change.room_id) {
             old != change
         } else {
             true
@@ -867,6 +928,26 @@ impl EventExecutor {
         let proto = RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_is_favourite(is_favourite.is_some())
             .to_proto();
+
+        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+    }
+
+    async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
+        let unread_count =
+            u32::try_from(update.unread_notifications.notification_count).unwrap_or(u32::MAX);
+
+        let proto = RoomChangeEventBuilder::new(room_id.to_string())
+            .change_unread_count(unread_count)
+            .to_proto();
+
+        if !self.is_new_room_change(&proto) {
+            log::debug!(
+                "Room change for {room_id} has already been processed before, nothing to do"
+            );
+            return;
+        }
+
+        self.track_room_change(proto.clone());
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }
