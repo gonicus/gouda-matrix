@@ -1304,6 +1304,9 @@ impl ClientAbstraction for MatrixClient {
             Content::Image(content) => {
                 messages::send_image_message(media_manager, room, content).await
             }
+            Content::File(content) => {
+                messages::send_file_message(media_manager, room, content).await
+            }
         }
     }
 
@@ -1354,6 +1357,9 @@ impl ClientAbstraction for MatrixClient {
         let content = match content {
             Content::Text(text) => RoomMessageEventContentWithoutRelation::text_plain(text.content),
             Content::Image(_) => {
+                return Err(errors::create_error(ErrorType::NotImplemented));
+            }
+            Content::File(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }
         };

@@ -27,7 +27,7 @@ pub async fn fetch_display_name(client: &Client, user_id: OwnedUserId) -> Option
     let value = match result {
         Ok(value) => value,
         Err(err) => {
-            log::error!("Error retreiving display name: {err}");
+            log::error!("Error retrieving display name: {err}");
             return None;
         }
     }?;

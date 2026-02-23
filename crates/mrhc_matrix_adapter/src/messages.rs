@@ -28,7 +28,20 @@ pub async fn send_image_message(
     content: MessageContentImage,
 ) -> Result<MessageSendResponse> {
     let message_id = media_manager
-        .send_room_attachment(&room, content.image_path)
+        .send_room_attachment(&room, content.image_path, None)
+        .await
+        .map_err(media::convert_error)?;
+
+    Ok(MessageSendResponse { message_id })
+}
+
+pub async fn send_file_message(
+    media_manager: &MediaManager,
+    room: Room,
+    content: MessageContentFile,
+) -> Result<MessageSendResponse> {
+    let message_id = media_manager
+        .send_room_attachment(&room, content.file_path, content.file_name)
         .await
         .map_err(media::convert_error)?;
 
