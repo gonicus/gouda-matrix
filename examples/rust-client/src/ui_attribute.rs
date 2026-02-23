@@ -257,6 +257,7 @@ impl UiAttribute for message_send_request::Content {
         let text = match self {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
+            Self::File(_) => "File",
         };
 
         ui.vertical(|ui| {
@@ -265,11 +266,13 @@ impl UiAttribute for message_send_request::Content {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
                     ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                    ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
+                Self::File(content) => content.update(ui),
             }
         });
     }
@@ -284,6 +287,7 @@ impl UiAttribute for message_change_event::Content {
         let text = match self {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
+            Self::File(_) => "File",
         };
 
         ui.vertical(|ui| {
@@ -292,11 +296,13 @@ impl UiAttribute for message_change_event::Content {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
                     ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                    ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
+                Self::File(content) => content.update(ui),
             }
         });
     }
@@ -311,6 +317,7 @@ impl UiAttribute for message_change_request::Content {
         let text = match self {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
+            Self::File(_) => "File",
         };
 
         ui.vertical(|ui| {
@@ -319,11 +326,13 @@ impl UiAttribute for message_change_request::Content {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
                     ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
+                    ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
+                Self::File(content) => content.update(ui),
             }
         });
     }
@@ -342,6 +351,13 @@ impl UiAttribute for MessageContentText {
 impl UiAttribute for MessageContentImage {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, image_path);
+    }
+}
+
+impl UiAttribute for MessageContentFile {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, file_path);
+        ui_attribute!(self, ui, file_name);
     }
 }
 

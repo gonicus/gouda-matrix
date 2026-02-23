@@ -63,20 +63,99 @@ macro_rules! skip_historical_event {
 macro_rules! generate_message_content {
     ($media_manager:expr, $room:expr, $src_event:expr, $dest_proto_message:ident) => {
         match $src_event.content.msgtype {
+            MessageType::Audio(audio) => {
+                let file_name = audio.filename.clone().unwrap_or(audio.body.clone());
+                let path = unwrap_or_log_return!(
+                    $media_manager
+                        .download_from_media_event_content(
+                            &$room,
+                            &$src_event.event_id,
+                            &audio,
+                            Some(&file_name)
+                        )
+                        .await,
+                    "Error downloading attached audio"
+                );
+                $dest_proto_message::Content::File(MessageContentFile {
+                    file_path: path,
+                    file_name: Some(file_name),
+                })
+            }
+            MessageType::Emote(emote) => $dest_proto_message::Content::Text(MessageContentText {
+                content: emote.body,
+            }),
+            MessageType::File(file) => {
+                let file_name = file.filename.clone().unwrap_or(file.body.clone());
+                let path = unwrap_or_log_return!(
+                    $media_manager
+                        .download_from_media_event_content(
+                            &$room,
+                            &$src_event.event_id,
+                            &file,
+                            Some(&file_name)
+                        )
+                        .await,
+                    "Error downloading attached file"
+                );
+                $dest_proto_message::Content::File(MessageContentFile {
+                    file_path: path,
+                    file_name: Some(file_name),
+                })
+            }
+            MessageType::Image(image) => {
+                let path = unwrap_or_log_return!(
+                    $media_manager
+                        .download_from_media_event_content(
+                            &$room,
+                            &$src_event.event_id,
+                            &image,
+                            image.filename.as_deref().or(Some(&image.body))
+                        )
+                        .await,
+                    "Error downloading attached image"
+                );
+                $dest_proto_message::Content::Image(MessageContentImage { image_path: path })
+            }
+            MessageType::Location(location) => {
+                let msg = if let Some(content) = location.location {
+                    content.uri
+                } else {
+                    location.geo_uri
+                };
+
+                $dest_proto_message::Content::Text(MessageContentText { content: msg })
+            }
+            MessageType::Notice(notice) => $dest_proto_message::Content::Text(MessageContentText {
+                content: notice.body,
+            }),
+            MessageType::ServerNotice(notice) => {
+                $dest_proto_message::Content::Text(MessageContentText {
+                    content: notice.body,
+                })
+            }
             MessageType::Text(text) => {
                 let content = text.body.strip_prefix("* ").unwrap_or(text.body.as_str());
                 $dest_proto_message::Content::Text(MessageContentText {
                     content: content.to_string(),
                 })
             }
-            MessageType::Image(image) => {
+            MessageType::Video(video) => {
+                let file_name = video.filename.clone().unwrap_or(video.body.clone());
                 let path = unwrap_or_log_return!(
                     $media_manager
-                        .download_from_media_event_content(&$room, &$src_event.event_id, image)
+                        .download_from_media_event_content(
+                            &$room,
+                            &$src_event.event_id,
+                            &video,
+                            Some(&file_name)
+                        )
                         .await,
-                    "Error downloading attached image"
+                    "Error downloading attached video"
                 );
-                $dest_proto_message::Content::Image(MessageContentImage { image_path: path })
+                $dest_proto_message::Content::File(MessageContentFile {
+                    file_path: path,
+                    file_name: Some(file_name),
+                })
             }
             _ => {
                 log::warn!("Unsupported message type");

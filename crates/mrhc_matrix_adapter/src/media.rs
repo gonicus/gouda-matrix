@@ -197,10 +197,11 @@ impl MediaManager {
         &self,
         room: &Room,
         attachment_path: impl AsRef<Path>,
+        file_name: Option<String>,
     ) -> Result<String> {
         let src = attachment_path.as_ref();
         log::info!("Sending room attachment {src:?} to room {}", room.room_id());
-        self.inner.send_room_attachment(room, src).await
+        self.inner.send_room_attachment(room, src, file_name).await
     }
 
     /// Downloads the attachment from a media event.
@@ -219,14 +220,15 @@ impl MediaManager {
         &self,
         room: &Room,
         event_id: &EventId,
-        content: C,
+        content: &C,
+        file_name: Option<&str>,
     ) -> Result<String> {
         log::info!(
-            "Downloading media event content from room {}",
+            "Downloading media event content from room: {}",
             room.room_id()
         );
         self.inner
-            .download_from_media_event_content(room, event_id, content)
+            .download_from_media_event_content(room, event_id, content, file_name)
             .await
     }
 }
@@ -317,6 +319,7 @@ impl MediaManagerInner {
         &self,
         room: &Room,
         attachment_path: &Path,
+        file_name: Option<String>,
     ) -> Result<String> {
         let attachments_room_dir = self.attachments_dir.join(room.room_id().as_str());
         self.init_dir_relative(&attachments_room_dir).await;
@@ -324,7 +327,7 @@ impl MediaManagerInner {
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             attachments_room_dir,
-            RoomAttachmentAsset::new(room.clone()),
+            RoomAttachmentAsset::new(room.clone(), file_name),
         );
 
         if let Err(err) = asset_manager.upload(attachment_path).await {
@@ -339,7 +342,8 @@ impl MediaManagerInner {
         &self,
         room: &Room,
         event_id: &EventId,
-        content: C,
+        content: &C,
+        file_name: Option<&str>,
     ) -> Result<String> {
         let attachments_room_dir = self.attachments_dir.join(room.room_id().as_str());
         self.init_dir_relative(&attachments_room_dir).await;
@@ -347,7 +351,12 @@ impl MediaManagerInner {
         let mut asset_manager = AssetManager::new(
             self.data_root_dir.clone(),
             attachments_room_dir,
-            MediaEventAsset::new(self.client.clone(), event_id.to_string(), content),
+            MediaEventAsset::new(
+                self.client.clone(),
+                event_id.to_string(),
+                content,
+                file_name,
+            ),
         );
 
         asset_manager.download().await
@@ -764,8 +773,8 @@ impl Asset for RoomAvatarAsset {
             "Error downloading room avatar"
         );
 
-        let extension = determine_data_file_extension(&content)
-            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+        let extension =
+            determine_file_extension(&content).ok_or(MediaError::UnableToDetermineFileExtension)?;
 
         let download = Download {
             data: content,
@@ -876,8 +885,8 @@ impl Asset for UserAvatarAsset {
             "Error downloading user avatar"
         );
 
-        let extension = determine_data_file_extension(&content)
-            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+        let extension =
+            determine_file_extension(&content).ok_or(MediaError::UnableToDetermineFileExtension)?;
 
         let download = Download {
             data: content,
@@ -894,19 +903,22 @@ impl Asset for UserAvatarAsset {
     }
 }
 
-/// Manages upload of a room attachment.
+/// Manages the upload of a room attachment.
 struct RoomAttachmentAsset {
     /// The room from which the avatar is to be downloaded or uploaded.
     room: Room,
     /// The ID of the attachment.
     asset_id: Option<String>,
+    /// The actual name of the file.
+    file_name: Option<String>,
 }
 
 impl RoomAttachmentAsset {
-    pub fn new(room: Room) -> Self {
+    pub fn new(room: Room, file_name: Option<String>) -> Self {
         Self {
             room,
             asset_id: None,
+            file_name,
         }
     }
 }
@@ -939,11 +951,13 @@ impl Asset for RoomAttachmentAsset {
         let data =
             unwrap_or_log_return_err!(tokio::fs::read(&src).await, "Error reading source file");
 
-        let file_name = src
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
+        let file_name = self.file_name.clone().unwrap_or_else(|| {
+            src.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
+
         let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
         let config = AttachmentConfig::default();
 
@@ -966,21 +980,29 @@ impl Asset for RoomAttachmentAsset {
 }
 
 /// Manages the download of a media event.
-struct MediaEventAsset<C: MediaEventContent + Send + Sync> {
+struct MediaEventAsset<'a, C: MediaEventContent + Send + Sync> {
     /// The matrix sdk client to use.
     client: Client,
     /// The ID of the media.
     asset_id: String,
     /// The event content of the media.
-    content: C,
+    content: &'a C,
+    /// The file name of the media.
+    file_name: Option<&'a str>,
 }
 
-impl<C: MediaEventContent + Send + Sync> MediaEventAsset<C> {
-    pub fn new(client: Client, asset_id: String, content: C) -> Self {
+impl<'a, C: MediaEventContent + Send + Sync> MediaEventAsset<'a, C> {
+    pub fn new(
+        client: Client,
+        asset_id: String,
+        content: &'a C,
+        file_name: Option<&'a str>,
+    ) -> Self {
         Self {
             client,
             asset_id,
             content,
+            file_name,
         }
     }
 
@@ -995,7 +1017,7 @@ impl<C: MediaEventContent + Send + Sync> MediaEventAsset<C> {
 }
 
 #[async_trait]
-impl<C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<C> {
+impl<'a, C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<'a, C> {
     fn asset_id(&self) -> Result<String> {
         Ok(self.asset_id.clone())
     }
@@ -1016,12 +1038,16 @@ impl<C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<C> {
         let data = self
             .client
             .media()
-            .get_file(&self.content, true)
+            .get_file(self.content, true)
             .await?
             .ok_or(MediaError::NotFound)?;
 
-        let extension = determine_data_file_extension(&data)
-            .ok_or(MediaError::UnableToDetermineFileExtension)?;
+        let extension = if let Some(file_name) = self.file_name {
+            determine_file_extension_with_path(&data, file_name)
+        } else {
+            determine_file_extension(&data)
+        }
+        .ok_or(MediaError::UnableToDetermineFileExtension)?;
 
         let download = Download {
             data,
@@ -1051,7 +1077,7 @@ async fn download_mxc(client: &Client, mxc_uri: &MxcUri) -> Result<Vec<u8>> {
 }
 
 /// Attempts to determine the file extension of the specified data.
-fn determine_data_file_extension(data: &[u8]) -> Option<String> {
+fn determine_file_extension(data: &[u8]) -> Option<String> {
     match infer::get(data) {
         Some(kind) => Some(kind.extension().to_string()),
         None => {
@@ -1061,13 +1087,19 @@ fn determine_data_file_extension(data: &[u8]) -> Option<String> {
     }
 }
 
+/// Attempts to determine the file extension with the specified path, using
+/// the data as a fallback.
+fn determine_file_extension_with_path(data: &[u8], path: impl AsRef<Path>) -> Option<String> {
+    path.as_ref()
+        .extension()
+        .map(|f| f.to_string_lossy().to_string())
+        .or_else(|| determine_file_extension(data))
+}
+
 /// Attempts to determine the file extension as well as the mime type
 /// given the specific data and path.
 fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> Result<(String, Mime)> {
-    let file_extension = path
-        .extension()
-        .map(|f| f.to_string_lossy().to_string())
-        .or_else(|| determine_data_file_extension(data))
+    let file_extension = determine_file_extension_with_path(data, path)
         .ok_or(MediaError::UnableToDetermineFileExtension)?;
 
     let mime = mime_guess::from_ext(&file_extension)

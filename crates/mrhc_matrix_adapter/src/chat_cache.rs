@@ -1755,6 +1755,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                         let content = match msg.content {
                             Some(MessageContent::Text(v)) => v.content.clone(),
                             Some(MessageContent::Image(v)) => v.image_path.clone(),
+                            Some(MessageContent::File(v)) => v.file_path.clone(),
                             None => return Err(CacheError::Unexpected),
                         };
 
