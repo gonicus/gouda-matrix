@@ -1,0 +1,5 @@
+[matrix]
+displayName=Matrix Headless IPC Client (YAMA)
+type=chat-ipc
+version=0.0.1
+executable=matrix-headless-client

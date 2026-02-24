@@ -31,6 +31,7 @@ modules:
       - cargo build --offline --release --all-features
       - install -Dm0755 target/release/matrix-headless-client ${FLATPAK_DEST}/bin/matrix-headless-client
       - install -Dm0644 ${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - install -Dm0644 packaging/flatpak/plugin.info ${FLATPAK_DEST}/plugin.info
 
     sources:
       - type: dir
