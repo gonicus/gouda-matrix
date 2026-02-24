@@ -305,7 +305,7 @@ impl EventManager {
     }
 
     pub fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
-        log::debug!("Received JoinedRoomUpdate: {update:?}");
+        log::debug!("Received JoinedRoomUpdate for room: {room_id:?}: {update:?}");
         let _ = self
             .action_sender
             .send(Action::JoinedRoomUpdate { room_id, update });
