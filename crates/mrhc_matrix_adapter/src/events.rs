@@ -17,7 +17,8 @@ use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
-    AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
+    AnySyncTimelineEvent, AnyTimelineEvent,
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
@@ -27,7 +28,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
 use mrhc_proto::chat::{Reaction as ChatReaction, *};
 use ruma_common::serde::Raw;
-use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId};
+use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
@@ -936,9 +937,14 @@ impl EventExecutor {
         let unread_count =
             u32::try_from(update.unread_notifications.notification_count).unwrap_or(u32::MAX);
 
-        let proto = RoomChangeEventBuilder::new(room_id.to_string())
-            .change_unread_count(unread_count)
-            .to_proto();
+        let mut builder =
+            RoomChangeEventBuilder::new(room_id.to_string()).change_unread_count(unread_count);
+
+        if let Some(list) = get_user_typing_list(&update) {
+            builder = builder.change_typing_user_id_list(list);
+        }
+
+        let proto = builder.to_proto();
 
         if !self.is_new_room_change(&proto) {
             log::debug!(
@@ -951,6 +957,30 @@ impl EventExecutor {
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
     }
+}
+
+fn get_user_typing_list(update: &JoinedRoomUpdate) -> Option<Vec<String>> {
+    let mut result = None;
+
+    for event in &update.ephemeral {
+        let Ok(event) = event.deserialize() else {
+            continue;
+        };
+
+        match event.content() {
+            AnyEphemeralRoomEventContent::Typing(event) => {
+                result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
+            }
+            AnyEphemeralRoomEventContent::Receipt(_) => {
+                continue;
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+
+    result
 }
 
 impl_room_event_handler!(
