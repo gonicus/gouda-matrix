@@ -1768,6 +1768,8 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                             content: Some(MessageChangeContent::Text(MessageContentText {
                                 content,
                             })),
+                            has_mentioned_user_ids_changed: false,
+                            mentioned_user_ids: Vec::new(),
                         };
                         ctx.send_event(ResponseContent::MessageChangeEvent(response));
                         decrypted_count += 1;

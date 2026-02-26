@@ -851,6 +851,7 @@ impl EventExecutor {
             is_pinned: false,
             is_encrypted: false,
             reactions: Vec::new(),
+            mentioned_user_ids: Vec::new(),
         };
 
         self.ctx
@@ -874,6 +875,8 @@ impl EventExecutor {
             )),
             is_encrypted: None,
             is_pinned: None,
+            has_mentioned_user_ids_changed: false,
+            mentioned_user_ids: Vec::new(),
         };
 
         self.ctx
