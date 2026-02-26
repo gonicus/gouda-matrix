@@ -142,7 +142,7 @@ impl UserChangeEventBuilder {
     }
 }
 
-/// Builder to easily create a `UserChangeEvent` with desired changes.
+/// Builder to easily create a `MessageChangeEvent` with desired changes.
 #[derive(Default, PartialEq, Eq)]
 pub struct MessageChangeEventBuilder {
     room_id: String,
