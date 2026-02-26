@@ -864,20 +864,12 @@ impl EventExecutor {
         event: OriginalSyncRoomMessageEvent,
         original_message_id: String,
     ) {
-        let proto = MessageChangeEvent {
-            room_id: room.room_id().to_string(),
-            message_id: original_message_id,
-            content: Some(generate_message_content!(
-                self.media_manager,
-                room,
-                event,
-                message_change_event
-            )),
-            is_encrypted: None,
-            is_pinned: None,
-            has_mentioned_user_ids_changed: false,
-            mentioned_user_ids: Vec::new(),
-        };
+        let content =
+            generate_message_content!(self.media_manager, room, event, message_change_event);
+
+        let proto = builder::MessageChangeEventBuilder::new(room.room_id(), original_message_id)
+            .change_content(content)
+            .to_proto();
 
         self.ctx
             .send_event(ResponseContent::MessageChangeEvent(proto));
