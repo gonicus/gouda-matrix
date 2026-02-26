@@ -59,7 +59,7 @@ pub struct MatrixClient {
     /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
     /// is called, as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
-    // The chronologically-resolved room message cache
+    /// The chronologically-resolved room message cache
     cached_data: Arc<RwLock<CachedData>>,
     /// The current active verification processes.
     verification_requests: Vec<VerificationManager>,
@@ -89,33 +89,43 @@ impl MatrixClient {
 
     /// Returns the initialized data, provided it was initialized with `Self::initialize`
     /// and the client is already logged in. Otherwise, an error is returned.
-    fn get_initialized_data_logged_in(&self) -> Result<&InitializedData> {
+    async fn get_initialized_data_logged_in(&self) -> Result<&InitializedData> {
         let data = self.get_initialized_data()?;
 
-        if data.client.matrix_auth().logged_in() {
-            Ok(data)
-        } else {
-            Err(errors::create_error_msg(
+        if !self.is_logged_in().await {
+            return Err(errors::create_error_msg(
                 ErrorType::Authorization,
-                "The client is not yet logged in",
-            ))
+                "Authorization requried",
+            ));
         }
+
+        Ok(data)
     }
 
     /// Returns the client if it was initialized with `Self::initialize` and logged in with
     /// either `Self::login_sso` or `Self::login_username_password`.
     /// An error is returned if the client is not yet initialized or is not currently logged in.
-    fn get_client_logged_in(&self) -> Result<&Client> {
+    async fn get_client_logged_in(&self) -> Result<&Client> {
         let client = self.get_client()?;
 
-        if client.matrix_auth().logged_in() {
-            Ok(client)
-        } else {
-            Err(errors::create_error_msg(
+        if !self.is_logged_in().await {
+            return Err(errors::create_error_msg(
                 ErrorType::Authorization,
-                "The client is not yet logged in",
-            ))
+                "Authorization requried",
+            ));
         }
+
+        Ok(client)
+    }
+
+    /// Checks if the client is still logged in.
+    /// This method sends a request to the Matrix server.
+    async fn is_logged_in(&self) -> bool {
+        let Some(initialized_data) = &self.initialized_data else {
+            return false;
+        };
+
+        initialized_data.client.whoami().await.is_ok()
     }
 
     /// Builds the `self.initialized_data` with the given values.
@@ -161,8 +171,8 @@ impl MatrixClient {
 
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
-    fn get_matrix_room(&self, room_id: &str) -> Result<matrix_sdk::Room> {
-        let client = self.get_client_logged_in()?;
+    async fn get_matrix_room(&self, room_id: &str) -> Result<matrix_sdk::Room> {
+        let client = self.get_client_logged_in().await?;
 
         let room_id =
             RoomId::parse(room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
@@ -270,9 +280,13 @@ impl MatrixClient {
 impl ClientAbstraction for MatrixClient {
     async fn initialize(
         &mut self,
-        mut ctx: ClientContext,
+        ctx: ClientContext,
         request: InitializationRequest,
     ) -> Result<StatusUpdate> {
+        if self.initialized_data.is_some() {
+            return Err(errors::create_error(ErrorType::AlreadyInitialized));
+        }
+
         let homeserver_url = Url::parse(&request.backend_url)
             .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
 
@@ -293,14 +307,12 @@ impl ClientAbstraction for MatrixClient {
             .await;
 
             match result {
-                Ok((client, mut session)) => {
+                Ok((client, session)) => {
                     let initialized_data = self
                         .initialize_data(ctx.clone(), request, client.clone(), session_file.clone())
                         .await;
 
-                    session.initial_sync(&mut ctx, &client).await?;
-
-                    session.start_background_sync(initialized_data, ctx)?;
+                    session.sync(ctx, initialized_data).await?;
 
                     return Ok(StatusUpdate {
                         code: status_update::StatusCode::LoggedIn as i32,
@@ -397,16 +409,13 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_username_password(
         &mut self,
-        mut ctx: ClientContext,
+        ctx: ClientContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
         let initialized_data = self.get_initialized_data()?;
 
-        if initialized_data.client.matrix_auth().logged_in() {
-            return Err(errors::create_error_msg(
-                ErrorType::Authorization,
-                "Client is already logged in",
-            ));
+        if self.is_logged_in().await {
+            return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
 
         initialized_data
@@ -424,7 +433,7 @@ impl ClientAbstraction for MatrixClient {
             initialized_data.client.user_id()
         );
 
-        let mut session = Session::new(
+        let session = Session::new(
             &initialized_data.client,
             initialized_data.session_file.to_path_buf(),
             initialized_data.session_passphrase.clone(),
@@ -432,12 +441,7 @@ impl ClientAbstraction for MatrixClient {
         )?;
 
         session.save().await?;
-
-        session
-            .initial_sync(&mut ctx, &initialized_data.client)
-            .await?;
-
-        session.start_background_sync(initialized_data.clone(), ctx)?;
+        session.sync(ctx.clone(), initialized_data.clone()).await?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -446,19 +450,16 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_sso(
         &mut self,
-        mut ctx: ClientContext,
+        ctx: ClientContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
         let initialized_data = self.get_initialized_data()?;
 
-        let cached_data = self.cached_data.clone();
-
-        if initialized_data.client.matrix_auth().logged_in() {
-            return Err(errors::create_error_msg(
-                ErrorType::Authorization,
-                "Client is already logged in",
-            ));
+        if self.is_logged_in().await {
+            return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
+
+        let cached_data = self.cached_data.clone();
 
         // Create a channel so we can receive the login url from the async closure
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -494,7 +495,7 @@ impl ClientAbstraction for MatrixClient {
                 initialized_data.client.user_id()
             );
 
-            let Ok(mut session) = Session::new(
+            let Ok(session) = Session::new(
                 &initialized_data.client,
                 session_file,
                 session_passphrase,
@@ -509,21 +510,10 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            if let Err(err) = session
-                .initial_sync(&mut ctx, &initialized_data.client)
-                .await
-            {
+            if let Err(err) = session.sync(ctx.clone(), initialized_data).await {
                 ctx.send_error(err);
                 return;
             }
-
-            if session
-                .start_background_sync(initialized_data, ctx.clone())
-                .is_err()
-            {
-                ctx.send_error(errors::create_unknown("Error starting background sync"));
-                return;
-            };
 
             ctx.send_event(ResponseContent::StatusUpdate(StatusUpdate {
                 code: status_update::StatusCode::LoggedIn as i32,
@@ -544,7 +534,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: RecoveryKeyVerificationRequest,
     ) -> Result<VerificationEndEvent> {
-        let client = self.get_client_logged_in()?;
+        let client = self.get_client_logged_in().await?;
 
         client
             .encryption()
@@ -566,7 +556,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<CrossSigningStartResponse> {
         self.cleanup_verifications();
 
-        let client = self.get_client_logged_in()?;
+        let client = self.get_client_logged_in().await?;
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown(
@@ -605,7 +595,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
-        let _ = self.get_client_logged_in()?;
+        let _ = self.get_client_logged_in().await?;
 
         self.cleanup_verifications();
 
@@ -635,7 +625,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: CrossSigningConfirmRequest,
     ) -> Result<()> {
-        let _ = self.get_client_logged_in()?;
+        let _ = self.get_client_logged_in().await?;
 
         self.cleanup_verifications();
 
@@ -660,7 +650,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
-        let _ = self.get_client_logged_in()?;
+        let _ = self.get_client_logged_in().await?;
 
         self.cleanup_verifications();
 
@@ -695,7 +685,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         // It is not possible to retrieve all known users using the matrix-sdk.
         // As a workaround, we retrieve all rooms and get their members.
@@ -740,7 +730,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let UserSearchRequest { query, limit } = request;
 
@@ -775,7 +765,7 @@ impl ClientAbstraction for MatrixClient {
         use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
         use ruma_common::directory::Filter;
 
-        let client = self.get_client_logged_in()?;
+        let client = self.get_client_logged_in().await?;
 
         let PublicRoomListRequest {
             limit,
@@ -811,7 +801,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
-        let room = self.get_matrix_room(&request.room_id)?;
+        let room = self.get_matrix_room(&request.room_id).await?;
 
         let invitees: Vec<OwnedUserId> = request
             .invitees
@@ -826,7 +816,7 @@ impl ClientAbstraction for MatrixClient {
         }
 
         // Refresh the room
-        let room = self.get_matrix_room(&request.room_id)?;
+        let room = self.get_matrix_room(&request.room_id).await?;
         let members = rooms::get_members(&room).await?;
 
         Ok(
@@ -841,7 +831,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let Some(user_id) = client.user_id() else {
             log::error!("Error retrieving the user ID of the current user");
@@ -852,7 +842,7 @@ impl ClientAbstraction for MatrixClient {
 
         let InvitedReply { room_id, accepted } = request;
 
-        let room = self.get_matrix_room(&room_id)?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         if !accepted {
             room.leave()
@@ -886,7 +876,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -927,7 +917,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -978,7 +968,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let Some(our_user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1022,8 +1012,8 @@ impl ClientAbstraction for MatrixClient {
             is_favorite,
         } = request;
 
-        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
-        let room = self.get_matrix_room(&room_id)?;
+        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in().await?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         let mut response = builder::RoomChangeEventBuilder::new(room_id.to_string());
 
@@ -1072,7 +1062,7 @@ impl ClientAbstraction for MatrixClient {
         _ctx: ClientContext,
         request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
-        let room = self.get_matrix_room(&request.room_id)?;
+        let room = self.get_matrix_room(&request.room_id).await?;
 
         room.leave()
             .await
@@ -1090,7 +1080,7 @@ impl ClientAbstraction for MatrixClient {
             client,
             media_manager,
             ..
-        } = self.get_initialized_data_logged_in()?;
+        } = self.get_initialized_data_logged_in().await?;
 
         let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1108,7 +1098,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn knock_room(&mut self, _ctx: ClientContext, request: RoomKnockRequest) -> Result<()> {
-        let client = self.get_client_logged_in()?;
+        let client = self.get_client_logged_in().await?;
 
         let RoomKnockRequest { room_id, message } = request;
 
@@ -1128,12 +1118,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: &ClientContext,
         request: &RoomMessagesRequest,
     ) -> Result<RoomMessagesResponse> {
-        let room = self.get_matrix_room(request.room_id.as_str())?;
+        let room = self.get_matrix_room(request.room_id.as_str()).await?;
         let room_id = OwnedRoomId::try_from(request.room_id.as_str())
             .map_err(|_| errors::create_unknown("invalid room id"))?;
 
         let key_change_rx =
-            MatrixClient::setup_room_key_listener(&room_id, self.get_client_logged_in()?).await?;
+            MatrixClient::setup_room_key_listener(&room_id, self.get_client_logged_in().await?)
+                .await?;
 
         let request_clone = request.clone();
 
@@ -1256,7 +1247,7 @@ impl ClientAbstraction for MatrixClient {
         use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
         use matrix_sdk::ruma::events::receipt::ReceiptThread;
 
-        let room = self.get_matrix_room(&request.room_id)?;
+        let room = self.get_matrix_room(&request.room_id).await?;
         let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
         let messages = room
@@ -1291,7 +1282,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<MessageSendResponse> {
         use message_send_request::Content;
 
-        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
+        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in().await?;
 
         let MessageSendRequest {
             room_id,
@@ -1299,7 +1290,7 @@ impl ClientAbstraction for MatrixClient {
             content,
         } = request;
 
-        let room = self.get_matrix_room(&room_id)?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         let Some(content) = content else {
             return Err(errors::create_unknown("Message content not set"));
@@ -1328,7 +1319,7 @@ impl ClientAbstraction for MatrixClient {
             message_id,
         } = request;
 
-        let room = self.get_matrix_room(&room_id)?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         let event_id = EventId::parse(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
@@ -1353,7 +1344,7 @@ impl ClientAbstraction for MatrixClient {
             content,
         } = request;
 
-        let room = self.get_matrix_room(&room_id)?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         let event_id = EventId::parse(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
@@ -1392,7 +1383,7 @@ impl ClientAbstraction for MatrixClient {
             ..
         } = request;
 
-        let room = self.get_matrix_room(&room_id)?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         let message_id = OwnedEventId::try_from(message_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;

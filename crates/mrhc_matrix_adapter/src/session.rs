@@ -105,12 +105,26 @@ impl Session {
         Ok(())
     }
 
+    /// Performs the initial synchronization followed by an infinite
+    /// background synchronization.
+    /// This method blocks until the initial sync is finished.
+    pub async fn sync(
+        mut self,
+        mut ctx: ClientContext,
+        initialized_data: InitializedData,
+    ) -> Result<()> {
+        self.initial_sync(&mut ctx, &initialized_data.client)
+            .await?;
+        self.start_background_sync(initialized_data, ctx)?;
+        Ok(())
+    }
+
     /// Performs a single synchronization on the client, blocking the current thread until
     /// the synchronization is complete.
     /// The session is automatically persisted once a new sync token is received.
     /// Note that the token specified in `sync_settings` will be overwritten.
     /// This method should be called every time the client is being logged in.
-    pub async fn initial_sync(&mut self, ctx: &mut ClientContext, client: &Client) -> Result<()> {
+    async fn initial_sync(&mut self, ctx: &mut ClientContext, client: &Client) -> Result<()> {
         log::info!("Starting initial sync");
 
         let mut sync_settings = SyncSettings::new();
@@ -146,7 +160,7 @@ impl Session {
 
     /// Starts an indefinite sync loop in a separate tokio task,
     /// making this function non blocking.
-    pub fn start_background_sync(
+    fn start_background_sync(
         self,
         initialized_data: InitializedData,
         ctx: ClientContext,
