@@ -4,8 +4,6 @@ use std::fmt;
 use std::sync::{Arc, RwLock, Weak};
 
 use js_int::UInt;
-use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, Relation as EncryptionRelation,
 };
@@ -100,7 +98,6 @@ pub enum SyncSource {
 pub struct SequenceChunkResult {
     pub messages: Option<Vec<Message>>,
     pub is_complete: bool,
-    pub next: Option<String>,
 }
 
 impl CachedChronoRoom {
@@ -1190,39 +1187,12 @@ fn read_event_id(msg: &Arc<RwLock<Option<CachedMessage>>>) -> Result<OwnedEventI
     OwnedEventId::try_from(cached.id.clone()).map_err(|_| CacheError::InvalidEventId)
 }
 
-/// Resolves the starting event ID, either from the provided `from_id` or by fetching from the server edge.
-async fn resolve_from_id<T: RoomClient>(
-    from_id_opt: Option<&str>,
-    cached_room: &Arc<RwLock<CachedChronoRoom>>,
-    limit: u32,
-    order: MessagesOrder,
-    room_client: &T,
-) -> Result<Option<OwnedEventId>, CacheError> {
-    match from_id_opt {
-        Some(val) => Ok(Some(
-            OwnedEventId::try_from(val).map_err(|_| CacheError::InvalidEventId)?,
-        )),
-        None => {
-            room_client
-                .fetch_room_messages_at_edge(cached_room, (limit * 3).div_ceil(2), order)
-                .await
-        }
-    }
-}
-
 async fn try_append_message<T: RoomClient>(
     result: &mut Vec<Message>,
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     current_id: &OwnedEventId,
-    from_id: &OwnedEventId,
-    from_id_opt_was_none: bool,
     room_client: &T,
 ) {
-    // Skip the starting message when the caller provided an explicit from_id
-    if from_id == current_id && !from_id_opt_was_none {
-        return;
-    }
-
     match assemble_proto_message(cached_room.clone(), current_id.clone(), room_client).await {
         Ok(Some(proto_msg)) => result.push(proto_msg),
         Ok(None) => {}
@@ -1279,23 +1249,12 @@ fn advance_message(
 /// the second return value returns the sync token needed to query the next batch from the server.
 pub async fn get_sequence_chunk<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
-    from_id_opt: Option<&str>,
+    from_id: OwnedEventId,
     limit: u32,
     order: MessagesOrder,
+    skip_first: bool,
     room_client: &T,
 ) -> Result<SequenceChunkResult, CacheError> {
-    let from_id = match resolve_from_id(from_id_opt, cached_room, limit, order, room_client).await?
-    {
-        Some(id) => id,
-        None => {
-            return Ok(SequenceChunkResult {
-                messages: None,
-                is_complete: true,
-                next: None,
-            });
-        }
-    };
-
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
         room_cache_r.get_message(&from_id.clone()).clone()
@@ -1314,21 +1273,15 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     let mut sync_token = None;
     let limit = usize::try_from(limit).map_err(|_| CacheError::Unexpected)?;
     let mut result = Vec::new();
-    let from_id_opt_was_none = from_id_opt.is_none();
 
     // iterate over msg until result has enough events
     while result.len() < limit {
         let current_id = read_event_id(&msg)?;
 
-        try_append_message(
-            &mut result,
-            cached_room,
-            &current_id,
-            &from_id,
-            from_id_opt_was_none,
-            room_client,
-        )
-        .await;
+        // Skip the starting message when the caller provided an explicit from_id
+        if !skip_first || current_id != from_id {
+            try_append_message(&mut result, cached_room, &current_id, room_client).await;
+        }
 
         let need_more = result.len() < limit;
         match advance_message(&msg, order, &mut sync_token, need_more)? {
@@ -1337,7 +1290,6 @@ pub async fn get_sequence_chunk<T: RoomClient>(
                 return Ok(SequenceChunkResult {
                     messages: Some(result),
                     is_complete: false,
-                    next: sync_token,
                 });
             }
         }
@@ -1346,8 +1298,60 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     Ok(SequenceChunkResult {
         messages: Some(result),
         is_complete: true,
-        next: None,
     })
+}
+
+pub fn check_cached_enough(
+    cached_room: &Arc<RwLock<CachedChronoRoom>>,
+    from_id: OwnedEventId,
+    limit: u32,
+    order: MessagesOrder,
+    skip_first: bool,
+) -> Result<Option<String>, CacheError> {
+    let msg_opt = {
+        let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
+        room_cache_r.get_message(&from_id.clone()).clone()
+    };
+
+    let mut msg = match msg_opt {
+        Some(m) => m,
+        None => {
+            log::warn!("Requested id {from_id} is not cached TODO: implement context request");
+            return Err(CacheError::UncachedMessageAccess);
+        }
+    };
+
+    log::trace!("Found requested id {from_id} in cache");
+
+    let mut sync_token = None;
+    let limit = usize::try_from(limit).map_err(|_| CacheError::Unexpected)?;
+    let mut n_cached_messages = 0;
+
+    // iterate over msg until result has enough events
+    while n_cached_messages < limit {
+        let current_id = read_event_id(&msg)?;
+
+        // Skip the starting message when the caller provided an explicit from_id
+        if (!skip_first || current_id != from_id)
+            && check_message_assembly(cached_room.clone(), current_id)?
+        {
+            n_cached_messages += 1;
+        }
+
+        let need_more = n_cached_messages < limit;
+
+        match advance_message(&msg, order, &mut sync_token, need_more)? {
+            Some(next_msg) => msg = next_msg,
+            None => {
+                // either a sync token is returned to fetch more messages or the room has
+                // less messages than requested
+                return Ok(sync_token);
+            }
+        }
+    }
+
+    // enough messages are now cached
+    Ok(None)
 }
 
 async fn assemble_proto_message<T: RoomClient>(
@@ -1357,13 +1361,15 @@ async fn assemble_proto_message<T: RoomClient>(
 ) -> Result<Option<Message>, CacheError> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
-    let (tl_evt, is_encrypted) = room_client.fetch_and_deserialize(&id).await?;
+    // let (tl_evt, is_encrypted) = room_client.fetch_and_deserialize(&id).await?;
+    let tl_evt = room_client.fetch(&id).await?;
+    let (evt, is_encrypted) = deserialize(&tl_evt)?;
 
     let mut result = Message {
         message_id: id.to_string(),
         room_id: room_client.room_id(),
-        sender_id: tl_evt.sender().to_string(),
-        timestamp: tl_evt.origin_server_ts().get().into(),
+        sender_id: evt.sender().to_string(),
+        timestamp: evt.origin_server_ts().get().into(),
         is_pinned: false,
         is_encrypted,
         ..Default::default()
@@ -1376,21 +1382,37 @@ async fn assemble_proto_message<T: RoomClient>(
         return Ok(None);
     }
 
-    // Return on replacement and redaction events -- they are handled in consequence
-    // to their relation. Skip reactions and thread-messages for now
-    if skip_due_to_relation(cached_msg.clone())? {
+    // Return on replacement, redaction and reaction events -- they are handled in conjunction
+    // with their parent event. Threads are normal displayable messages and thus
+    if is_relation(cached_msg.clone())? && !is_thread(cached_msg.clone())? {
         return Ok(None);
     }
 
-    if let Some(content) = get_latest_content(cached_msg.clone(), room_client).await? {
+    if let Some(content) = get_latest_content(cached_msg.clone(), &tl_evt, room_client).await? {
         result.content = Some(MessageContent::Text(MessageContentText { content }));
     };
 
-    if let Some(replied_to_id) = get_replied_to_id(cached_msg.clone(), room_client).await? {
+    if let Some(replied_to_id) = get_replied_to_id(&tl_evt).await? {
         result.related_message_id = Some(replied_to_id.to_string());
     }
 
     Ok(Some(result))
+}
+
+fn check_message_assembly(
+    cached_room: Arc<RwLock<CachedChronoRoom>>,
+    id: OwnedEventId,
+) -> Result<bool, CacheError> {
+    let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
+
+    if is_marked_redacted(cached_msg.clone())? {
+        return Ok(false);
+    }
+    if is_relation(cached_msg.clone())? && !is_thread(cached_msg.clone())? {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 fn get_cached_msg(
@@ -1404,20 +1426,27 @@ fn get_cached_msg(
     Ok(cached_msg)
 }
 
-fn skip_due_to_relation(
-    cached_msg: Arc<RwLock<Option<CachedMessage>>>,
-) -> Result<bool, CacheError> {
+fn is_relation(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, CacheError> {
     let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
-    if let Some(rel_type) = msg_r
+    if msg_r
+        .as_ref()
+        .ok_or(CacheError::UncachedMessageAccess)?
+        .rel_type
+        .is_some()
+    {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, CacheError> {
+    let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
+    if let Some(RelationType::Thread) = msg_r
         .as_ref()
         .ok_or(CacheError::UncachedMessageAccess)?
         .rel_type
     {
-        match rel_type {
-            RelationType::Reaction => return Ok(true), // TODO: impl reaction messages
-            RelationType::Thread => return Ok(true),   // TODO: impl threads
-            _ => return Ok(true),
-        }
+        return Ok(true);
     }
     Ok(false)
 }
@@ -1437,6 +1466,7 @@ fn is_marked_redacted(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<
 
 async fn get_latest_content<T: RoomClient>(
     msg: Arc<RwLock<Option<CachedMessage>>>,
+    tl_evt: &TimelineEvent,
     room_client: &T,
 ) -> Result<Option<String>, CacheError> {
     let replacement_relations = get_relations(msg.clone(), &RelationType::Replacement)?;
@@ -1458,17 +1488,7 @@ async fn get_latest_content<T: RoomClient>(
     }
 
     if replacements.is_empty() {
-        let id = OwnedEventId::try_from(
-            msg.read()
-                .map_err(|_| CacheError::CachePoisoned)?
-                .as_ref()
-                .ok_or(CacheError::UncachedMessageAccess)?
-                .id
-                .clone(),
-        )
-        .map_err(|_| CacheError::InvalidEventId)?;
-
-        let body = get_content_body(id, room_client).await?;
+        let body = get_content_body(tl_evt)?;
 
         return Ok(body);
     }
@@ -1484,11 +1504,8 @@ async fn get_latest_content<T: RoomClient>(
     Ok(None)
 }
 
-async fn get_content_body<T: RoomClient>(
-    id: OwnedEventId,
-    room_client: &T,
-) -> Result<Option<String>, CacheError> {
-    let (tl_evt, encrypted) = room_client.fetch_and_deserialize(&id).await?;
+fn get_content_body(tl_evt: &TimelineEvent) -> Result<Option<String>, CacheError> {
+    let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     if encrypted {
         return Ok(None);
@@ -1519,21 +1536,8 @@ fn get_original_message_like_from_decrypted_any_sync_timeline(
     }
 }
 
-async fn get_replied_to_id<T: RoomClient>(
-    msg: Arc<RwLock<Option<CachedMessage>>>,
-    room_client: &T,
-) -> Result<Option<OwnedEventId>, CacheError> {
-    let event_id = OwnedEventId::try_from(
-        msg.read()
-            .map_err(|_| CacheError::CachePoisoned)?
-            .as_ref()
-            .ok_or(CacheError::UncachedMessageAccess)?
-            .id
-            .clone(),
-    )
-    .map_err(|_| CacheError::InvalidEventId)?;
-
-    let (tl_evt, encrypted) = room_client.fetch_and_deserialize(&event_id).await?;
+async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId>, CacheError> {
+    let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     // cannot read relations of encrypted
     if encrypted {
@@ -1570,17 +1574,19 @@ async fn get_latest_accessible_replacement_content<T: RoomClient>(
         )
         .map_err(|_| CacheError::InvalidEventId)?;
 
-        let (repl_tl_evt, encrypted) = room_client.fetch_and_deserialize(&repl_id).await?;
+        let repl_tl_evt = room_client.fetch(&repl_id).await?;
+        let (repl_evt, is_encrypted) = deserialize(&repl_tl_evt)?;
 
-        if encrypted {
+        if is_encrypted {
+            log::warn!("Replacement of event {repl_id} could not be decrypted.");
+
             replacements.pop_last();
             continue;
         }
 
-        let AnySyncTimelineEvent::MessageLike(repl_msg_evt) = repl_tl_evt else {
+        let AnySyncTimelineEvent::MessageLike(repl_msg_evt) = repl_evt else {
             log::warn!(
-                "Encountered a State event that appears to replace another event: {}",
-                &repl_id
+                "Encountered a State event that appears to replace another event: {repl_id}"
             );
 
             replacements.pop_last();
@@ -1590,24 +1596,20 @@ async fn get_latest_accessible_replacement_content<T: RoomClient>(
         let AnySyncMessageLikeEvent::RoomMessage(repl_event) = repl_msg_evt else {
             log::warn!(
                 "Encountered other type than RoomMessage for AnySyncMessageLikeEvent \
-                when compiling replacements: {}",
-                &repl_id
+                when compiling replacements: {repl_id}"
             );
             replacements.pop_last();
             continue;
         };
 
         let Some(repl_orig_evt) = repl_event.as_original() else {
-            log::warn!("Replacement event has been redacted: {}", &repl_id);
+            log::warn!("Replacement event has been redacted: {repl_id}");
             replacements.pop_last();
             continue;
         };
 
         let Some(Relation::Replacement(replacement)) = &repl_orig_evt.content.relates_to else {
-            log::warn!(
-                "Replacement event does not have m.new_content: {}",
-                &repl_id
-            );
+            log::warn!("Replacement event does not have m.new_content: {repl_id}");
             replacements.pop_last();
             continue;
         };
@@ -1615,7 +1617,7 @@ async fn get_latest_accessible_replacement_content<T: RoomClient>(
         let MessageType::Text(content) = &replacement.new_content.msgtype else {
             // so far, only text-messages are supported.
             // Are replacements even possible for other types?!
-            log::warn!("Replacement event is other than m.text: {}", &repl_id);
+            log::warn!("Replacement event is other than m.text: {repl_id}");
             replacements.pop_last();
             continue;
         };
@@ -1744,6 +1746,20 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
             let id =
                 OwnedEventId::try_from(event.message_id).map_err(|_| CacheError::InvalidEventId)?;
 
+            let tl_event = room_client.fetch(&id).await?;
+            let (_, is_encrypted) = deserialize(&tl_event)?;
+
+            if !is_encrypted {
+                continue;
+            }
+
+            let Some(_) = room_client.try_fresh_decrypt(&tl_event).await else {
+                log::debug!("Event {id} could not be decrypted on retry");
+                continue;
+            };
+
+            log::info!("Successfully decrypted event {id} on retry!");
+
             match assemble_proto_message(room.clone(), id.clone(), room_client).await? {
                 Some(msg) => {
                     if msg.is_encrypted {
@@ -1792,6 +1808,66 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     }
 
     Ok(decrypted_count)
+}
+
+fn deserialize(tl_event: &TimelineEvent) -> Result<(AnySyncTimelineEvent, bool), CacheError> {
+    let mut is_encrypted = false;
+
+    let tl_evt = match &tl_event.kind {
+        TimelineEventKind::Decrypted(decrypted_event) => decrypted_event
+            .event
+            .deserialize()
+            .map_err(|_| CacheError::DeserializationFailed)?
+            .into(),
+        TimelineEventKind::PlainText { event } => event
+            .deserialize()
+            .map_err(|_| CacheError::DeserializationFailed)?,
+        TimelineEventKind::UnableToDecrypt {
+            event,
+            utd_info: info,
+        } => {
+            log::warn!(
+                "Received undecryptable event from SDK - \
+                cannot derive full content: eventId={}, session_id={:#?}, reason={:#?}",
+                event
+                    .get_field("event_id")
+                    .ok()
+                    .unwrap_or(Some("unknown"))
+                    .unwrap_or("unknown"),
+                info.session_id,
+                info.reason
+            );
+
+            // TODO: remove when async retry works
+            // // Try fresh decryption using Room::decrypt_event
+            // if let Some(decrypted) = self.try_fresh_decrypt(&event).await {
+            //     log::info!("Successfully decrypted event {id} on retry!");
+            //     return Ok((decrypted, false));
+            // }
+
+            is_encrypted = true;
+            event
+                .deserialize()
+                .map_err(|_| CacheError::DeserializationFailed)?
+        }
+    };
+
+    // if the event is redacted, we don't count it as encrypted,
+    // as all encrypted content is deleted on redaction
+    match &tl_evt {
+        AnySyncTimelineEvent::MessageLike(evt) => {
+            if evt.is_redacted() {
+                is_encrypted = false;
+            }
+        }
+        AnySyncTimelineEvent::State(evt) => {
+            if evt.is_redacted() {
+                is_encrypted = false;
+            }
+        }
+    }
+
+    Ok((tl_evt, is_encrypted))
 }
 
 struct DebugMessageStrongRef(pub Arc<RwLock<Option<CachedMessage>>>);
@@ -1863,17 +1939,9 @@ impl fmt::Debug for CachedMessage {
 }
 
 pub trait RoomClient {
-    async fn fetch_room_messages_at_edge(
-        &self,
-        cached_room: &Arc<RwLock<CachedChronoRoom>>,
-        limit: u32,
-        order: MessagesOrder,
-    ) -> Result<Option<OwnedEventId>, CacheError>;
+    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent, CacheError>;
 
-    async fn fetch_and_deserialize(
-        &self,
-        id: &OwnedEventId,
-    ) -> Result<(AnySyncTimelineEvent, bool), CacheError>;
+    async fn try_fresh_decrypt(&self, tl_event: &TimelineEvent) -> Option<AnySyncTimelineEvent>;
 
     fn room_id(&self) -> String;
 }
@@ -1889,12 +1957,33 @@ impl MatrixRoomClient {
             room_client: room_client.clone(),
         }
     }
+}
 
-    async fn try_fresh_decrypt(
-        &self,
-        raw_encrypted: &Raw<AnySyncTimelineEvent>,
-    ) -> Option<AnySyncTimelineEvent> {
-        // Get the raw JSON and re-parse it as an encrypted event
+impl RoomClient for MatrixRoomClient {
+    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent, CacheError> {
+        // This method is expensive and eats up most of the runtime
+        let sdk_event =
+            self.room_client
+                .event(id, None)
+                .await
+                .map_err(|err| CacheError::Context {
+                    message: format!("original error: {}", err),
+                    source: Box::new(CacheError::EventFetchFailed),
+                })?;
+
+        Ok(sdk_event)
+    }
+
+    async fn try_fresh_decrypt(&self, tl_event: &TimelineEvent) -> Option<AnySyncTimelineEvent> {
+        let TimelineEventKind::UnableToDecrypt {
+            event: raw_encrypted,
+            utd_info: _,
+        } = &tl_event.kind
+        else {
+            log::warn!("Attempted to retry decryption on an unencrypted event");
+            return None;
+        };
+
         let json_str = raw_encrypted.json().get();
 
         let encrypted_raw: Raw<OriginalSyncRoomEncryptedEvent> =
@@ -1930,119 +2019,6 @@ impl MatrixRoomClient {
             }
         }
     }
-}
-
-impl RoomClient for MatrixRoomClient {
-    async fn fetch_and_deserialize(
-        &self,
-        id: &OwnedEventId,
-    ) -> Result<(AnySyncTimelineEvent, bool), CacheError> {
-        let sdk_event =
-            self.room_client
-                .event(id, None)
-                .await
-                .map_err(|err| CacheError::Context {
-                    message: format!("original error: {}", err),
-                    source: Box::new(CacheError::EventFetchFailed),
-                })?;
-
-        let mut is_encrypted = false;
-
-        let tl_evt = match sdk_event.kind {
-            TimelineEventKind::Decrypted(decrypted_event) => decrypted_event
-                .event
-                .deserialize()
-                .map_err(|_| CacheError::DeserializationFailed)?
-                .into(),
-            TimelineEventKind::PlainText { event } => event
-                .deserialize()
-                .map_err(|_| CacheError::DeserializationFailed)?,
-            TimelineEventKind::UnableToDecrypt {
-                event,
-                utd_info: info,
-            } => {
-                log::warn!(
-                    "Received undecryptable event from SDK - \
-                    cannot derive full content: eventId={}, session_id={:#?}, reason={:#?}",
-                    &id,
-                    info.session_id,
-                    info.reason
-                );
-
-                // Try fresh decryption using Room::decrypt_event
-                if let Some(decrypted) = self.try_fresh_decrypt(&event).await {
-                    log::info!("Successfully decrypted event {id} on retry!");
-                    return Ok((decrypted, false));
-                }
-
-                is_encrypted = true;
-                event
-                    .deserialize()
-                    .map_err(|_| CacheError::DeserializationFailed)?
-            }
-        };
-
-        // if the event is redacted, we don't count it as encrypted,
-        // as all encrypted content is deleted on redaction
-        match &tl_evt {
-            AnySyncTimelineEvent::MessageLike(evt) => {
-                if evt.is_redacted() {
-                    is_encrypted = false;
-                }
-            }
-            AnySyncTimelineEvent::State(evt) => {
-                if evt.is_redacted() {
-                    is_encrypted = false;
-                }
-            }
-        }
-
-        Ok((tl_evt, is_encrypted))
-    }
-
-    async fn fetch_room_messages_at_edge(
-        &self,
-        cached_room: &Arc<RwLock<CachedChronoRoom>>,
-        limit: u32,
-        order: MessagesOrder,
-    ) -> Result<Option<OwnedEventId>, CacheError> {
-        let mut options: MessagesOptions;
-        let chronological: bool;
-
-        match order {
-            MessagesOrder::Forward => {
-                options = MessagesOptions::forward();
-                chronological = true;
-            }
-            MessagesOrder::Backward => {
-                options = MessagesOptions::backward();
-                chronological = false;
-            }
-        }
-
-        options.filter = RoomEventFilter::default();
-        options.limit = limit.into();
-
-        let messages = self
-            .room_client
-            .messages(options)
-            .await
-            .map_err(|_| CacheError::EventFetchFailed)?;
-
-        cache_room_messages_response_to_room(cached_room.clone(), &messages, chronological)?;
-
-        if let Some(msg) = messages.chunk.first() {
-            if let Some(id) = msg.event_id() {
-                Ok(Some(id))
-            } else {
-                log::warn!("No eventId attached to TimelineEvent");
-                Err(CacheError::Unexpected)
-            }
-        } else {
-            log::warn!("No events available in room");
-            Ok(None)
-        }
-    }
 
     fn room_id(&self) -> String {
         self.room_client.room_id().to_string()
@@ -2059,13 +2035,14 @@ mod tests {
     struct MockRoomClient {
         room_id_result: String,
         fetch_room_messages_at_edge_result: Result<Option<OwnedEventId>, CacheError>,
-        fetch_and_deserialize_result: Result<(AnySyncTimelineEvent, bool), CacheError>,
+        fetch_result: Result<TimelineEvent, CacheError>,
+        try_fresh_decrypt_result: Option<AnySyncTimelineEvent>,
     }
 
     impl MockRoomClient {
         fn new() -> MockRoomClient {
             let fetch_room_messages_at_edge_result = Ok(None);
-            let event: AnySyncTimelineEvent = serde_json::from_value(json!({
+            let event_json = json!({
                 "type": "m.room.message",
                 "event_id": "$test_event:example.org",
                 "sender": "@gonicus:example.org",
@@ -2074,34 +2051,31 @@ mod tests {
                     "msgtype": "m.text",
                     "body": "testing"
                 }
-            }))
-            .unwrap();
-            let fetch_and_deserialize_result: Result<(AnySyncTimelineEvent, bool), CacheError> =
-                Ok((event, false));
+            });
+
+            let raw = Raw::from_json_string(serde_json::to_string(&event_json).unwrap()).unwrap();
+            let event = TimelineEvent::from_plaintext(raw);
+            let fetch_result: Result<TimelineEvent, CacheError> = Ok(event);
+
+            let event: AnySyncTimelineEvent = serde_json::from_value(event_json.clone()).unwrap();
+            let try_fresh_decrypt_result = Some(event);
 
             MockRoomClient {
                 room_id_result: "!000000000000000000:example.org".to_string(),
                 fetch_room_messages_at_edge_result: fetch_room_messages_at_edge_result,
-                fetch_and_deserialize_result: fetch_and_deserialize_result,
+                fetch_result: fetch_result,
+                try_fresh_decrypt_result: try_fresh_decrypt_result,
             }
         }
     }
 
     impl RoomClient for MockRoomClient {
-        async fn fetch_and_deserialize(
-            &self,
-            _id: &OwnedEventId,
-        ) -> Result<(AnySyncTimelineEvent, bool), CacheError> {
-            self.fetch_and_deserialize_result.clone()
+        async fn fetch(&self, _id: &OwnedEventId) -> Result<TimelineEvent, CacheError> {
+            self.fetch_result.clone()
         }
 
-        async fn fetch_room_messages_at_edge(
-            &self,
-            _cached_room: &Arc<RwLock<CachedChronoRoom>>,
-            _limit: u32,
-            _order: MessagesOrder,
-        ) -> Result<Option<OwnedEventId>, CacheError> {
-            self.fetch_room_messages_at_edge_result.clone()
+        async fn try_fresh_decrypt(&self, _: &TimelineEvent) -> Option<AnySyncTimelineEvent> {
+            self.try_fresh_decrypt_result.clone()
         }
 
         fn room_id(&self) -> String {
@@ -2128,7 +2102,7 @@ mod tests {
 
         let msgs0 = vec![
             UnlinkedMessage {
-                id: test_id(4),
+                id: test_id(4).to_string(),
                 r#type: EventType::Message,
                 timestamp: (4).try_into().unwrap(),
                 prev_token: Some("a".to_string()),
@@ -2137,7 +2111,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(5),
+                id: test_id(5).to_string(),
                 r#type: EventType::Message,
                 timestamp: (5).try_into().unwrap(),
                 prev_token: None,
@@ -2146,7 +2120,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(6),
+                id: test_id(6).to_string(),
                 r#type: EventType::Message,
                 timestamp: (6).try_into().unwrap(),
                 prev_token: None,
@@ -2158,7 +2132,7 @@ mod tests {
 
         let msgs1 = vec![
             UnlinkedMessage {
-                id: test_id(7),
+                id: test_id(7).to_string(),
                 r#type: EventType::Message,
                 timestamp: (7).try_into().unwrap(),
                 prev_token: Some("b".to_string()),
@@ -2167,7 +2141,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(8),
+                id: test_id(8).to_string(),
                 r#type: EventType::Message,
                 timestamp: (8).try_into().unwrap(),
                 prev_token: None,
@@ -2176,7 +2150,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(9),
+                id: test_id(9).to_string(),
                 r#type: EventType::Message,
                 timestamp: (9).try_into().unwrap(),
                 prev_token: None,
@@ -2188,7 +2162,7 @@ mod tests {
 
         let msgs2 = vec![
             UnlinkedMessage {
-                id: test_id(1),
+                id: test_id(1).to_string(),
                 r#type: EventType::Message,
                 timestamp: (1).try_into().unwrap(),
                 prev_token: None,
@@ -2197,7 +2171,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(2),
+                id: test_id(2).to_string(),
                 r#type: EventType::Message,
                 timestamp: (2).try_into().unwrap(),
                 prev_token: None,
@@ -2206,7 +2180,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(3),
+                id: test_id(3).to_string(),
                 r#type: EventType::Message,
                 timestamp: (3).try_into().unwrap(),
                 prev_token: None,
@@ -2218,7 +2192,7 @@ mod tests {
 
         let msgs3 = vec![
             UnlinkedMessage {
-                id: test_id(5),
+                id: test_id(5).to_string(),
                 r#type: EventType::Message,
                 timestamp: (5).try_into().unwrap(),
                 prev_token: Some("a.1".to_string()),
@@ -2227,7 +2201,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(6),
+                id: test_id(6).to_string(),
                 r#type: EventType::Message,
                 timestamp: (6).try_into().unwrap(),
                 prev_token: None,
@@ -2236,7 +2210,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(7),
+                id: test_id(7).to_string(),
                 r#type: EventType::Message,
                 timestamp: (7).try_into().unwrap(),
                 prev_token: None,
@@ -2248,7 +2222,7 @@ mod tests {
 
         let msgs4 = vec![
             UnlinkedMessage {
-                id: test_id(8),
+                id: test_id(8).to_string(),
                 r#type: EventType::Message,
                 timestamp: (8).try_into().unwrap(),
                 prev_token: Some("b.1".to_string()),
@@ -2257,7 +2231,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(9),
+                id: test_id(9).to_string(),
                 r#type: EventType::Message,
                 timestamp: (9).try_into().unwrap(),
                 prev_token: None,
@@ -2269,7 +2243,7 @@ mod tests {
 
         let msgs5 = vec![
             UnlinkedMessage {
-                id: test_id(4),
+                id: test_id(4).to_string(),
                 r#type: EventType::Message,
                 timestamp: (6).try_into().unwrap(),
                 prev_token: Some("a".to_string()),
@@ -2278,7 +2252,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(5),
+                id: test_id(5).to_string(),
                 r#type: EventType::Message,
                 timestamp: (4).try_into().unwrap(),
                 prev_token: None,
@@ -2287,7 +2261,7 @@ mod tests {
                 rel_to: None,
             },
             UnlinkedMessage {
-                id: test_id(6),
+                id: test_id(6).to_string(),
                 r#type: EventType::Message,
                 timestamp: (5).try_into().unwrap(),
                 prev_token: None,
@@ -2298,7 +2272,7 @@ mod tests {
         ];
 
         let msg_after = UnlinkedMessage {
-            id: test_id(7),
+            id: test_id(7).to_string(),
             r#type: EventType::Message,
             timestamp: (7).try_into().unwrap(),
             prev_token: None,
@@ -2435,8 +2409,8 @@ mod tests {
         }
     }
 
-    fn test_id(n: usize) -> String {
-        format!("$event{:0>38}", n)
+    fn test_id(n: usize) -> OwnedEventId {
+        OwnedEventId::try_from(format!("$event{:0>38}", n)).unwrap()
     }
 
     fn b_after_a(sequence: &CachedChronoSequence, a: usize, b: usize) -> bool {
@@ -2798,9 +2772,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            Some(test_id(4).as_ref()),
+            test_id(4),
             2,
             MessagesOrder::Forward,
+            true,
             &setup.room_client,
         )
         .await
@@ -2811,7 +2786,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 2);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(5));
         assert_eq!(messages[1].message_id, test_id(6));
     }
@@ -2826,9 +2800,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            None,
+            test_id(4),
             3,
             MessagesOrder::Forward,
+            false,
             &setup.room_client,
         )
         .await
@@ -2839,7 +2814,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 3);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(4));
         assert_eq!(messages[1].message_id, test_id(5));
         assert_eq!(messages[2].message_id, test_id(6));
@@ -2853,9 +2827,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            Some(test_id(4).as_ref()),
+            test_id(4),
             3,
             MessagesOrder::Forward,
+            true,
             &setup.room_client,
         )
         .await
@@ -2866,7 +2841,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 2);
         assert!(!result.is_complete);
-        assert_eq!(result.next, Some("b".to_string()));
         assert_eq!(messages[0].message_id, test_id(5));
         assert_eq!(messages[1].message_id, test_id(6));
     }
@@ -2879,9 +2853,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            Some(test_id(6).as_ref()),
+            test_id(6),
             2,
             MessagesOrder::Backward,
+            true,
             &setup.room_client,
         )
         .await
@@ -2892,7 +2867,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 2);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(5));
         assert_eq!(messages[1].message_id, test_id(4));
     }
@@ -2905,9 +2879,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            Some(test_id(6).as_ref()),
+            test_id(6),
             3,
             MessagesOrder::Backward,
+            true,
             &setup.room_client,
         )
         .await
@@ -2918,7 +2893,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 2);
         assert!(!result.is_complete);
-        assert_eq!(result.next, Some("a".to_string()));
         assert_eq!(messages[0].message_id, test_id(5));
         assert_eq!(messages[1].message_id, test_id(4));
     }
@@ -2934,9 +2908,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            None,
+            test_id(6),
             3,
             MessagesOrder::Backward,
+            false,
             &setup.room_client,
         )
         .await
@@ -2947,7 +2922,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 3);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(6));
         assert_eq!(messages[1].message_id, test_id(5));
         assert_eq!(messages[2].message_id, test_id(4));
@@ -2966,9 +2940,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            None,
+            test_id(7),
             3,
             MessagesOrder::Backward,
+            false,
             &setup.room_client,
         )
         .await
@@ -2979,7 +2954,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 3);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(7));
         assert_eq!(messages[1].message_id, test_id(5));
         assert_eq!(messages[2].message_id, test_id(4));
@@ -2998,9 +2972,10 @@ mod tests {
         // Act
         let result = get_sequence_chunk(
             &room_arc.clone(),
-            None,
+            test_id(8),
             3,
             MessagesOrder::Backward,
+            false,
             &setup.room_client,
         )
         .await
@@ -3011,7 +2986,6 @@ mod tests {
         let messages = result.messages.unwrap();
         assert_eq!(messages.len(), 3);
         assert!(result.is_complete);
-        assert_eq!(result.next, None);
         assert_eq!(messages[0].message_id, test_id(8));
         assert_eq!(messages[1].message_id, test_id(5));
         assert_eq!(messages[2].message_id, test_id(4));
