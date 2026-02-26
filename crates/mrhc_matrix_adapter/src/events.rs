@@ -836,6 +836,8 @@ impl EventExecutor {
     }
 
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
+        let related_message_id = get_related_message_id(&event);
+
         let proto = Message {
             message_id: event.event_id.to_string(),
             room_id: room.room_id().to_string(),
@@ -847,7 +849,7 @@ impl EventExecutor {
                 event,
                 message
             )),
-            related_message_id: None,
+            related_message_id,
             is_pinned: false,
             is_encrypted: false,
             reactions: Vec::new(),
@@ -976,6 +978,18 @@ fn get_user_typing_list(update: &JoinedRoomUpdate) -> Option<Vec<String>> {
     }
 
     result
+}
+
+fn get_related_message_id(event: &OriginalSyncRoomMessageEvent) -> Option<String> {
+    let Some(relation) = &event.content.relates_to else {
+        return None;
+    };
+
+    let Relation::Reply { in_reply_to } = relation else {
+        return None;
+    };
+
+    Some(in_reply_to.event_id.to_string())
 }
 
 impl_room_event_handler!(

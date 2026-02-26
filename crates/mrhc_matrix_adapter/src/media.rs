@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use matrix_sdk::attachment::AttachmentConfig;
 use matrix_sdk::media::{MediaEventContent, MediaFormat, MediaRequestParameters};
+use matrix_sdk::room::reply::Reply;
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::api::client::user_directory::search_users::v3::User;
 use matrix_sdk::ruma::events::room::avatar::ImageInfo;
@@ -11,7 +12,7 @@ use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::{Client, Room};
 use mime::Mime;
 use mrhc_proto::chat::Error as ChatError;
-use ruma_common::{EventId, MxcUri, OwnedMxcUri, OwnedUserId};
+use ruma_common::{EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedUserId};
 use thiserror::Error;
 use tokio::fs;
 
@@ -198,10 +199,13 @@ impl MediaManager {
         room: &Room,
         attachment_path: impl AsRef<Path>,
         file_name: Option<String>,
+        related_event: Option<OwnedEventId>,
     ) -> Result<String> {
         let src = attachment_path.as_ref();
         log::info!("Sending room attachment {src:?} to room {}", room.room_id());
-        self.inner.send_room_attachment(room, src, file_name).await
+        self.inner
+            .send_room_attachment(room, src, file_name, related_event)
+            .await
     }
 
     /// Downloads the attachment from a media event.
@@ -320,15 +324,19 @@ impl MediaManagerInner {
         room: &Room,
         attachment_path: &Path,
         file_name: Option<String>,
+        related_event: Option<OwnedEventId>,
     ) -> Result<String> {
         let attachments_room_dir = self.attachments_dir.join(room.room_id().as_str());
         self.init_dir_relative(&attachments_room_dir).await;
 
-        let mut asset_manager = AssetManager::new(
-            self.data_root_dir.clone(),
-            attachments_room_dir,
-            RoomAttachmentAsset::new(room.clone(), file_name),
-        );
+        let mut asset = RoomAttachmentAsset::new(room.clone(), file_name);
+
+        if let Some(event_id) = related_event {
+            asset = asset.reply_to(event_id);
+        }
+
+        let mut asset_manager =
+            AssetManager::new(self.data_root_dir.clone(), attachments_room_dir, asset);
 
         if let Err(err) = asset_manager.upload(attachment_path).await {
             log::error!("Error uploading and sending room attachment: {err}");
@@ -911,6 +919,8 @@ struct RoomAttachmentAsset {
     asset_id: Option<String>,
     /// The actual name of the file.
     file_name: Option<String>,
+    /// If the attachment is a reply to another event.
+    reply_to: Option<OwnedEventId>,
 }
 
 impl RoomAttachmentAsset {
@@ -919,7 +929,28 @@ impl RoomAttachmentAsset {
             room,
             asset_id: None,
             file_name,
+            reply_to: None,
         }
+    }
+
+    pub fn reply_to(mut self, event_id: OwnedEventId) -> Self {
+        self.reply_to = Some(event_id);
+        self
+    }
+
+    fn generate_attachment_config(&self) -> AttachmentConfig {
+        let mut config = AttachmentConfig::default();
+
+        if let Some(event_id) = &self.reply_to {
+            let reply = Reply {
+                event_id: event_id.clone(),
+                enforce_thread: matrix_sdk::room::reply::EnforceThread::MaybeThreaded,
+            };
+
+            config.reply = Some(reply);
+        }
+
+        config
     }
 }
 
@@ -959,7 +990,7 @@ impl Asset for RoomAttachmentAsset {
         });
 
         let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
-        let config = AttachmentConfig::default();
+        let config = self.generate_attachment_config();
 
         let response = unwrap_or_log_return_err!(
             self.room
