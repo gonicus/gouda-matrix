@@ -25,7 +25,7 @@ use mrhc_proto::chat::message::Content as MessageContent;
 use mrhc_proto::chat::message_change_event::Content as MessageChangeContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    EventOrigin, Message, MessageChangeEvent, MessageContentText, MessageRemoveEvent, MessagesOrder,
+    builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder,
 };
 use tokio::sync::mpsc;
 
@@ -1760,17 +1760,14 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                         };
 
                         // Send a MessageChangeEvent with the new, decrypted content to the client
-                        let response = MessageChangeEvent {
-                            message_id: id.to_string(),
-                            room_id: room_client.room_id(),
-                            is_pinned: Some(msg.is_pinned),
-                            is_encrypted: Some(false),
-                            content: Some(MessageChangeContent::Text(MessageContentText {
-                                content,
-                            })),
-                            has_mentioned_user_ids_changed: false,
-                            mentioned_user_ids: Vec::new(),
-                        };
+                        let response = builder::MessageChangeEventBuilder::new(
+                            room_client.room_id(),
+                            id.to_string(),
+                        )
+                        .change_is_encrypted(false)
+                        .change_content(MessageChangeContent::Text(MessageContentText { content }))
+                        .to_proto();
+
                         ctx.send_event(ResponseContent::MessageChangeEvent(response));
                         decrypted_count += 1;
                     }

@@ -141,3 +141,63 @@ impl UserChangeEventBuilder {
         }
     }
 }
+
+/// Builder to easily create a `UserChangeEvent` with desired changes.
+#[derive(Default, PartialEq, Eq)]
+pub struct MessageChangeEventBuilder {
+    room_id: String,
+    message_id: String,
+    is_pinned: Option<bool>,
+    is_encrypted: Option<bool>,
+    mentioned_user_ids: Option<Vec<String>>,
+    content: Option<message_change_event::Content>,
+}
+
+impl MessageChangeEventBuilder {
+    pub fn new(room_id: impl Into<String>, message_id: impl Into<String>) -> Self {
+        Self {
+            room_id: room_id.into(),
+            message_id: message_id.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn change_is_pinned(mut self, is_pinned: bool) -> Self {
+        self.is_pinned = Some(is_pinned);
+        self
+    }
+
+    pub fn change_is_encrypted(mut self, is_encrypted: bool) -> Self {
+        self.is_encrypted = Some(is_encrypted);
+        self
+    }
+
+    pub fn change_mentioned_user_ids(mut self, mentioned_user_ids: Vec<String>) -> Self {
+        self.mentioned_user_ids = Some(mentioned_user_ids);
+        self
+    }
+
+    pub fn change_content(mut self, content: message_change_event::Content) -> Self {
+        self.content = Some(content);
+        self
+    }
+
+    pub fn to_proto(self) -> MessageChangeEvent {
+        let mut event = MessageChangeEvent {
+            room_id: self.room_id,
+            message_id: self.message_id,
+            is_pinned: self.is_pinned,
+            is_encrypted: self.is_encrypted,
+            mentioned_user_ids: Vec::new(),
+            has_mentioned_user_ids_changed: false,
+            content: None,
+        };
+
+        if let Some(mentioned_user_ids) = self.mentioned_user_ids {
+            event.has_mentioned_user_ids_changed = true;
+            event.mentioned_user_ids = mentioned_user_ids;
+        }
+
+        event
+    }
+}
