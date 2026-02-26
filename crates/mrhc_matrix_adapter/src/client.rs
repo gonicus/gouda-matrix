@@ -1293,19 +1293,27 @@ impl ClientAbstraction for MatrixClient {
 
         let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in()?;
 
-        let room = self.get_matrix_room(&request.room_id)?;
+        let MessageSendRequest {
+            room_id,
+            related_message_id,
+            content,
+        } = request;
 
-        let Some(content) = request.content else {
+        let room = self.get_matrix_room(&room_id)?;
+
+        let Some(content) = content else {
             return Err(errors::create_unknown("Message content not set"));
         };
 
         match content {
-            Content::Text(content) => messages::send_text_message(room, content).await,
+            Content::Text(content) => {
+                messages::send_text_message(room, related_message_id, content).await
+            }
             Content::Image(content) => {
-                messages::send_image_message(media_manager, room, content).await
+                messages::send_image_message(media_manager, room, related_message_id, content).await
             }
             Content::File(content) => {
-                messages::send_file_message(media_manager, room, content).await
+                messages::send_file_message(media_manager, room, related_message_id, content).await
             }
         }
     }
