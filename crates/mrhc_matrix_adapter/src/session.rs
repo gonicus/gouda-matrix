@@ -1,9 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::{Client, LoopCtrl};
 use mrhc_core::{ClientContext, Result};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
@@ -11,7 +10,6 @@ use mrhc_proto::chat::{CapabilityEvent, VerificationStatusEvent};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
-use url::Url;
 
 use crate::client::InitializedData;
 use crate::{chat_cache, crypto, errors};
@@ -29,19 +27,12 @@ pub struct Session {
     file: PathBuf,
     #[serde(skip)]
     passphrase: String,
-    #[serde(skip)]
-    cached_data: Arc<RwLock<chat_cache::CachedData>>,
 }
 
 impl Session {
     /// Creates a new session from a Matrix client.
     /// This should only be used if the session is new and has not yet been saved.
-    pub fn new(
-        client: &Client,
-        file: PathBuf,
-        passphrase: String,
-        cached_data: Arc<RwLock<chat_cache::CachedData>>,
-    ) -> Result<Self> {
+    pub fn new(client: &Client, file: PathBuf, passphrase: String) -> Result<Self> {
         let user_session = client.matrix_auth().session();
 
         let Some(user_session) = user_session else {
@@ -55,7 +46,6 @@ impl Session {
             sync_token: None,
             file,
             passphrase,
-            cached_data,
         })
     }
 
@@ -111,11 +101,12 @@ impl Session {
     pub async fn sync(
         mut self,
         mut ctx: ClientContext,
-        initialized_data: InitializedData,
+        initialized_data: &InitializedData,
+        cached_data: Arc<RwLock<chat_cache::CachedData>>,
     ) -> Result<()> {
-        self.initial_sync(&mut ctx, &initialized_data.client)
+        self.initial_sync(&mut ctx, &initialized_data.client, cached_data.clone())
             .await?;
-        self.start_background_sync(initialized_data, ctx)?;
+        self.start_background_sync(initialized_data, ctx, cached_data)?;
         Ok(())
     }
 
@@ -124,7 +115,12 @@ impl Session {
     /// The session is automatically persisted once a new sync token is received.
     /// Note that the token specified in `sync_settings` will be overwritten.
     /// This method should be called every time the client is being logged in.
-    async fn initial_sync(&mut self, ctx: &mut ClientContext, client: &Client) -> Result<()> {
+    async fn initial_sync(
+        &mut self,
+        ctx: &mut ClientContext,
+        client: &Client,
+        cached_data: Arc<RwLock<chat_cache::CachedData>>,
+    ) -> Result<()> {
         log::info!("Starting initial sync");
 
         let mut sync_settings = SyncSettings::new();
@@ -141,7 +137,7 @@ impl Session {
         self.sync_token = Some(response.next_batch.clone());
 
         chat_cache::cache_sync_response(
-            self.cached_data.clone(),
+            cached_data,
             &response,
             chat_cache::SyncSource::InitialSync,
         )
@@ -152,8 +148,8 @@ impl Session {
 
         self.save().await?;
 
-        self.send_capabilities_event(ctx);
-        self.send_verification_status_event(ctx, client).await?;
+        send_capabilities_event(ctx);
+        send_verification_status_event(ctx, client).await?;
 
         Ok(())
     }
@@ -162,8 +158,9 @@ impl Session {
     /// making this function non blocking.
     fn start_background_sync(
         self,
-        initialized_data: InitializedData,
+        initialized_data: &InitializedData,
         ctx: ClientContext,
+        cached_data: Arc<RwLock<chat_cache::CachedData>>,
     ) -> Result<JoinHandle<()>> {
         let mut sync_settings = SyncSettings::new();
 
@@ -171,11 +168,8 @@ impl Session {
             sync_settings = sync_settings.token(token);
         }
 
-        let InitializedData {
-            client,
-            event_manager,
-            ..
-        } = initialized_data;
+        let client = initialized_data.client.clone();
+        let event_manager = initialized_data.event_manager.clone();
 
         event_manager.setup_event_handlers(&client);
 
@@ -183,13 +177,14 @@ impl Session {
             let result = client
                 .sync_with_result_callback(sync_settings, |sync_result| {
                     let mut session = self.clone();
+                    let cached_data = cached_data.clone();
 
                     async move {
                         let response = sync_result?;
                         session.sync_token = Some(response.next_batch.clone());
 
                         if let Err(err) = chat_cache::cache_sync_response(
-                            session.cached_data.clone(),
+                            cached_data,
                             &response,
                             chat_cache::SyncSource::ContinuousSync,
                         ) {
@@ -213,108 +208,50 @@ impl Session {
 
         Ok(handle)
     }
+}
 
-    fn send_capabilities_event(&mut self, ctx: &mut ClientContext) {
-        let re = CapabilityEvent {
-            direct_rooms: false,
-            group_rooms: true,
-            sub_threads: true,
-            user_search: true,
-            invitations: true,
-            spaces: false,
-            client_verification: true,
-            user_presence: true,
-            mime_types: vec!["text/plain".to_owned()],
-        };
+fn send_capabilities_event(ctx: &mut ClientContext) {
+    let re = CapabilityEvent {
+        direct_rooms: false,
+        group_rooms: true,
+        sub_threads: true,
+        user_search: true,
+        invitations: true,
+        spaces: false,
+        client_verification: true,
+        user_presence: true,
+        mime_types: vec!["text/plain".to_owned()],
+    };
 
-        ctx.send_event(ResponseContent::CapabilityEvent(re));
-    }
+    ctx.send_event(ResponseContent::CapabilityEvent(re));
+}
 
-    async fn send_verification_status_event(
-        &mut self,
-        ctx: &mut ClientContext,
-        client: &Client,
-    ) -> Result<()> {
-        let result =
-            client.encryption().get_own_device().await.map_err(|err| {
-                errors::create_unknown(format!("Error retrieving own device: {err}"))
-            })?;
+async fn send_verification_status_event(ctx: &mut ClientContext, client: &Client) -> Result<()> {
+    let result = client
+        .encryption()
+        .get_own_device()
+        .await
+        .map_err(|err| errors::create_unknown(format!("Error retrieving own device: {err}")))?;
 
-        let Some(this_device) = result else {
-            return Err(errors::create_unknown(
-                "Client is not logged in, but verification status has been requested",
-            ));
-        };
-
-        let is_cross_signing_available = client
-            .encryption()
-            .has_devices_to_verify_against()
-            .await
-            .unwrap_or(false);
-
-        ctx.send_event(ResponseContent::VerificationStatusEvent(
-            VerificationStatusEvent {
-                is_verified: this_device.is_verified_with_cross_signing(),
-                is_recovery_key_verification_available: true,
-                is_cross_signing_available,
-            },
+    let Some(this_device) = result else {
+        return Err(errors::create_unknown(
+            "Client is not logged in, but verification status has been requested",
         ));
+    };
 
-        Ok(())
-    }
-}
-
-/// Restores the session located at the given path.
-pub async fn restore_session(
-    homeserver: &Url,
-    session_file: PathBuf,
-    session_passphrase: String,
-    db_dir: &Path,
-    db_passphrase: &str,
-    cached_data: Arc<RwLock<chat_cache::CachedData>>,
-) -> Result<(Client, Session)> {
-    log::debug!(
-        "Previous session found in '{}'",
-        session_file.to_string_lossy()
-    );
-
-    let mut session = Session::read_from_file(session_file, session_passphrase).await?;
-    let client = build_client(homeserver, db_dir, db_passphrase).await?;
-
-    log::info!(
-        "Restoring session for {}",
-        session.user_session.meta.user_id
-    );
-
-    client
-        .restore_session(session.user_session.clone())
+    let is_cross_signing_available = client
+        .encryption()
+        .has_devices_to_verify_against()
         .await
-        .map_err(errors::convert_matrix_sdk_error)?;
+        .unwrap_or(false);
 
-    session.cached_data = cached_data;
+    ctx.send_event(ResponseContent::VerificationStatusEvent(
+        VerificationStatusEvent {
+            is_verified: this_device.is_verified_with_cross_signing(),
+            is_recovery_key_verification_available: true,
+            is_cross_signing_available,
+        },
+    ));
 
-    log::info!("Successfully restored session as {:?}", client.user_id());
-
-    Ok((client, session))
-}
-
-/// Builds and configures a matrix client.
-pub async fn build_client(homeserver: &Url, db_dir: &Path, db_passphrase: &str) -> Result<Client> {
-    let client = Client::builder()
-        .homeserver_url(homeserver)
-        .sqlite_store(db_dir, Some(db_passphrase))
-        .with_encryption_settings(EncryptionSettings {
-            auto_enable_cross_signing: true,
-            auto_enable_backups: true,
-            backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
-        })
-        .build()
-        .await
-        .map_err(errors::convert_client_build_error)?;
-
-    if client.event_cache().subscribe().is_err() {
-        log::error!("Error subscribing to event cache");
-    }
-
-    Ok(client)
+    Ok(())
 }

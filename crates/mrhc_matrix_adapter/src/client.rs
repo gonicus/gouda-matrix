@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::{MessagesOptions, Room as MatrixRoom};
 use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
@@ -28,7 +29,7 @@ use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
-use crate::{errors, messages, rooms, session, user, utils};
+use crate::{errors, messages, rooms, user, utils};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -135,7 +136,7 @@ impl MatrixClient {
         request: InitializationRequest,
         client: Client,
         session_file: PathBuf,
-    ) -> InitializedData {
+    ) {
         let media_manager =
             MediaManager::new(client.clone(), PathBuf::from(request.data_root_path)).await;
 
@@ -152,9 +153,39 @@ impl MatrixClient {
             event_manager,
         };
 
-        self.initialized_data = Some(data.clone());
+        self.initialized_data = Some(data);
+    }
 
-        data
+    async fn restore_session(
+        &self,
+        ctx: ClientContext,
+        cached_data: Arc<RwLock<CachedData>>,
+    ) -> Result<()> {
+        let initialized_data = self.get_initialized_data()?;
+
+        let client = &initialized_data.client;
+        let session_file = initialized_data.session_file.clone();
+        let session_passphrase = initialized_data.session_passphrase.clone();
+
+        log::debug!("Previous session found in '{session_file:?}'");
+
+        let session = Session::read_from_file(session_file, session_passphrase).await?;
+
+        log::info!(
+            "Restoring session for {}",
+            session.user_session.meta.user_id
+        );
+
+        client
+            .restore_session(session.user_session.clone())
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        session.sync(ctx, initialized_data, cached_data).await?;
+
+        log::info!("Successfully restored session as {:?}", client.user_id());
+
+        Ok(())
     }
 
     /// Removes all finished verification requests.
@@ -312,45 +343,27 @@ impl ClientAbstraction for MatrixClient {
 
         let session_dir = PathBuf::from(&request.data_root_path).join(SESSION_DIR);
         let session_file = session_dir.join(SESSION_FILE);
-        let session_passphrase = request.encryption_secret.clone();
-        let cached_data = self.cached_data.clone();
 
-        if session_file.exists() {
-            let result = session::restore_session(
-                &homeserver_url,
-                session_file.clone(),
-                session_passphrase.clone(),
-                &session_dir,
-                &request.persistent_storage_secret,
-                cached_data,
-            )
-            .await;
-
-            match result {
-                Ok((client, session)) => {
-                    let initialized_data = self
-                        .initialize_data(ctx.clone(), request, client.clone(), session_file.clone())
-                        .await;
-
-                    session.sync(ctx, initialized_data).await?;
-
-                    return Ok(StatusUpdate {
-                        code: status_update::StatusCode::LoggedIn as i32,
-                    });
-                }
-                Err(err) => log::error!("Error restoring session: {err:?}"),
-            }
-        }
-
-        let client = session::build_client(
+        let client = build_client(
             &homeserver_url,
             &session_dir,
             &request.persistent_storage_secret,
         )
         .await?;
 
-        self.initialize_data(ctx, request, client, session_file)
+        self.initialize_data(ctx.clone(), request, client.clone(), session_file.clone())
             .await;
+
+        if session_file.exists() {
+            match self.restore_session(ctx, self.cached_data.clone()).await {
+                Ok(()) => {
+                    return Ok(StatusUpdate {
+                        code: status_update::StatusCode::LoggedIn as i32,
+                    })
+                }
+                Err(err) => log::error!("Error restoring session: {err:?}"),
+            }
+        }
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::Connected as i32,
@@ -446,8 +459,6 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        let cached_data = self.cached_data.clone();
-
         log::info!(
             "Successfully logged in as {:?}",
             initialized_data.client.user_id()
@@ -457,11 +468,12 @@ impl ClientAbstraction for MatrixClient {
             &initialized_data.client,
             initialized_data.session_file.to_path_buf(),
             initialized_data.session_passphrase.clone(),
-            cached_data,
         )?;
 
         session.save().await?;
-        session.sync(ctx.clone(), initialized_data.clone()).await?;
+        session
+            .sync(ctx.clone(), initialized_data, self.cached_data.clone())
+            .await?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -515,12 +527,9 @@ impl ClientAbstraction for MatrixClient {
                 initialized_data.client.user_id()
             );
 
-            let Ok(session) = Session::new(
-                &initialized_data.client,
-                session_file,
-                session_passphrase,
-                cached_data,
-            ) else {
+            let Ok(session) =
+                Session::new(&initialized_data.client, session_file, session_passphrase)
+            else {
                 ctx.send_error(errors::create_unknown("Error creating session"));
                 return;
             };
@@ -530,7 +539,10 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            if let Err(err) = session.sync(ctx.clone(), initialized_data).await {
+            if let Err(err) = session
+                .sync(ctx.clone(), &initialized_data, cached_data)
+                .await
+            {
                 ctx.send_error(err);
                 return;
             }
@@ -1429,4 +1441,29 @@ impl ClientAbstraction for MatrixClient {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+}
+
+/// Builds and configures a matrix client.
+pub async fn build_client(
+    homeserver: &Url,
+    session_dir: &Path,
+    session_db_passphrase: &str,
+) -> Result<Client> {
+    let client = Client::builder()
+        .homeserver_url(homeserver)
+        .sqlite_store(session_dir, Some(session_db_passphrase))
+        .with_encryption_settings(EncryptionSettings {
+            auto_enable_cross_signing: true,
+            auto_enable_backups: true,
+            backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        })
+        .build()
+        .await
+        .map_err(errors::convert_client_build_error)?;
+
+    if client.event_cache().subscribe().is_err() {
+        log::error!("Error subscribing to event cache");
+    }
+
+    Ok(client)
 }
