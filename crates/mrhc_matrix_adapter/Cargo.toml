@@ -35,12 +35,6 @@ infer.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1.48.0", default-features = false, features = [
-  "rt-multi-thread",
-  "io-std",
-  "io-util",
-  "macros",
-] }
-
+tokio.workspace = true
 tempdir.workspace = true
 test-log.workspace = true
