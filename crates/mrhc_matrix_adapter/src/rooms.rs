@@ -66,7 +66,7 @@ pub async fn convert_to_proto(
         permissions: Some(get_permissions(&room, user_id).await?),
         latest_message_timestamp,
         avatar_path: media_manager.get_room_avatar_path(&room).await,
-        is_favorite: false,
+        is_favorite: room.is_favourite(),
     })
 }
 
