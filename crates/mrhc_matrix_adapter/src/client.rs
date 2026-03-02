@@ -31,17 +31,31 @@ use crate::{errors, messages, rooms, user, utils};
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
 
+const CRYPTO_DB: &str = "matrix-sdk-crypto.sqlite3";
+const EVENT_CACHE_DB: &str = "matrix-sdk-event-cache.sqlite3";
+const MEDIA_DB: &str = "matrix-sdk-media.sqlite3";
+const STATE_DB: &str = "matrix-sdk-state.sqlite3";
+
 #[derive(Clone)]
 pub struct InitializedData {
     /// The initialized matrix client.
     pub client: Client,
+
+    /// The homeserver url.
+    pub homeserver_url: Url,
     /// The display name of this device.
     pub device_display_name: String,
 
-    /// The file where the current session metadata is stored.
+    /// The absolute path to the root directory where data is stored.
+    pub data_root_dir: PathBuf,
+    /// The absolute path to the directory where the session data is stored.
+    pub session_dir: PathBuf,
+    /// The absolute path to the file where the current session metadata is stored.
     pub session_file: PathBuf,
     /// The passphrase used to encrypt the session data.
     pub session_passphrase: String,
+    /// The passphrase used to encrypt the database.
+    pub database_passphrase: String,
 
     /// Manages data stored on the file system, like avatars or downloaded chat images.
     pub media_manager: MediaManager,
@@ -78,6 +92,17 @@ impl MatrixClient {
     /// An error is returned if the client has not yet been initialized.
     fn get_initialized_data(&self) -> Result<&InitializedData> {
         let data = self.initialized_data.as_ref().ok_or(Error {
+            r#type: ErrorType::NotInitialized.into(),
+            error_string: Some("The client has not been initialized".to_owned()),
+        })?;
+
+        Ok(data)
+    }
+
+    /// Returns the initialized data if it has been initialized with `Self::initialize`.
+    /// An error is returned if the client has not yet been initialized.
+    fn get_initialized_data_mut(&mut self) -> Result<&mut InitializedData> {
+        let data = self.initialized_data.as_mut().ok_or(Error {
             r#type: ErrorType::NotInitialized.into(),
             error_string: Some("The client has not been initialized".to_owned()),
         })?;
@@ -131,28 +156,47 @@ impl MatrixClient {
         &mut self,
         ctx: ClientContext,
         request: InitializationRequest,
-        client: Client,
-        session_file: PathBuf,
-    ) {
-        let media_manager =
-            MediaManager::new(client.clone(), PathBuf::from(request.data_root_path)).await;
+    ) -> Result<&InitializedData> {
+        let homeserver_url = Url::parse(&request.backend_url)
+            .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
 
+        let data_root_dir = PathBuf::from(request.data_root_path);
+        let session_dir = data_root_dir.join(SESSION_DIR);
+        let session_file = session_dir.join(SESSION_FILE);
+
+        let client = build_client(
+            &homeserver_url,
+            &session_dir,
+            &request.persistent_storage_secret,
+        )
+        .await?;
+
+        let media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
         let event_manager = EventManager::new(client.clone(), ctx, media_manager.clone());
 
         let data = InitializedData {
             client,
+
+            homeserver_url,
             device_display_name: request.device_display_name,
 
+            data_root_dir,
+            session_dir,
             session_file,
             session_passphrase: request.encryption_secret,
+            database_passphrase: request.persistent_storage_secret,
 
             media_manager,
             event_manager,
         };
 
         self.initialized_data = Some(data);
+
+        #[allow(clippy::unwrap_used)]
+        Ok(self.initialized_data.as_ref().unwrap())
     }
 
+    /// Restores the session from the session file.
     async fn restore_session(
         &self,
         ctx: ClientContext,
@@ -181,6 +225,38 @@ impl MatrixClient {
         session.sync(ctx, initialized_data, cached_data).await?;
 
         log::info!("Successfully restored session as {:?}", client.user_id());
+
+        Ok(())
+    }
+
+    /// Deletes the persisted session and resets the matrix client.
+    async fn reset_session(&mut self, ctx: ClientContext) -> Result<()> {
+        log::info!("Resetting session");
+
+        let InitializedData {
+            client,
+            homeserver_url,
+            data_root_dir,
+            session_dir,
+            session_file,
+            database_passphrase,
+            media_manager,
+            event_manager,
+            ..
+        } = self.get_initialized_data_mut()?;
+
+        remove_session_file(session_file)?;
+        remove_session_file(session_dir.join(CRYPTO_DB))?;
+        remove_session_file(session_dir.join(EVENT_CACHE_DB))?;
+        remove_session_file(session_dir.join(MEDIA_DB))?;
+        remove_session_file(session_dir.join(STATE_DB))?;
+
+        *client = build_client(homeserver_url, session_dir, database_passphrase).await?;
+
+        *media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
+        *event_manager = EventManager::new(client.clone(), ctx, media_manager.clone());
+
+        log::info!("Successfully reset session");
 
         Ok(())
     }
@@ -224,23 +300,9 @@ impl ClientAbstraction for MatrixClient {
             return Err(errors::create_error(ErrorType::AlreadyInitialized));
         }
 
-        let homeserver_url = Url::parse(&request.backend_url)
-            .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
+        let initialized_data = self.initialize_data(ctx.clone(), request).await?;
 
-        let session_dir = PathBuf::from(&request.data_root_path).join(SESSION_DIR);
-        let session_file = session_dir.join(SESSION_FILE);
-
-        let client = build_client(
-            &homeserver_url,
-            &session_dir,
-            &request.persistent_storage_secret,
-        )
-        .await?;
-
-        self.initialize_data(ctx.clone(), request, client.clone(), session_file.clone())
-            .await;
-
-        if session_file.exists() {
+        if initialized_data.session_file.exists() {
             match self.restore_session(ctx, self.cached_data.clone()).await {
                 Ok(()) => {
                     return Ok(StatusUpdate {
@@ -331,11 +393,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: ClientContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
-        let initialized_data = self.get_initialized_data()?;
-
         if self.is_logged_in().await {
             return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
+
+        self.reset_session(ctx.clone()).await?;
+
+        let initialized_data = self.get_initialized_data()?;
 
         initialized_data
             .client
@@ -371,11 +435,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: ClientContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
-        let initialized_data = self.get_initialized_data()?;
-
         if self.is_logged_in().await {
             return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
+
+        self.reset_session(ctx.clone()).await?;
+
+        let initialized_data = self.get_initialized_data()?;
 
         let cached_data = self.cached_data.clone();
 
@@ -1351,4 +1417,25 @@ pub async fn build_client(
     }
 
     Ok(client)
+}
+
+/// Removes the session file at the specified path.
+/// Blocks until the file has been removed.
+fn remove_session_file(path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
+
+    log::info!("Removing session file: {path:?}");
+
+    // The use of the sync fs methods instead of tokio::fs is intended to block
+    // the runtime until all session data has been removed.
+
+    if let Err(err) = std::fs::remove_file(path) {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            return Ok(());
+        }
+
+        return Err(errors::create_unknown("error removing session file"));
+    }
+
+    Ok(())
 }
