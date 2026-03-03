@@ -33,7 +33,7 @@ use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
-use crate::{rooms, unwrap_or_log_return, user};
+use crate::{messages, rooms, unwrap_or_log_return, user};
 
 // After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -837,6 +837,7 @@ impl EventExecutor {
 
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         let related_message_id = get_related_message_id(&event);
+        let mentioned_user_ids = messages::convert_mentions(&event.content.mentions);
 
         let proto = Message {
             message_id: event.event_id.to_string(),
@@ -854,7 +855,7 @@ impl EventExecutor {
             is_pinned: false,
             is_encrypted: false,
             reactions: Vec::new(),
-            mentioned_user_ids: Vec::new(),
+            mentioned_user_ids,
         };
 
         self.ctx
@@ -867,6 +868,7 @@ impl EventExecutor {
         relation: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         let original_message_id = relation.event_id.to_string();
+        let mentions = messages::convert_mentions(&relation.new_content.mentions);
 
         let content = generate_message_content!(
             self.media_manager,
@@ -878,6 +880,7 @@ impl EventExecutor {
 
         let proto = builder::MessageChangeEventBuilder::new(room.room_id(), original_message_id)
             .change_content(content)
+            .change_mentioned_user_ids(mentions)
             .to_proto();
 
         self.ctx

@@ -5,6 +5,7 @@ use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::room::message::{ReplyMetadata, RoomMessageEventContent};
+use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::{Client, Room};
 use mrhc_core::Result;
 use mrhc_proto::chat::error::ErrorType;
@@ -78,6 +79,14 @@ pub async fn send_file_message(
         .map_err(media::convert_error)?;
 
     Ok(MessageSendResponse { message_id })
+}
+
+pub fn convert_mentions(mentions: &Option<Mentions>) -> Vec<String> {
+    let Some(mentions) = &mentions else {
+        return Vec::new();
+    };
+
+    mentions.user_ids.iter().map(|f| f.to_string()).collect()
 }
 
 struct CustomReplyMetadata {
