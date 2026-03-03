@@ -5,13 +5,14 @@ use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
+use matrix_sdk::ruma::events::relation::Replacement;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
 use matrix_sdk::ruma::events::room::member::{
     Change, MembershipChange, MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent,
 };
 use matrix_sdk::ruma::events::room::message::{
-    MessageType, OriginalSyncRoomMessageEvent, Relation,
+    MessageType, OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContentWithoutRelation,
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
@@ -63,15 +64,15 @@ macro_rules! skip_historical_event {
 }
 
 macro_rules! generate_message_content {
-    ($media_manager:expr, $room:expr, $src_event:expr, $dest_proto_message:ident) => {
-        match $src_event.content.msgtype {
+    ($media_manager:expr, $room:expr, $event_id:expr, $content:expr, $dest_proto_message:ident) => {
+        match $content.msgtype {
             MessageType::Audio(audio) => {
                 let file_name = audio.filename.clone().unwrap_or(audio.body.clone());
                 let path = unwrap_or_log_return!(
                     $media_manager
                         .download_from_media_event_content(
                             &$room,
-                            &$src_event.event_id,
+                            &$event_id,
                             &audio,
                             Some(&file_name)
                         )
@@ -92,7 +93,7 @@ macro_rules! generate_message_content {
                     $media_manager
                         .download_from_media_event_content(
                             &$room,
-                            &$src_event.event_id,
+                            &$event_id,
                             &file,
                             Some(&file_name)
                         )
@@ -109,7 +110,7 @@ macro_rules! generate_message_content {
                     $media_manager
                         .download_from_media_event_content(
                             &$room,
-                            &$src_event.event_id,
+                            &$event_id,
                             &image,
                             image.filename.as_deref().or(Some(&image.body))
                         )
@@ -147,7 +148,7 @@ macro_rules! generate_message_content {
                     $media_manager
                         .download_from_media_event_content(
                             &$room,
-                            &$src_event.event_id,
+                            &$event_id,
                             &video,
                             Some(&file_name)
                         )
@@ -826,9 +827,8 @@ impl EventExecutor {
             return;
         }
 
-        if let Some(Relation::Replacement(relation)) = event.content.relates_to.clone() {
-            self.process_replacement_message(&room, event, relation.event_id.to_string())
-                .await;
+        if let Some(Relation::Replacement(relation)) = event.content.relates_to {
+            self.process_replacement_message(&room, relation).await;
             return;
         }
 
@@ -846,7 +846,8 @@ impl EventExecutor {
             content: Some(generate_message_content!(
                 self.media_manager,
                 room,
-                event,
+                event.event_id,
+                event.content,
                 message
             )),
             related_message_id,
@@ -863,11 +864,17 @@ impl EventExecutor {
     async fn process_replacement_message(
         &self,
         room: &Room,
-        event: OriginalSyncRoomMessageEvent,
-        original_message_id: String,
+        relation: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
-        let content =
-            generate_message_content!(self.media_manager, room, event, message_change_event);
+        let original_message_id = relation.event_id.to_string();
+
+        let content = generate_message_content!(
+            self.media_manager,
+            room,
+            relation.event_id,
+            relation.new_content,
+            message_change_event
+        );
 
         let proto = builder::MessageChangeEventBuilder::new(room.room_id(), original_message_id)
             .change_content(content)
