@@ -8,6 +8,7 @@ use matrix_sdk::{ClientBuildError, HttpError, IdParseError, StoreError};
 use matrix_sdk_crypto::CryptoStoreError;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
+use ruma_common::api::error::IntoHttpError;
 
 use crate::chat_cache::CacheError;
 
@@ -32,17 +33,36 @@ pub fn create_unknown<M: std::fmt::Display>(msg: M) -> Error {
     create_error_msg(ErrorType::Unknown, msg)
 }
 
+/// Convert an IntoHttpError to a new chat error.
+pub fn convert_into_http_error(err: IntoHttpError) -> Error {
+    log::error!("Received IntoHttpError: {err:?}");
+
+    match err {
+        IntoHttpError::Authentication(_) => {
+            create_error_msg(ErrorType::Authorization, "Authentication required")
+        }
+        _ => create_error_msg(ErrorType::Network, err.to_string()),
+    }
+}
+
 /// Converts a `matrix_sdk::HttpError` to a new chat error.
 pub fn convert_http_error(err: HttpError) -> Error {
+    log::error!("Received HttpError: {err:?}");
+
     if let Some(err) = err.as_client_api_error() {
-        convert_client_api_error(err)
-    } else {
-        create_error_msg(ErrorType::Network, err)
+        return convert_client_api_error(err);
+    }
+
+    match err {
+        HttpError::IntoHttp(err) => convert_into_http_error(err),
+        _ => create_error_msg(ErrorType::Network, err.to_string()),
     }
 }
 
 /// Converts a `ruma::api::client::Error` to a new chat error.
 pub fn convert_client_api_error(err: &RumaClientError) -> Error {
+    log::error!("Received RumaClientError: {err:?}");
+
     let Some(error_kind) = err.error_kind() else {
         return create_error_msg(ErrorType::Network, err);
     };
@@ -59,7 +79,7 @@ pub fn convert_client_api_error(err: &RumaClientError) -> Error {
 
 /// Converts a `matrix_sdk::Error` to a new chat error.
 pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
-    log::error!("Received matrix sdk error: {err:?}");
+    log::error!("Received matrix sdk Error: {err:?}");
 
     match err {
         matrix_sdk::Error::Http(err) => convert_http_error(*err),
@@ -75,7 +95,7 @@ pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> Error {
 // We may need this function again in the future.
 #[allow(dead_code)]
 pub fn convert_matrix_sdk_base_error(err: matrix_sdk_base::Error) -> Error {
-    log::error!("Received matrix sdk base error: {err:?}");
+    log::error!("Received matrix sdk base Error: {err:?}");
 
     match err {
         matrix_sdk_base::Error::CryptoStore(err) => convert_crypto_store_error(err),
@@ -86,7 +106,7 @@ pub fn convert_matrix_sdk_base_error(err: matrix_sdk_base::Error) -> Error {
 
 /// Converts a `ClientBuildError` to a new chat error.
 pub fn convert_client_build_error(err: ClientBuildError) -> Error {
-    log::error!("Received client build error: {err:?}");
+    log::error!("Received ClientBuildError: {err:?}");
 
     match err {
         ClientBuildError::Http(err) => convert_http_error(err),
@@ -97,13 +117,13 @@ pub fn convert_client_build_error(err: ClientBuildError) -> Error {
 
 /// Converts a `CryptoStoreError` to a new chat error.
 pub fn convert_crypto_store_error(err: CryptoStoreError) -> Error {
-    log::error!("Received crypto store error: {err:?}");
+    log::error!("Received CryptoStoreError: {err:?}");
     create_unknown(format!("CryptoStoreError: {err}"))
 }
 
 /// Converts a `RequestVerificationError` to a new chat error.
 pub fn convert_request_verification_error(err: RequestVerificationError) -> Error {
-    log::error!("Received request verification error error: {err:?}");
+    log::error!("Received RequestVerificationError: {err:?}");
 
     match err {
         RequestVerificationError::Sdk(err) => convert_matrix_sdk_error(err),
@@ -113,7 +133,7 @@ pub fn convert_request_verification_error(err: RequestVerificationError) -> Erro
 
 /// Converts a `SecretStorageError` to a new chat error.
 pub fn convert_secret_storage_error(err: SecretStorageError) -> Error {
-    log::error!("Received secret storage error: {err:?}");
+    log::error!("Received SecretStorageError: {err:?}");
 
     match err {
         SecretStorageError::SecretStorageKey(err) => {
@@ -125,7 +145,7 @@ pub fn convert_secret_storage_error(err: SecretStorageError) -> Error {
 
 /// Converts a `RecoveryError` to a new chat error.
 pub fn convert_recovery_error(err: RecoveryError) -> Error {
-    log::error!("Received recovery error: {err:?}");
+    log::error!("Received RecoveryError: {err:?}");
 
     match err {
         RecoveryError::BackupExistsOnServer => create_unknown(err),
@@ -146,7 +166,7 @@ pub fn convert_id_parse_error(err: IdParseError) -> Error {
 
 /// Converts a `CacheError` to a new chat error.
 pub fn convert_cache_error(err: CacheError) -> Error {
-    log::error!("Received cache error: {err:?}");
+    log::error!("Received CacheError: {err:?}");
     create_unknown(err)
 }
 

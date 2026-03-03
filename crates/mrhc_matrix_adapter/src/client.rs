@@ -115,10 +115,10 @@ impl MatrixClient {
     async fn get_initialized_data_logged_in(&self) -> Result<&InitializedData> {
         let data = self.get_initialized_data()?;
 
-        if !self.is_logged_in().await {
+        if !data.client.matrix_auth().logged_in() {
             return Err(errors::create_error_msg(
                 ErrorType::Authorization,
-                "Authorization requried",
+                "Authorization required",
             ));
         }
 
@@ -131,10 +131,10 @@ impl MatrixClient {
     async fn get_client_logged_in(&self) -> Result<&Client> {
         let client = self.get_client()?;
 
-        if !self.is_logged_in().await {
+        if !client.matrix_auth().logged_in() {
             return Err(errors::create_error_msg(
                 ErrorType::Authorization,
-                "Authorization requried",
+                "Authorization required",
             ));
         }
 
@@ -143,12 +143,26 @@ impl MatrixClient {
 
     /// Checks if the client is still logged in.
     /// This method sends a request to the Matrix server.
-    async fn is_logged_in(&self) -> bool {
+    async fn is_logged_in(&self) -> Result<bool> {
         let Some(initialized_data) = &self.initialized_data else {
-            return false;
+            return Err(errors::create_error(ErrorType::NotInitialized));
         };
 
-        initialized_data.client.whoami().await.is_ok()
+        let result = initialized_data
+            .client
+            .whoami()
+            .await
+            .map_err(errors::convert_http_error);
+
+        if let Err(err) = result {
+            if err.r#type == ErrorType::Authorization as i32 {
+                return Ok(false);
+            }
+
+            return Err(err);
+        }
+
+        Ok(true)
     }
 
     /// Builds the `self.initialized_data` with the given values.
@@ -393,7 +407,7 @@ impl ClientAbstraction for MatrixClient {
         ctx: ClientContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
-        if self.is_logged_in().await {
+        if self.is_logged_in().await? {
             return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
 
@@ -435,7 +449,7 @@ impl ClientAbstraction for MatrixClient {
         ctx: ClientContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
-        if self.is_logged_in().await {
+        if self.is_logged_in().await? {
             return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
         }
 
