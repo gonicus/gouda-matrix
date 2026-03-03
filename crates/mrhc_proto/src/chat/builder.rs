@@ -190,7 +190,7 @@ impl MessageChangeEventBuilder {
             is_encrypted: self.is_encrypted,
             mentioned_user_ids: Vec::new(),
             has_mentioned_user_ids_changed: false,
-            content: None,
+            content: self.content,
         };
 
         if let Some(mentioned_user_ids) = self.mentioned_user_ids {
