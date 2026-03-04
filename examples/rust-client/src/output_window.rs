@@ -18,6 +18,9 @@ pub enum OutputLog {
 pub struct OutputWindow {
     receiver: Receiver<OutputLog>,
     logs: Vec<OutputLog>,
+
+    hide_user_change_events: bool,
+    hide_room_change_events: bool,
 }
 
 impl OutputWindow {
@@ -34,13 +37,14 @@ impl OutputWindow {
             }
         });
 
-        (
-            Self {
-                receiver: rx,
-                logs: Vec::new(),
-            },
-            tx,
-        )
+        let obj = Self {
+            receiver: rx,
+            logs: Vec::new(),
+            hide_user_change_events: true,
+            hide_room_change_events: true,
+        };
+
+        (obj, tx)
     }
 
     pub fn update(&mut self, ctx: &egui::Context) {
@@ -50,6 +54,11 @@ impl OutputWindow {
             .default_pos(egui::Pos2::new(700.0, 20.0))
             .show(ctx, |ui| {
                 self.check_for_actions();
+
+                ui.checkbox(&mut self.hide_room_change_events, "Hide RoomChangeEvents");
+                ui.checkbox(&mut self.hide_user_change_events, "Hide UserChangeEvents");
+
+                ui.separator();
 
                 egui::containers::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -73,21 +82,28 @@ impl OutputWindow {
 
     fn display_logs(&self, ui: &mut egui::Ui) {
         for log in &self.logs {
-            match log {
+            let rendered = match log {
                 OutputLog::Request(re) => self.display_request(ui, re),
                 OutputLog::Response(re) => self.display_response(ui, re),
-            }
+            };
 
-            ui.add_space(LOG_SPACING);
+            if rendered {
+                ui.add_space(LOG_SPACING);
+            }
         }
     }
 
-    fn display_request(&self, ui: &mut egui::Ui, request: &RequestContainer) {
+    fn display_request(&self, ui: &mut egui::Ui, request: &RequestContainer) -> bool {
         let str = format!("{request:#?}");
         ui.colored_label(REQUEST_COLOR, str);
+        true
     }
 
-    fn display_response(&self, ui: &mut egui::Ui, response: &ResponseContainer) {
+    fn display_response(&self, ui: &mut egui::Ui, response: &ResponseContainer) -> bool {
+        if self.is_ignored(response) {
+            return false;
+        }
+
         let str = format!("{response:#?}");
         let mut color = RESPONSE_COLOR;
 
@@ -98,6 +114,26 @@ impl OutputWindow {
         }
 
         ui.colored_label(color, str);
+
+        true
+    }
+
+    fn is_ignored(&self, response: &ResponseContainer) -> bool {
+        use response_container::Content;
+
+        if self.hide_room_change_events
+            && matches!(response.content, Some(Content::RoomChangeEvent(_)))
+        {
+            return true;
+        }
+
+        if self.hide_user_change_events
+            && matches!(response.content, Some(Content::UserChangeEvent(_)))
+        {
+            return true;
+        }
+
+        false
     }
 }
 
