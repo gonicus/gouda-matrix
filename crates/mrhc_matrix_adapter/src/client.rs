@@ -18,15 +18,11 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
 
-use crate::chat_cache::{
-    check_cached_enough, get_or_create_room, get_sequence_chunk, retry_decryption, CachedData,
-    MatrixRoomClient,
-};
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
-use crate::{errors, messages, rooms, user, utils};
+use crate::{chat_cache, errors, messages, rooms, user, utils};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -72,7 +68,7 @@ pub struct MatrixClient {
     /// is called, as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
     /// The chronologically-resolved room message cache
-    cached_data: Arc<RwLock<CachedData>>,
+    cached_data: Arc<RwLock<chat_cache::CachedData>>,
     /// The current active verification processes.
     verification_requests: Vec<VerificationManager>,
 }
@@ -214,7 +210,7 @@ impl MatrixClient {
     async fn restore_session(
         &self,
         ctx: ClientContext,
-        cached_data: Arc<RwLock<CachedData>>,
+        cached_data: Arc<RwLock<chat_cache::CachedData>>,
     ) -> Result<()> {
         let initialized_data = self.get_initialized_data()?;
 
@@ -1160,11 +1156,11 @@ impl ClientAbstraction for MatrixClient {
             }
         };
 
-        let cached_room = get_or_create_room(self.cached_data.clone(), &room_id)
+        let cached_room = chat_cache::get_or_create_room(self.cached_data.clone(), &room_id)
             .map_err(errors::convert_cache_error)?;
 
         loop {
-            let next_batch = check_cached_enough(
+            let next_batch = chat_cache::check_cached_enough(
                 &cached_room.clone(),
                 from_id.clone(),
                 limit,
@@ -1196,10 +1192,10 @@ impl ClientAbstraction for MatrixClient {
             }
         }
 
-        let room_client = MatrixRoomClient::new(&room);
+        let room_client = chat_cache::MatrixRoomClient::new(&room);
 
         // fetch events from sdk and assemble response
-        let seq = get_sequence_chunk(
+        let seq = chat_cache::get_sequence_chunk(
             &cached_room.clone(),
             from_id.clone(),
             limit,
@@ -1227,7 +1223,7 @@ impl ClientAbstraction for MatrixClient {
         let cached_data = self.cached_data.clone();
 
         tokio::spawn(async move {
-            let result = retry_decryption(
+            let result = chat_cache::retry_decryption(
                 seq.messages,
                 &room_id,
                 &room_client,
