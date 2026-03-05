@@ -1388,13 +1388,11 @@ async fn assemble_proto_message<T: RoomClient>(
         return Ok(None);
     }
 
-    if let Some(content) = get_latest_content(cached_msg.clone(), &tl_evt, room_client).await? {
-        result.content = Some(MessageContent::Text(MessageContentText { content }));
-    };
+    result.content = get_latest_content(cached_msg.clone(), &tl_evt, room_client)
+        .await?
+        .map(|content| MessageContent::Text(MessageContentText { content }));
 
-    if let Some(replied_to_id) = get_replied_to_id(&tl_evt).await? {
-        result.related_message_id = Some(replied_to_id.to_string());
-    }
+    result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
 
     Ok(Some(result))
 }
