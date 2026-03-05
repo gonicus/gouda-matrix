@@ -22,7 +22,7 @@ pub async fn send_text_message(
     related_message_id: Option<String>,
     content: MessageContentText,
 ) -> Result<MessageSendResponse> {
-    let mut event = RoomMessageEventContent::text_plain(content.content);
+    let mut event = RoomMessageEventContent::text_markdown(content.content);
 
     if let Some(related_message_id) = related_message_id {
         let metadata = generate_reply_metadata(&room, &related_message_id).await?;
