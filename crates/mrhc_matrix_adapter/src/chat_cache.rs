@@ -12,7 +12,7 @@ use matrix_sdk::ruma::events::room::message::{
 };
 use matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
+    AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions, OriginalSyncMessageLikeEvent,
     SyncMessageLikeEvent,
 };
 use matrix_sdk::ruma::serde::Raw;
@@ -26,6 +26,8 @@ use mrhc_proto::chat::{
     builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder,
 };
 use tokio::sync::mpsc;
+
+use crate::messages;
 
 pub type CachedData = HashMap<OwnedRoomId, Arc<RwLock<CachedChronoRoom>>>;
 
@@ -1394,6 +1396,8 @@ async fn assemble_proto_message<T: RoomClient>(
 
     result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
 
+    result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
+
     Ok(Some(result))
 }
 
@@ -1554,6 +1558,21 @@ async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId
     }
 
     Ok(None)
+}
+
+fn get_mentions(tl_evt: &TimelineEvent) -> Result<Option<Mentions>, CacheError> {
+    let (tl_evt, encrypted) = deserialize(tl_evt)?;
+
+    // Cannot read mentions of encrypted events
+    if encrypted {
+        return Ok(None);
+    }
+
+    let Some(orig_evt) = get_original_message_like_from_decrypted_any_sync_timeline(tl_evt) else {
+        return Ok(None);
+    };
+
+    Ok(orig_evt.content.mentions.clone())
 }
 
 async fn get_latest_accessible_replacement_content<T: RoomClient>(
