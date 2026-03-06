@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
     pub initialize: InitializationRequest,
+    pub login_username_password: LoginUsernamePasswordRequest,
     pub login_sso: LoginSsoRequest,
     pub recovery_key_verification: RecoveryKeyVerificationRequest,
     pub cross_signing_select_method: CrossSigningMethodSelectedRequest,

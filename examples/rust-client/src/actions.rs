@@ -41,6 +41,7 @@ pub enum Action {
     Initialize(Box<InitializationRequest>),
     LoginFlows,
     IdentityProviders,
+    LoginUsernamePassword(Box<LoginUsernamePasswordRequest>),
     LoginSso(Box<LoginSsoRequest>),
     RecoveryKeyVerification(Box<RecoveryKeyVerificationRequest>),
     CrossSigningStart(Box<CrossSigningStartRequest>),
@@ -73,6 +74,9 @@ impl Action {
             Self::Initialize(request) => run_initialize(tag, sender, *request),
             Self::LoginFlows => run_login_flows(tag, sender),
             Self::IdentityProviders => run_identity_providers(tag, sender),
+            Self::LoginUsernamePassword(request) => {
+                run_login_username_password(tag, sender, *request)
+            }
             Self::LoginSso(request) => run_login_sso(tag, sender, *request),
             Self::RecoveryKeyVerification(request) => {
                 run_recovery_key_verification(tag, sender, *request)
@@ -111,6 +115,7 @@ impl UiAttribute for Action {
             Self::Initialize(request) => request.update(ui),
             Self::LoginFlows => (),
             Self::IdentityProviders => (),
+            Self::LoginUsernamePassword(request) => request.update(ui),
             Self::LoginSso(request) => request.update(ui),
             Self::RecoveryKeyVerification(request) => request.update(ui),
             Self::CrossSigningStart(request) => request.update(ui),
@@ -153,6 +158,11 @@ fn send_request(sender: &mut SendHalf, request: RequestContainer) {
 impl_run!(run_initialize, InitializationRequest, InitializationRequest);
 impl_run!(run_login_flows, LoginFlowsRequest);
 impl_run!(run_identity_providers, IdentityProvidersRequest);
+impl_run!(
+    run_login_username_password,
+    LoginUsernamePasswordRequest,
+    LoginUsernamePasswordRequest
+);
 impl_run!(run_login_sso, LoginSsoRequest, LoginSsoRequest);
 impl_run!(
     run_recovery_key_verification,
