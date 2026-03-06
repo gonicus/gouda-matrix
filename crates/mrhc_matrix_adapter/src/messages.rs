@@ -17,6 +17,138 @@ use crate::chat_cache::{cache_room_messages_response, CachedData};
 use crate::media::MediaManager;
 use crate::{errors, media};
 
+macro_rules! download_file {
+    ($file:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+        let file_name = $file.filename.clone().unwrap_or($file.body.clone());
+
+        let result = $media_manager
+            .download_from_media_event_content(&$room, &$event_id, &$file, Some(&file_name))
+            .await;
+
+        match result {
+            Ok(path) => Some($dest_proto_message::Content::File(
+                mrhc_proto::chat::MessageContentFile {
+                    file_path: path,
+                    file_name: Some(file_name),
+                },
+            )),
+            Err(err) => {
+                log::error!("Error downloading attached file: {err}");
+                None
+            }
+        }
+    }};
+}
+
+macro_rules! download_image {
+    ($image:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+        let result = $media_manager
+            .download_from_media_event_content(
+                &$room,
+                &$event_id,
+                &$image,
+                $image.filename.as_deref().or(Some(&$image.body)),
+            )
+            .await;
+
+        match result {
+            Ok(path) => Some($dest_proto_message::Content::Image(
+                mrhc_proto::chat::MessageContentImage { image_path: path },
+            )),
+            Err(err) => {
+                log::error!("Error downloading attached image: {err}");
+                None
+            }
+        }
+    }};
+}
+
+macro_rules! convert_location {
+    ($location:expr, $dest_proto_message:ident) => {{
+        let msg = if let Some(content) = $location.location {
+            content.uri
+        } else {
+            $location.geo_uri
+        };
+
+        Some($dest_proto_message::Content::Text(
+            mrhc_proto::chat::MessageContentText { content: msg },
+        ))
+    }};
+}
+
+macro_rules! generate_message_content {
+    ($media_manager:expr, $room:expr, $event_id:expr, $msgtype:expr, $dest_proto_message:ident) => {
+        match $msgtype {
+            matrix_sdk::ruma::events::room::message::MessageType::Audio(audio) => {
+                messages::download_file!(
+                    audio,
+                    $media_manager,
+                    $room,
+                    $event_id,
+                    $dest_proto_message
+                )
+            }
+            matrix_sdk::ruma::events::room::message::MessageType::Emote(emote) => Some(
+                $dest_proto_message::Content::Text(mrhc_proto::chat::MessageContentText {
+                    content: emote.body,
+                }),
+            ),
+            matrix_sdk::ruma::events::room::message::MessageType::File(file) => {
+                messages::download_file!(
+                    file,
+                    $media_manager,
+                    $room,
+                    $event_id,
+                    $dest_proto_message
+                )
+            }
+            matrix_sdk::ruma::events::room::message::MessageType::Image(image) => {
+                messages::download_image!(
+                    image,
+                    $media_manager,
+                    $room,
+                    $event_id,
+                    $dest_proto_message
+                )
+            }
+            matrix_sdk::ruma::events::room::message::MessageType::Location(location) => {
+                messages::convert_location!(location, $dest_proto_message)
+            }
+            matrix_sdk::ruma::events::room::message::MessageType::Notice(notice) => Some(
+                $dest_proto_message::Content::Text(mrhc_proto::chat::MessageContentText {
+                    content: notice.body,
+                }),
+            ),
+            matrix_sdk::ruma::events::room::message::MessageType::ServerNotice(notice) => Some(
+                $dest_proto_message::Content::Text(mrhc_proto::chat::MessageContentText {
+                    content: notice.body,
+                }),
+            ),
+            matrix_sdk::ruma::events::room::message::MessageType::Text(text) => Some(
+                $dest_proto_message::Content::Text(mrhc_proto::chat::MessageContentText {
+                    content: text.body.to_string(),
+                }),
+            ),
+            matrix_sdk::ruma::events::room::message::MessageType::Video(video) => {
+                messages::download_file!(
+                    video,
+                    $media_manager,
+                    $room,
+                    $event_id,
+                    $dest_proto_message
+                )
+            }
+            _ => {
+                log::warn!("Unsupported message type");
+                None
+            }
+        }
+    };
+}
+
+pub(crate) use {convert_location, download_file, download_image, generate_message_content};
+
 pub async fn send_text_message(
     room: Room,
     related_message_id: Option<String>,

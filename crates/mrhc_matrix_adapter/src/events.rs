@@ -12,7 +12,7 @@ use matrix_sdk::ruma::events::room::member::{
     Change, MembershipChange, MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent,
 };
 use matrix_sdk::ruma::events::room::message::{
-    MessageType, OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContentWithoutRelation,
+    OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContentWithoutRelation,
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
@@ -59,111 +59,6 @@ macro_rules! skip_historical_event {
         if is_historical_event($event.origin_server_ts) {
             log::debug!("Ignoring event as it is older than {HISTORICAL_EVENT_TIMEOUT} seconds");
             return;
-        }
-    };
-}
-
-macro_rules! generate_message_content {
-    ($media_manager:expr, $room:expr, $event_id:expr, $content:expr, $dest_proto_message:ident) => {
-        match $content.msgtype {
-            MessageType::Audio(audio) => {
-                let file_name = audio.filename.clone().unwrap_or(audio.body.clone());
-                let path = unwrap_or_log_return!(
-                    $media_manager
-                        .download_from_media_event_content(
-                            &$room,
-                            &$event_id,
-                            &audio,
-                            Some(&file_name)
-                        )
-                        .await,
-                    "Error downloading attached audio"
-                );
-                $dest_proto_message::Content::File(MessageContentFile {
-                    file_path: path,
-                    file_name: Some(file_name),
-                })
-            }
-            MessageType::Emote(emote) => $dest_proto_message::Content::Text(MessageContentText {
-                content: emote.body,
-            }),
-            MessageType::File(file) => {
-                let file_name = file.filename.clone().unwrap_or(file.body.clone());
-                let path = unwrap_or_log_return!(
-                    $media_manager
-                        .download_from_media_event_content(
-                            &$room,
-                            &$event_id,
-                            &file,
-                            Some(&file_name)
-                        )
-                        .await,
-                    "Error downloading attached file"
-                );
-                $dest_proto_message::Content::File(MessageContentFile {
-                    file_path: path,
-                    file_name: Some(file_name),
-                })
-            }
-            MessageType::Image(image) => {
-                let path = unwrap_or_log_return!(
-                    $media_manager
-                        .download_from_media_event_content(
-                            &$room,
-                            &$event_id,
-                            &image,
-                            image.filename.as_deref().or(Some(&image.body))
-                        )
-                        .await,
-                    "Error downloading attached image"
-                );
-                $dest_proto_message::Content::Image(MessageContentImage { image_path: path })
-            }
-            MessageType::Location(location) => {
-                let msg = if let Some(content) = location.location {
-                    content.uri
-                } else {
-                    location.geo_uri
-                };
-
-                $dest_proto_message::Content::Text(MessageContentText { content: msg })
-            }
-            MessageType::Notice(notice) => $dest_proto_message::Content::Text(MessageContentText {
-                content: notice.body,
-            }),
-            MessageType::ServerNotice(notice) => {
-                $dest_proto_message::Content::Text(MessageContentText {
-                    content: notice.body,
-                })
-            }
-            MessageType::Text(text) => {
-                let content = text.body.strip_prefix("* ").unwrap_or(text.body.as_str());
-                $dest_proto_message::Content::Text(MessageContentText {
-                    content: content.to_string(),
-                })
-            }
-            MessageType::Video(video) => {
-                let file_name = video.filename.clone().unwrap_or(video.body.clone());
-                let path = unwrap_or_log_return!(
-                    $media_manager
-                        .download_from_media_event_content(
-                            &$room,
-                            &$event_id,
-                            &video,
-                            Some(&file_name)
-                        )
-                        .await,
-                    "Error downloading attached video"
-                );
-                $dest_proto_message::Content::File(MessageContentFile {
-                    file_path: path,
-                    file_name: Some(file_name),
-                })
-            }
-            _ => {
-                log::warn!("Unsupported message type");
-                return;
-            }
         }
     };
 }
@@ -839,18 +734,26 @@ impl EventExecutor {
         let related_message_id = get_related_message_id(&event);
         let mentioned_user_ids = messages::convert_mentions(&event.content.mentions);
 
+        let content = messages::generate_message_content!(
+            self.media_manager,
+            room,
+            event.event_id,
+            event.content.msgtype,
+            message
+        );
+
+        // Error when retreving the messages content.
+        // Sending a Message without content is not allowed, so we will return early.
+        let Some(content) = content else {
+            return;
+        };
+
         let proto = Message {
             message_id: event.event_id.to_string(),
             room_id: room.room_id().to_string(),
             sender_id: event.sender.to_string(),
             timestamp: event.origin_server_ts.get().into(),
-            content: Some(generate_message_content!(
-                self.media_manager,
-                room,
-                event.event_id,
-                event.content,
-                message
-            )),
+            content: Some(content),
             related_message_id,
             is_pinned: false,
             is_encrypted: false,
@@ -870,13 +773,19 @@ impl EventExecutor {
         let original_message_id = relation.event_id.to_string();
         let mentions = messages::convert_mentions(&relation.new_content.mentions);
 
-        let content = generate_message_content!(
+        let content = messages::generate_message_content!(
             self.media_manager,
             room,
             relation.event_id,
-            relation.new_content,
+            relation.new_content.msgtype,
             message_change_event
         );
+
+        // Error when retreving the messages content.
+        // Sending a Message without content is not allowed, so we will return early.
+        let Some(content) = content else {
+            return;
+        };
 
         let proto = builder::MessageChangeEventBuilder::new(room.room_id(), original_message_id)
             .change_content(content)

@@ -7,9 +7,7 @@ use js_int::UInt;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, Relation as EncryptionRelation,
 };
-use matrix_sdk::ruma::events::room::message::{
-    MessageType, Relation, RoomMessageEventContent, TextMessageEventContent,
-};
+use matrix_sdk::ruma::events::room::message::{MessageType, Relation, RoomMessageEventContent};
 use matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::{
     AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions, OriginalSyncMessageLikeEvent,
@@ -19,14 +17,16 @@ use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use mrhc_core::ClientContext;
-use mrhc_proto::chat::message::Content as MessageContent;
+use mrhc_proto::chat::message::{self, Content as MessageContent};
 use mrhc_proto::chat::message_change_event::Content as MessageChangeContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
     builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder,
 };
+use ruma_common::EventId;
 use tokio::sync::mpsc;
 
+use crate::media::MediaManager;
 use crate::messages;
 
 pub type CachedData = HashMap<OwnedRoomId, Arc<RwLock<CachedChronoRoom>>>;
@@ -1390,9 +1390,9 @@ async fn assemble_proto_message<T: RoomClient>(
         return Ok(None);
     }
 
-    result.content = get_latest_content(cached_msg.clone(), &tl_evt, room_client)
-        .await?
-        .map(|content| MessageContent::Text(MessageContentText { content }));
+    if let Some(content) = get_latest_content(cached_msg.clone(), &tl_evt, room_client).await? {
+        result.content = Some(room_client.get_content(&id, content).await?);
+    };
 
     result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
 
@@ -1470,7 +1470,7 @@ async fn get_latest_content<T: RoomClient>(
     msg: Arc<RwLock<Option<CachedMessage>>>,
     tl_evt: &TimelineEvent,
     room_client: &T,
-) -> Result<Option<String>, CacheError> {
+) -> Result<Option<MessageType>, CacheError> {
     let replacement_relations = get_relations(msg.clone(), &RelationType::Replacement)?;
 
     let mut replacements = BTreeMap::new();
@@ -1490,23 +1490,21 @@ async fn get_latest_content<T: RoomClient>(
     }
 
     if replacements.is_empty() {
-        let body = get_content_body(tl_evt)?;
+        let content = get_message_type(tl_evt)?;
 
-        return Ok(body);
+        return Ok(content);
     }
 
     if let Some(content) =
         get_latest_accessible_replacement_content(replacements, room_client).await?
     {
-        let body = content.body.clone();
-
-        return Ok(Some(body));
+        return Ok(Some(content));
     }
 
     Ok(None)
 }
 
-fn get_content_body(tl_evt: &TimelineEvent) -> Result<Option<String>, CacheError> {
+fn get_message_type(tl_evt: &TimelineEvent) -> Result<Option<MessageType>, CacheError> {
     let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     if encrypted {
@@ -1517,7 +1515,7 @@ fn get_content_body(tl_evt: &TimelineEvent) -> Result<Option<String>, CacheError
         return Ok(None);
     };
 
-    Ok(Some(orig_evt.content.body().to_string()))
+    Ok(Some(orig_evt.content.msgtype))
 }
 
 fn get_original_message_like_from_decrypted_any_sync_timeline(
@@ -1578,7 +1576,7 @@ fn get_mentions(tl_evt: &TimelineEvent) -> Result<Option<Mentions>, CacheError> 
 async fn get_latest_accessible_replacement_content<T: RoomClient>(
     mut replacements: BTreeMap<u64, Arc<RwLock<Option<CachedMessage>>>>,
     room_client: &T,
-) -> Result<Option<TextMessageEventContent>, CacheError> {
+) -> Result<Option<MessageType>, CacheError> {
     while let Some((_, latest_replacement)) = replacements.last_key_value() {
         let repl_id = OwnedEventId::try_from(
             latest_replacement
@@ -1631,15 +1629,7 @@ async fn get_latest_accessible_replacement_content<T: RoomClient>(
             continue;
         };
 
-        let MessageType::Text(content) = &replacement.new_content.msgtype else {
-            // so far, only text-messages are supported.
-            // Are replacements even possible for other types?!
-            log::warn!("Replacement event is other than m.text: {repl_id}");
-            replacements.pop_last();
-            continue;
-        };
-
-        return Ok(Some(content.clone()));
+        return Ok(Some(replacement.new_content.msgtype.clone()));
     }
 
     Ok(None)
@@ -1960,18 +1950,26 @@ pub trait RoomClient {
 
     async fn try_fresh_decrypt(&self, tl_event: &TimelineEvent) -> Option<AnySyncTimelineEvent>;
 
+    async fn get_content(
+        &self,
+        message_id: &EventId,
+        message_type: MessageType,
+    ) -> Result<message::Content, CacheError>;
+
     fn room_id(&self) -> String;
 }
 
 #[derive(Clone)]
 pub struct MatrixRoomClient {
     room_client: matrix_sdk::Room,
+    media_manager: MediaManager,
 }
 
 impl MatrixRoomClient {
-    pub fn new(room_client: &matrix_sdk::Room) -> MatrixRoomClient {
+    pub fn new(room_client: &matrix_sdk::Room, media_manager: MediaManager) -> MatrixRoomClient {
         MatrixRoomClient {
             room_client: room_client.clone(),
+            media_manager,
         }
     }
 }
@@ -2037,6 +2035,21 @@ impl RoomClient for MatrixRoomClient {
         }
     }
 
+    async fn get_content(
+        &self,
+        message_id: &EventId,
+        message_type: MessageType,
+    ) -> Result<message::Content, CacheError> {
+        messages::generate_message_content!(
+            self.media_manager,
+            self.room_client,
+            message_id,
+            message_type,
+            message
+        )
+        .ok_or(CacheError::Unexpected)
+    }
+
     fn room_id(&self) -> String {
         self.room_client.room_id().to_string()
     }
@@ -2093,6 +2106,16 @@ mod tests {
 
         async fn try_fresh_decrypt(&self, _: &TimelineEvent) -> Option<AnySyncTimelineEvent> {
             self.try_fresh_decrypt_result.clone()
+        }
+
+        async fn get_content(
+            &self,
+            _message_id: &EventId,
+            _message_type: MessageType,
+        ) -> Result<message::Content, CacheError> {
+            Ok(message::Content::Text(MessageContentText {
+                content: "Hello World".to_owned(),
+            }))
         }
 
         fn room_id(&self) -> String {
