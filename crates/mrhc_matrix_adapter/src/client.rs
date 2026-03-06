@@ -1112,6 +1112,8 @@ impl ClientAbstraction for MatrixClient {
         ctx: &ClientContext,
         request: &RoomMessagesRequest,
     ) -> Result<RoomMessagesResponse> {
+        let InitializedData { media_manager, .. } = self.get_initialized_data()?;
+
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
         let room_id = OwnedRoomId::try_from(request.room_id.as_str())
             .map_err(|_| errors::create_unknown("invalid room id"))?;
@@ -1192,7 +1194,7 @@ impl ClientAbstraction for MatrixClient {
             }
         }
 
-        let room_client = chat_cache::MatrixRoomClient::new(&room);
+        let room_client = chat_cache::MatrixRoomClient::new(&room, media_manager.clone());
 
         // fetch events from sdk and assemble response
         let seq = chat_cache::get_sequence_chunk(
