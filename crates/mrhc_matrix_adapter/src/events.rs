@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::deserialized_responses::TimelineEventKind;
@@ -33,7 +34,7 @@ use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
-use crate::{messages, rooms, unwrap_or_log_return, user};
+use crate::{messages, rooms, unwrap_or_log_return, unwrap_or_log_return_option, user};
 
 // After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -86,18 +87,30 @@ pub struct EventManager {
     media_manager: MediaManager,
     /// Sender to send requested actions to the event executor.
     action_sender: UnboundedSender<Action>,
+    /// Tracked reactions
+    pub reaction_tracker: Arc<RwLock<ReactionTracker>>,
 }
 
 impl EventManager {
     pub fn new(client: Client, ctx: ClientContext, media_manager: MediaManager) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        EventExecutor::new(client, ctx, rx, media_manager.clone()).run();
-
-        Self {
-            media_manager,
+        let manager = Self {
+            media_manager: media_manager.clone(),
             action_sender: tx,
-        }
+            reaction_tracker: Arc::new(RwLock::new(ReactionTracker::new())),
+        };
+
+        EventExecutor::new(
+            client,
+            ctx,
+            rx,
+            media_manager,
+            manager.reaction_tracker.clone(),
+        )
+        .run();
+
+        manager
     }
 
     /// Setup all event handlers and begin tracking and processing of incoming events.
@@ -253,8 +266,8 @@ enum Action {
     },
 }
 
-#[derive(Debug)]
-struct Reaction {
+#[derive(Debug, Clone)]
+pub struct Reaction {
     pub event_id: String,
     pub room_id: String,
     pub message_id: String,
@@ -262,6 +275,42 @@ struct Reaction {
     pub emoji: String,
 }
 
+impl From<Reaction> for mrhc_proto::chat::Reaction {
+    fn from(reaction_event: Reaction) -> Self {
+        Self {
+            room_id: reaction_event.room_id,
+            message_id: reaction_event.message_id,
+            reaction: reaction_event.emoji,
+            user_id: Some(reaction_event.user_id),
+        }
+    }
+}
+
+pub struct ReactionTracker {
+    pub(crate) tracked: Vec<Reaction>,
+}
+
+impl ReactionTracker {
+    pub fn new() -> Self {
+        Self { tracked: vec![] }
+    }
+
+    pub fn track_reaction(&mut self, reaction: Reaction) {
+        log::debug!("Tracking reaction: {reaction:?}");
+        self.tracked.push(reaction);
+    }
+
+    pub fn untrack_reaction(&mut self, id: &str) -> Option<Reaction> {
+        log::debug!("Untracking reaction: {id}");
+
+        let Some(pos) = self.tracked.iter().position(|p| p.event_id == id) else {
+            log::warn!("Unable to find reaction in tracked reactions");
+            return None;
+        };
+
+        Some(self.tracked.remove(pos))
+    }
+}
 #[derive(Debug, PartialEq, Eq)]
 struct UserChange {
     pub displayname: Option<String>,
@@ -316,8 +365,8 @@ struct EventExecutor {
     ctx: ClientContext,
     recv: UnboundedReceiver<Action>,
     media_manager: MediaManager,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 
-    reactions: Vec<Reaction>,
     user_changes: HashMap<String, UserChange>,
     room_changes: HashMap<String, RoomChangeEvent>,
 }
@@ -328,14 +377,15 @@ impl EventExecutor {
         ctx: ClientContext,
         recv: UnboundedReceiver<Action>,
         media_manager: MediaManager,
+        reaction_tracker: Arc<RwLock<ReactionTracker>>,
     ) -> Self {
         Self {
             client,
             ctx,
             recv,
             media_manager,
+            reaction_tracker,
 
-            reactions: Vec::new(),
             user_changes: HashMap::new(),
             room_changes: HashMap::new(),
         }
@@ -379,20 +429,20 @@ impl EventExecutor {
         }
     }
 
-    fn track_reaction(&mut self, reaction: Reaction) {
-        log::debug!("Tracking reaction: {reaction:?}");
-        self.reactions.push(reaction);
+    fn track_reaction(&self, reaction: Reaction) {
+        let mut writer = unwrap_or_log_return!(
+            self.reaction_tracker.write(),
+            "ReactionTracker lock poisoned"
+        );
+        writer.track_reaction(reaction);
     }
 
-    fn untrack_reaction(&mut self, id: &str) -> Option<Reaction> {
-        log::debug!("Untracking reaction: {id}");
-
-        let Some(pos) = self.reactions.iter().position(|p| p.event_id == id) else {
-            log::warn!("Unable to find reaction in tracked reactions");
-            return None;
-        };
-
-        Some(self.reactions.remove(pos))
+    fn untrack_reaction(&self, id: &str) -> Option<Reaction> {
+        let mut writer = unwrap_or_log_return_option!(
+            self.reaction_tracker.write(),
+            "ReactionTracker lock poisoned"
+        );
+        writer.untrack_reaction(id)
     }
 
     fn track_user_change(&mut self, user_id: impl Into<String>, change: UserChange) {

@@ -18,7 +18,7 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
 
-use crate::events::EventManager;
+use crate::events::{EventManager, ReactionTracker};
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::VerificationManager;
@@ -93,6 +93,13 @@ impl MatrixClient {
         })?;
 
         Ok(data)
+    }
+
+    /// Returns a clone of the event manager's reaction tracker if the client has been initialized.
+    /// An error is returned if the client has not yet been initialized.
+    fn get_reaction_tracker(&self) -> Result<Arc<RwLock<ReactionTracker>>> {
+        let data = self.get_initialized_data()?;
+        Ok(data.event_manager.reaction_tracker.clone())
     }
 
     /// Returns the initialized data if it has been initialized with `Self::initialize`.
@@ -1196,6 +1203,8 @@ impl ClientAbstraction for MatrixClient {
 
         let room_client = chat_cache::MatrixRoomClient::new(&room, media_manager.clone());
 
+        let reaction_tracker = self.get_reaction_tracker()?;
+
         // fetch events from sdk and assemble response
         let seq = chat_cache::get_sequence_chunk(
             &cached_room.clone(),
@@ -1204,6 +1213,7 @@ impl ClientAbstraction for MatrixClient {
             order,
             skip_first,
             &room_client,
+            reaction_tracker.clone(),
         )
         .await
         .map_err(|err| mrhc_proto::chat::Error {
@@ -1232,6 +1242,7 @@ impl ClientAbstraction for MatrixClient {
                 cached_data,
                 key_change_rx,
                 &ctx,
+                reaction_tracker.clone(),
             )
             .await;
 
