@@ -4,6 +4,9 @@ use std::fmt;
 use std::sync::{Arc, RwLock, Weak};
 
 use js_int::UInt;
+use matrix_sdk::room::{IncludeRelations, Relations as MatrixRelations, RelationsOptions};
+use matrix_sdk::ruma::api::Direction;
+use matrix_sdk::ruma::events::relation::RelationType as MatrixRelationType;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, Relation as EncryptionRelation,
 };
@@ -21,11 +24,12 @@ use mrhc_proto::chat::message::{self, Content as MessageContent};
 use mrhc_proto::chat::message_change_event::Content as MessageChangeContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder,
+    builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder, Reaction,
 };
 use ruma_common::EventId;
 use tokio::sync::mpsc;
 
+use crate::events::{Reaction as ReactionEvent, ReactionTracker};
 use crate::media::MediaManager;
 use crate::messages;
 
@@ -936,6 +940,7 @@ pub enum CacheError {
     DeserializationFailed,
     EventFetchFailed,
     InvalidEventId,
+    ReactionTrackerPoisoned,
     UncachedMessageAccess,
     UncachedSequenceAccess,
     UncachedRoomAccess,
@@ -958,6 +963,9 @@ impl fmt::Display for CacheError {
             }
             CacheError::EventFetchFailed => write!(f, "failed to fetch event from SDK"),
             CacheError::InvalidEventId => write!(f, "id is not a valid matrix event id"),
+            CacheError::ReactionTrackerPoisoned => {
+                write!(f, "reaction tracker has been poisoned and may be invalid")
+            }
             CacheError::UncachedMessageAccess => write!(f, "attempt to access an unknown message"),
             CacheError::UncachedSequenceAccess => {
                 write!(f, "attempt to access an unknown message sequence")
@@ -1043,9 +1051,8 @@ pub fn cache_sync_response(
 }
 
 /// Takes the response of a room-messages request to the matrix_sdk
-/// and appends it to an existing CachedChronoSequence in the CachedChronoRoom specified by
-/// the response if applicable, otherwise appends a new CachedChronoSequence to
-/// the CachedChronoRoom
+/// and appends it to a `CachedChronoRoom` specified by `room_id`
+/// Will create a new `CachedChronoRoom` if necessary
 pub fn cache_room_messages_response(
     cache: Arc<RwLock<CachedData>>,
     response: &matrix_sdk::room::Messages,
@@ -1072,9 +1079,8 @@ pub fn cache_room_messages_response(
 }
 
 /// Takes the response of a room-messages request to the matrix_sdk
-/// and appends it to an existing CachedChronoSequence in the
-/// `CachedChronoRoom` specified by `room` and `room_id`.
-pub fn cache_room_messages_response_to_room(
+/// and appends it to a `CachedChronoRoom` specified by `room` and `room_id`.
+fn cache_room_messages_response_to_room(
     room: Arc<RwLock<CachedChronoRoom>>,
     response: &matrix_sdk::room::Messages,
     chronological: bool,
@@ -1111,7 +1117,7 @@ pub fn cache_room_messages_response_to_room(
     Ok(())
 }
 
-pub fn unlinked_from_timeline(
+fn unlinked_from_timeline(
     events: &Vec<TimelineEvent>,
     next_token: Option<&str>,
     prev_token: Option<&str>,
@@ -1194,8 +1200,16 @@ async fn try_append_message<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     current_id: &OwnedEventId,
     room_client: &T,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) {
-    match assemble_proto_message(cached_room.clone(), current_id.clone(), room_client).await {
+    match assemble_proto_message(
+        cached_room.clone(),
+        current_id.clone(),
+        room_client,
+        reaction_tracker,
+    )
+    .await
+    {
         Ok(Some(proto_msg)) => result.push(proto_msg),
         Ok(None) => {}
         Err(err) => {
@@ -1256,6 +1270,7 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     order: MessagesOrder,
     skip_first: bool,
     room_client: &T,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) -> Result<SequenceChunkResult, CacheError> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
@@ -1282,7 +1297,14 @@ pub async fn get_sequence_chunk<T: RoomClient>(
 
         // Skip the starting message when the caller provided an explicit from_id
         if !skip_first || current_id != from_id {
-            try_append_message(&mut result, cached_room, &current_id, room_client).await;
+            try_append_message(
+                &mut result,
+                cached_room,
+                &current_id,
+                room_client,
+                reaction_tracker.clone(),
+            )
+            .await;
         }
 
         let need_more = result.len() < limit;
@@ -1360,6 +1382,7 @@ async fn assemble_proto_message<T: RoomClient>(
     cached_room: Arc<RwLock<CachedChronoRoom>>,
     id: OwnedEventId,
     room_client: &T,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) -> Result<Option<Message>, CacheError> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
@@ -1385,7 +1408,7 @@ async fn assemble_proto_message<T: RoomClient>(
     }
 
     // Return on replacement, redaction and reaction events -- they are handled in conjunction
-    // with their parent event. Threads are normal displayable messages and thus
+    // with their parent event. Threads are normal displayable messages and thus excluded from this distinction
     if is_relation(cached_msg.clone())? && !is_thread(cached_msg.clone())? {
         return Ok(None);
     }
@@ -1398,7 +1421,76 @@ async fn assemble_proto_message<T: RoomClient>(
 
     result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
 
+    let reactions = collect_reactions_to_event(id, room_client, reaction_tracker).await?;
+
+    result.reactions = reactions;
+
     Ok(Some(result))
+}
+
+async fn collect_reactions_to_event<T: RoomClient>(
+    id: OwnedEventId,
+    room_client: &T,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+) -> Result<Vec<Reaction>, CacheError> {
+    // TODO: This will be expensive to do for every single event. Its ok to do so in
+    // a first approach. For efficiency reasons we should proceed as follows:
+    // 1. check if the message belongs to the latest sequence of the room.
+    //   If so, we can fully deduce the reactions from the chat cache - we
+    //   also want to cache the reaction key then.
+    // 2. if not, we must assume that we have uncached reactions. In this case
+    //   we need to call the Room::relations() method
+    let reactions = room_client.query_reactions_to_event(id).await?;
+    let result =
+        reactions_from_matrix_relations(reactions, room_client.room_id(), reaction_tracker)?;
+
+    Ok(result)
+}
+
+fn reactions_from_matrix_relations(
+    relations: MatrixRelations,
+    room_id: String,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+) -> Result<Vec<Reaction>, CacheError> {
+    let mut reactions = vec![];
+    for rel in relations.chunk {
+        let tl_evt = match try_deserialize_evt(&rel) {
+            Some(ev) => ev,
+            None => continue,
+        };
+
+        // Check if it's a reaction event
+        if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Reaction(
+            SyncMessageLikeEvent::Original(orig),
+        )) = tl_evt
+        {
+            // extract relation content
+            let reaction_content = &orig.content;
+            let related_event_id = reaction_content.relates_to.event_id.to_string();
+            let reaction_key = reaction_content.relates_to.key.clone();
+
+            // Create the Reaction event for tracking
+            let reaction_event = ReactionEvent {
+                event_id: orig.event_id.into(),
+                room_id: room_id.clone(),
+                message_id: related_event_id,
+                user_id: orig.sender.to_string(),
+                emoji: reaction_key,
+            };
+
+            let mut reaction_tracker_w = reaction_tracker
+                .write()
+                .map_err(|_| CacheError::ReactionTrackerPoisoned)?;
+            reaction_tracker_w.track_reaction(reaction_event.clone());
+
+            // Create the Reaction protobuf message
+            let reaction = reaction_event.into();
+
+            reactions.push(reaction);
+        }
+    }
+
+    Ok(reactions)
 }
 
 fn check_message_assembly(
@@ -1665,6 +1757,7 @@ pub async fn retry_decryption<T: RoomClient>(
     cached_data: Arc<RwLock<CachedData>>,
     mut key_change_rx: mpsc::Receiver<()>,
     ctx: &ClientContext,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) -> Result<(), CacheError> {
     let Some(mut messages) = messages_opt else {
         return Ok(());
@@ -1702,6 +1795,7 @@ pub async fn retry_decryption<T: RoomClient>(
             room_client,
             cached_room.clone(),
             ctx,
+            reaction_tracker,
         ),
     )
     .await;
@@ -1730,6 +1824,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     room_client: &T,
     room: Arc<RwLock<CachedChronoRoom>>,
     ctx: &ClientContext,
+    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) -> Result<usize, CacheError> {
     let mut decrypted_count = 0;
 
@@ -1767,7 +1862,14 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
 
             log::info!("Successfully decrypted event {id} on retry!");
 
-            match assemble_proto_message(room.clone(), id.clone(), room_client).await? {
+            match assemble_proto_message(
+                room.clone(),
+                id.clone(),
+                room_client,
+                reaction_tracker.clone(),
+            )
+            .await?
+            {
                 Some(msg) => {
                     if msg.is_encrypted {
                         log::warn!("Event {id} still encrypted");
@@ -1844,13 +1946,6 @@ fn deserialize(tl_event: &TimelineEvent) -> Result<(AnySyncTimelineEvent, bool),
                 info.session_id,
                 info.reason
             );
-
-            // TODO: remove when async retry works
-            // // Try fresh decryption using Room::decrypt_event
-            // if let Some(decrypted) = self.try_fresh_decrypt(&event).await {
-            //     log::info!("Successfully decrypted event {id} on retry!");
-            //     return Ok((decrypted, false));
-            // }
 
             is_encrypted = true;
             event
@@ -1950,6 +2045,11 @@ pub trait RoomClient {
 
     async fn try_fresh_decrypt(&self, tl_event: &TimelineEvent) -> Option<AnySyncTimelineEvent>;
 
+    async fn query_reactions_to_event(
+        &self,
+        id: OwnedEventId,
+    ) -> Result<MatrixRelations, CacheError>;
+
     async fn get_content(
         &self,
         message_id: &EventId,
@@ -2035,6 +2135,27 @@ impl RoomClient for MatrixRoomClient {
         }
     }
 
+    async fn query_reactions_to_event(
+        &self,
+        id: OwnedEventId,
+    ) -> Result<MatrixRelations, CacheError> {
+        let opts = RelationsOptions {
+            dir: Direction::Forward,
+            limit: Some(UInt::from(20u32)), // should be enough for now - TODO: replace with iteration
+            include_relations: IncludeRelations::RelationsOfType(MatrixRelationType::Annotation),
+            recurse: false,
+            ..Default::default()
+        };
+
+        let relations = self
+            .room_client
+            .relations(id, opts)
+            .await
+            .map_err(|_| CacheError::EventFetchFailed)?;
+
+        Ok(relations)
+    }
+
     async fn get_content(
         &self,
         message_id: &EventId,
@@ -2067,6 +2188,7 @@ mod tests {
         fetch_room_messages_at_edge_result: Result<Option<OwnedEventId>, CacheError>,
         fetch_result: Result<TimelineEvent, CacheError>,
         try_fresh_decrypt_result: Option<AnySyncTimelineEvent>,
+        query_reactions_to_event_result: Result<MatrixRelations, CacheError>,
     }
 
     impl MockRoomClient {
@@ -2083,18 +2205,43 @@ mod tests {
                 }
             });
 
+            let matrix_relations = MatrixRelations {
+                chunk: vec![],
+                prev_batch_token: None,
+                next_batch_token: None,
+                recursion_depth: None,
+            };
+
             let raw = Raw::from_json_string(serde_json::to_string(&event_json).unwrap()).unwrap();
             let event = TimelineEvent::from_plaintext(raw);
             let fetch_result: Result<TimelineEvent, CacheError> = Ok(event);
 
             let event: AnySyncTimelineEvent = serde_json::from_value(event_json.clone()).unwrap();
             let try_fresh_decrypt_result = Some(event);
+            let query_reactions_to_event_result = Ok(matrix_relations);
 
             MockRoomClient {
                 room_id_result: "!000000000000000000:example.org".to_string(),
                 fetch_room_messages_at_edge_result: fetch_room_messages_at_edge_result,
                 fetch_result: fetch_result,
                 try_fresh_decrypt_result: try_fresh_decrypt_result,
+                query_reactions_to_event_result: query_reactions_to_event_result,
+            }
+        }
+
+        fn get_clone_query_reactions_to_event_result(&self) -> Result<MatrixRelations, CacheError> {
+            match &self.query_reactions_to_event_result {
+                Ok(self_rel) => {
+                    let rel = MatrixRelations {
+                        chunk: self_rel.chunk.clone(),
+                        prev_batch_token: self_rel.prev_batch_token.clone(),
+                        next_batch_token: self_rel.next_batch_token.clone(),
+                        recursion_depth: self_rel.recursion_depth.clone(),
+                    };
+
+                    Ok(rel)
+                }
+                Err(err) => Err(err.clone()),
             }
         }
     }
@@ -2106,6 +2253,13 @@ mod tests {
 
         async fn try_fresh_decrypt(&self, _: &TimelineEvent) -> Option<AnySyncTimelineEvent> {
             self.try_fresh_decrypt_result.clone()
+        }
+
+        async fn query_reactions_to_event(
+            &self,
+            _: OwnedEventId,
+        ) -> Result<MatrixRelations, CacheError> {
+            self.get_clone_query_reactions_to_event_result()
         }
 
         async fn get_content(
@@ -2123,6 +2277,12 @@ mod tests {
         }
     }
 
+    impl ReactionTracker {
+        pub fn get_tracked_reactions(&self) -> &Vec<ReactionEvent> {
+            &self.tracked
+        }
+    }
+
     struct SetupData {
         prefilled_room: CachedChronoRoom,
         msgs0: Vec<UnlinkedMessage>, // prefilled
@@ -2133,6 +2293,7 @@ mod tests {
         msgs5: Vec<UnlinkedMessage>, // prefilled - but with shuffled_order
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
+        reaction_tracker: Arc<RwLock<ReactionTracker>>,
     }
 
     fn new_setup() -> SetupData {
@@ -2348,6 +2509,7 @@ mod tests {
             msgs5: msgs5,
             msg_after: msg_after,
             room_client: MockRoomClient::new(),
+            reaction_tracker: Arc::new(RwLock::new(ReactionTracker::new())),
         }
     }
 
@@ -2438,6 +2600,31 @@ mod tests {
         let chrono_sequence = make_chrono_sequence(start, count);
 
         room.chrono_sequences.push(chrono_sequence);
+    }
+
+    fn set_relation(
+        room: &mut CachedChronoRoom,
+        relation_type: RelationType,
+        child: usize,
+        parent: usize,
+    ) {
+        let sequence = room
+            .chrono_sequences
+            .iter_mut()
+            .find(|seq| {
+                seq.messages
+                    .contains_key(&OwnedEventId::try_from(test_id(parent)).unwrap())
+            })
+            .expect("Parent message not found in any sequence");
+
+        let parent_msg =
+            sequence.messages[&OwnedEventId::try_from(test_id(parent)).unwrap()].clone();
+        let child_msg = sequence.messages[&OwnedEventId::try_from(test_id(child)).unwrap()].clone();
+
+        child_msg.write().unwrap().as_mut().unwrap().rel_to = parent_msg.clone();
+        child_msg.write().unwrap().as_mut().unwrap().rel_type = Some(relation_type);
+
+        parent_msg.write().unwrap().as_mut().unwrap().rel_by = vec![Arc::downgrade(&child_msg)];
     }
 
     fn make_cached_message(id: impl Into<String>, timestamp: u64) -> CachedMessage {
@@ -2817,6 +3004,7 @@ mod tests {
             MessagesOrder::Forward,
             true,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2845,6 +3033,7 @@ mod tests {
             MessagesOrder::Forward,
             false,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2872,6 +3061,7 @@ mod tests {
             MessagesOrder::Forward,
             true,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2898,6 +3088,7 @@ mod tests {
             MessagesOrder::Backward,
             true,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2924,6 +3115,7 @@ mod tests {
             MessagesOrder::Backward,
             true,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2953,6 +3145,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -2985,6 +3178,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -3017,6 +3211,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
+            setup.reaction_tracker.clone(),
         )
         .await
         .unwrap();
@@ -3029,5 +3224,85 @@ mod tests {
         assert_eq!(messages[0].message_id, test_id(8));
         assert_eq!(messages[1].message_id, test_id(5));
         assert_eq!(messages[2].message_id, test_id(4));
+    }
+
+    #[tokio::test]
+    async fn test_get_sequence_chunk_with_reactions() {
+        // Arrange
+        let mut setup = new_setup();
+        let mut room = make_cached_chrono_room(1, 3);
+
+        // no effect yet - only after reactions are compiled from cache where possible
+        set_relation(&mut room, RelationType::Reaction, 2, 1);
+
+        let room_arc = Arc::new(RwLock::new(room));
+
+        // Create a reaction event for test_id(2)
+        let event_json = json!({
+            "type": "m.reaction",
+            "event_id": "$reaction000000000000000000000000000000000001:example.org",
+            "sender": "@user2:example.org",
+            "origin_server_ts": 1500,
+            "content": {
+                "m.relates_to": {
+                    "event_id": "$event000000000000000000000000000000000000001:example.org",
+                    "key": "😵‍💫",
+                    "rel_type": "m.annotation"
+                }
+            },
+            "unsigned": {
+                "age": 1000
+            }
+        });
+
+        let matrix_relations = MatrixRelations {
+            chunk: vec![TimelineEvent::from_plaintext(
+                Raw::from_json_string(serde_json::to_string(&event_json).unwrap()).unwrap(),
+            )],
+            prev_batch_token: None,
+            next_batch_token: None,
+            recursion_depth: None,
+        };
+
+        setup.room_client.query_reactions_to_event_result = Ok(matrix_relations);
+
+        // Act
+        let result = get_sequence_chunk(
+            &room_arc.clone(),
+            test_id(1),
+            1,
+            MessagesOrder::Forward,
+            false,
+            &setup.room_client,
+            setup.reaction_tracker.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Assert
+        assert!(result.messages.is_some());
+        let messages = result.messages.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(result.is_complete);
+
+        // Check that the message has reactions
+        assert!(
+            !messages[0].reactions.is_empty(),
+            "Expected message to have reactions but got none. Message ID: {}",
+            messages[0].message_id
+        );
+        assert_eq!(
+            messages[0].reactions[0].message_id,
+            "$event000000000000000000000000000000000000001:example.org"
+        );
+        assert_eq!(messages[0].reactions[0].reaction, "😵‍💫");
+        assert_eq!(
+            messages[0].reactions[0].user_id,
+            Some("@user2:example.org".to_string())
+        );
+
+        let reaction_tracker_r = setup.reaction_tracker.read().unwrap();
+
+        assert_eq!(reaction_tracker_r.get_tracked_reactions().len(), 1)
     }
 }
