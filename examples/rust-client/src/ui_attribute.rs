@@ -116,6 +116,13 @@ impl UiAttribute for InitializationRequest {
     }
 }
 
+impl UiAttribute for LoginUsernamePasswordRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, username);
+        ui_attribute!(self, ui, password);
+    }
+}
+
 impl UiAttribute for LoginSsoRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, identity_provider);

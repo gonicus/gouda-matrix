@@ -6,6 +6,10 @@
     "encryption_secret": "secret123",
     "device_display_name": "Matrix Rust Client"
   },
+  "login-username-password": {
+    "username": "test-user",
+    "password": "secret123"
+  },
   "login-sso": {
     "identity_provider": null
   },

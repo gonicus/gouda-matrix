@@ -75,6 +75,12 @@ impl InputWindow {
                 ui_action!(self, ui, Initialize, self.config.initialize.clone());
                 ui_action!(self, ui, LoginFlows);
                 ui_action!(self, ui, IdentityProviders);
+                ui_action!(
+                    self,
+                    ui,
+                    LoginUsernamePassword,
+                    self.config.login_username_password.clone()
+                );
                 ui_action!(self, ui, LoginSso, self.config.login_sso.clone());
                 ui_action!(
                     self,
