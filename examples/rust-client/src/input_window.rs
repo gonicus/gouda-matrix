@@ -155,6 +155,12 @@ impl InputWindow {
                     CreateReaction,
                     self.config.create_reaction.clone()
                 );
+                ui_action!(
+                    self,
+                    ui,
+                    RemoveReaction,
+                    self.config.remove_reaction.clone()
+                );
             });
     }
 }

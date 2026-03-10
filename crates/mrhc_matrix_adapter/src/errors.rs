@@ -73,6 +73,9 @@ pub fn convert_client_api_error(err: &RumaClientError) -> Error {
         | RumaClientErrorKind::UnknownToken { .. } => {
             create_error_msg(ErrorType::Authorization, "Authentication required")
         }
+        RumaClientErrorKind::Forbidden { .. } => {
+            create_error_msg(ErrorType::NotAllowed, "Insufficient permissions")
+        }
         _ => create_error_msg(ErrorType::Network, err),
     }
 }

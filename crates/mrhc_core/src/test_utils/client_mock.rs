@@ -88,6 +88,9 @@ pub struct ClientMock {
 
     pub create_reaction_response: Result<()>,
     pub create_reaction_call_count: u32,
+
+    pub remove_reaction_response: Result<()>,
+    pub remove_reaction_call_count: u32,
 }
 
 impl Default for ClientMock {
@@ -176,6 +179,9 @@ impl Default for ClientMock {
 
             create_reaction_response: Ok(()),
             create_reaction_call_count: 0,
+
+            remove_reaction_response: Ok(()),
+            remove_reaction_call_count: 0,
 
             received_ctx: None,
         }
@@ -297,6 +303,10 @@ impl ClientMock {
 
     pub fn assert_create_reaction_called_n(&self, n: u32) {
         assert!(self.create_reaction_call_count == n);
+    }
+
+    pub fn assert_remove_reaction_called_n(&self, n: u32) {
+        assert!(self.remove_reaction_call_count == n);
     }
 }
 
@@ -555,6 +565,12 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.create_reaction_call_count += 1;
         self.create_reaction_response.clone()
+    }
+
+    async fn remove_reaction(&mut self, ctx: ClientContext, _request: Reaction) -> Result<()> {
+        self.received_ctx = Some(ctx);
+        self.remove_reaction_call_count += 1;
+        self.remove_reaction_response.clone()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

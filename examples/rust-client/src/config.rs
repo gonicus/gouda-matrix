@@ -31,6 +31,7 @@ pub struct Config {
     pub remove_message: MessageRemoveRequest,
     pub change_message: MessageChangeRequest,
     pub create_reaction: Reaction,
+    pub remove_reaction: Reaction,
 }
 
 impl Config {

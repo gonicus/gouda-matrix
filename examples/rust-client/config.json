@@ -120,5 +120,11 @@
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
     "reaction": "🫪",
     "user_id": null
+  },
+  "remove-reaction": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de",
+    "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
+    "reaction": "🫪",
+    "user_id": null
   }
 }
