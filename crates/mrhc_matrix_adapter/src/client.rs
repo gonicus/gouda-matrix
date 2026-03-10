@@ -99,7 +99,7 @@ impl MatrixClient {
     /// An error is returned if the client has not yet been initialized.
     fn get_reaction_tracker(&self) -> Result<Arc<RwLock<ReactionTracker>>> {
         let data = self.get_initialized_data()?;
-        Ok(data.event_manager.reaction_tracker.clone())
+        Ok(data.event_manager.reaction_tracker())
     }
 
     /// Returns the initialized data if it has been initialized with `Self::initialize`.
@@ -1408,6 +1408,44 @@ impl ClientAbstraction for MatrixClient {
         room.send(event)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
+    }
+
+    async fn remove_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
+        let Reaction {
+            room_id,
+            message_id,
+            reaction,
+            user_id,
+        } = request;
+
+        let InitializedData {
+            client,
+            event_manager,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
+
+        let room = self.get_matrix_room(&room_id).await?;
+
+        let user_id =
+            user_id.unwrap_or(client.user_id().map(|f| f.to_string()).unwrap_or_default());
+
+        let reaction = {
+            let arc = event_manager.reaction_tracker();
+            let mut writer = arc
+                .write()
+                .map_err(|_| errors::create_unknown("Reaction tracker lock poisoned"))?;
+            writer.untrack_reaction_by_emoji(room_id, message_id, user_id, reaction)
+        };
+
+        let Some(reaction) = reaction else {
+            return Err(errors::create_error(ErrorType::ReactionNotFound));
+        };
+
+        room.redact(&reaction.event_id, None, None)
+            .await
+            .map_err(errors::convert_http_error)?;
 
         Ok(())
     }

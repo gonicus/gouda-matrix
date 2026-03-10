@@ -66,6 +66,7 @@ pub enum Action {
     RemoveMessage(Box<MessageRemoveRequest>),
     ChangeMessage(Box<MessageChangeRequest>),
     CreateReaction(Box<Reaction>),
+    RemoveReaction(Box<Reaction>),
 }
 
 impl Action {
@@ -105,6 +106,7 @@ impl Action {
             Self::RemoveMessage(request) => run_remove_message(tag, sender, *request),
             Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
             Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
+            Self::RemoveReaction(request) => run_remove_reaction(tag, sender, *request),
         }
     }
 }
@@ -140,6 +142,7 @@ impl UiAttribute for Action {
             Self::RemoveMessage(request) => request.update(ui),
             Self::ChangeMessage(request) => request.update(ui),
             Self::CreateReaction(request) => request.update(ui),
+            Self::RemoveReaction(request) => request.update(ui),
         }
     }
 }
@@ -232,3 +235,4 @@ impl_run!(
     MessageChangeRequest
 );
 impl_run!(run_create_reaction, CreateReactionRequest, Reaction);
+impl_run!(run_remove_reaction, RemoveReactionRequest, Reaction);
