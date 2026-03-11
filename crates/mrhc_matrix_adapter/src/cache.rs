@@ -32,6 +32,44 @@ use tokio::sync::mpsc;
 use crate::media::MediaManager;
 use crate::{debug_assert_or_log, messages};
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CacheError {
+    #[error("cache has been poisoned and may be invalid")]
+    CachePoisoned,
+
+    #[error("attempt to access a dropped message")]
+    DeallocatedMessageAccess,
+
+    #[error("failed to deserialize event for caching")]
+    DeserializationFailed,
+
+    #[error("failed to fetch event from SDK")]
+    EventFetchFailed,
+
+    #[error("id is not a valid matrix event id")]
+    InvalidEventId,
+
+    #[error("attempt to access an unknown message")]
+    UncachedMessageAccess,
+
+    #[error("attempt to access an unknown message sequence")]
+    UncachedSequenceAccess,
+
+    #[error("attempt to access an unknown room")]
+    UncachedRoomAccess,
+
+    #[error("an unexpected error occurred")]
+    Unexpected,
+
+    #[error("{message}: {source}")]
+    Context {
+        message: String,
+        source: Box<CacheError>,
+    },
+}
+
+type Result<T> = std::result::Result<T, CacheError>;
+
 pub type CachedData = HashMap<OwnedRoomId, Arc<RwLock<CachedChronoRoom>>>;
 
 #[derive(Default, Clone)]
@@ -45,14 +83,14 @@ impl Cache {
         Self::default()
     }
 
-    pub fn cached_data_read_lock(&self) -> Result<RwLockReadGuard<'_, CachedData>, CacheError> {
+    pub fn cached_data_read_lock(&self) -> Result<RwLockReadGuard<'_, CachedData>> {
         self.cached_data.read().map_err(|_| {
             log::error!("Cached data poisoned");
             CacheError::CachePoisoned
         })
     }
 
-    pub fn cached_data_write_lock(&self) -> Result<RwLockWriteGuard<'_, CachedData>, CacheError> {
+    pub fn cached_data_write_lock(&self) -> Result<RwLockWriteGuard<'_, CachedData>> {
         self.cached_data.write().map_err(|_| {
             log::error!("Cached data poisoned");
             CacheError::CachePoisoned
@@ -230,7 +268,7 @@ impl CachedChronoRoom {
         messages: Vec<UnlinkedMessage>,
         neighboring_batch: Option<&str>,
         source: SyncSource,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let connects_to_sequence: bool;
         let mut i_seq = 0usize;
 
@@ -286,7 +324,7 @@ impl CachedChronoRoom {
         Ok(())
     }
 
-    fn merge_islands(&mut self) -> Result<(), CacheError> {
+    fn merge_islands(&mut self) -> Result<()> {
         let mut merge_sequences = None;
 
         for (pos1, seq1) in self.chrono_sequences.iter().enumerate() {
@@ -322,7 +360,7 @@ impl CachedChronoRoom {
         Ok(())
     }
 
-    fn insert_sequence(&mut self, sequence: CachedChronoSequence) -> Result<(), CacheError> {
+    fn insert_sequence(&mut self, sequence: CachedChronoSequence) -> Result<()> {
         let first_ts = sequence.get_first_timestamp()?;
 
         for (pos, seq) in self.chrono_sequences.iter().enumerate() {
@@ -337,7 +375,7 @@ impl CachedChronoRoom {
         Ok(())
     }
 
-    fn find_sequence(&self, token: &str) -> Result<Option<usize>, CacheError> {
+    fn find_sequence(&self, token: &str) -> Result<Option<usize>> {
         for (pos, seq) in self.chrono_sequences.iter().enumerate() {
             for msg in seq.message_iterator() {
                 if let Some(msg_token) = &msg
@@ -374,10 +412,7 @@ impl CachedChronoRoom {
     /// and the ordering is determined anew based on CachedMessage::timestamp. CachedMessages with the same id
     /// (key) are collapsed into a single entity.
     /// Note, that CachedMessage::rel_to and CachedMessage::rel_by are not modified here, neither are other fields.
-    fn merge_sequences(
-        &mut self,
-        sequences_pos: &Vec<usize>,
-    ) -> Result<CachedChronoSequence, CacheError> {
+    fn merge_sequences(&mut self, sequences_pos: &Vec<usize>) -> Result<CachedChronoSequence> {
         let mut new_seq = CachedChronoSequence::new()?;
 
         for pos in sequences_pos {
@@ -436,11 +471,7 @@ impl CachedChronoRoom {
         self.unresolved_relations = unresolved;
     }
 
-    fn link_relation(
-        &mut self,
-        id: &OwnedEventId,
-        rel_id: &OwnedEventId,
-    ) -> Result<(), CacheError> {
+    fn link_relation(&mut self, id: &OwnedEventId, rel_id: &OwnedEventId) -> Result<()> {
         let message = self
             .get_message(id)
             .ok_or(CacheError::UncachedMessageAccess)?
@@ -471,7 +502,7 @@ impl CachedChronoRoom {
 }
 
 impl CachedChronoSequence {
-    fn new() -> Result<Self, CacheError> {
+    fn new() -> Result<Self> {
         let begin_sentinel = CachedMessage::default();
         let end_sentinel = CachedMessage::default();
 
@@ -504,10 +535,7 @@ impl CachedChronoSequence {
     /// Messages provided to add_batch may be obtained from a call to /sync, /rooms/{roomId}/messages
     /// or /room/{roomId}/context/{eventId}. Sync tokens obtained from these APIs are expected to
     /// be attached to the first and last message of each timeline-batch.
-    fn add_batch(
-        &mut self,
-        mut messages: Vec<UnlinkedMessage>,
-    ) -> Result<Vec<UnresolvedRelation>, CacheError> {
+    fn add_batch(&mut self, mut messages: Vec<UnlinkedMessage>) -> Result<Vec<UnresolvedRelation>> {
         // Remove all unlinked messages which are already cached
         messages.retain(|msg| {
             !self
@@ -597,7 +625,7 @@ impl CachedChronoSequence {
         Ok(unresolved_rel)
     }
 
-    fn get_first_timestamp(&self) -> Result<u64, CacheError> {
+    fn get_first_timestamp(&self) -> Result<u64> {
         Ok(self.
             msg_begin.
             read().
@@ -614,7 +642,7 @@ impl CachedChronoSequence {
             timestamp)
     }
 
-    fn get_last_timestamp(&self) -> Result<u64, CacheError> {
+    fn get_last_timestamp(&self) -> Result<u64> {
         Ok(self
             .msg_end
             .read()
@@ -634,7 +662,7 @@ impl CachedChronoSequence {
         message: Arc<RwLock<Option<CachedMessage>>>,
         id: &OwnedEventId,
         before: Arc<RwLock<Option<CachedMessage>>>,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let msg_after = before;
 
         let msg_before = msg_after
@@ -656,7 +684,7 @@ impl CachedChronoSequence {
         &mut self,
         message: Arc<RwLock<Option<CachedMessage>>>,
         id: &OwnedEventId,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let msg_after = self.msg_end.clone();
 
         let msg_before = msg_after
@@ -678,7 +706,7 @@ impl CachedChronoSequence {
         &mut self,
         message: Arc<RwLock<Option<CachedMessage>>>,
         id: &OwnedEventId,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let msg_before = self.msg_begin.clone();
 
         let msg_after = msg_before
@@ -700,7 +728,7 @@ impl CachedChronoSequence {
         &mut self,
         message: Arc<RwLock<Option<CachedMessage>>>,
         id: &OwnedEventId,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         if self.messages.is_empty() {
             self.insert_end(message, id)?;
 
@@ -749,7 +777,7 @@ impl CachedChronoSequence {
         message: &Arc<RwLock<Option<CachedMessage>>>,
         before: &Arc<RwLock<Option<CachedMessage>>>,
         after: &Weak<RwLock<Option<CachedMessage>>>,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         {
             let mut message_w = message.write().map_err(|_| CacheError::CachePoisoned)?;
             message_w
@@ -794,7 +822,7 @@ impl CachedChronoSequence {
 }
 
 impl CachedMessage {
-    fn is_last(&self) -> Result<bool, CacheError> {
+    fn is_last(&self) -> Result<bool> {
         if self
             .after
             .upgrade()
@@ -812,7 +840,7 @@ impl CachedMessage {
         Ok(false)
     }
 
-    fn is_first(&self) -> Result<bool, CacheError> {
+    fn is_first(&self) -> Result<bool> {
         if self
             .before
             .read()
@@ -1042,50 +1070,10 @@ impl Iterator for MessageIterator {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum CacheError {
-    CachePoisoned,
-    DeallocatedMessageAccess,
-    DeserializationFailed,
-    EventFetchFailed,
-    InvalidEventId,
-    UncachedMessageAccess,
-    UncachedSequenceAccess,
-    UncachedRoomAccess,
-    Unexpected,
-    Context {
-        message: String,
-        source: Box<CacheError>,
-    },
-}
-
-impl fmt::Display for CacheError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CacheError::CachePoisoned => write!(f, "cache has been poisoned and may be invalid"),
-            CacheError::DeallocatedMessageAccess => {
-                write!(f, "attempt to access a dropped message")
-            }
-            CacheError::DeserializationFailed => {
-                write!(f, "failed to deserialize event for caching")
-            }
-            CacheError::EventFetchFailed => write!(f, "failed to fetch event from SDK"),
-            CacheError::InvalidEventId => write!(f, "id is not a valid matrix event id"),
-            CacheError::UncachedMessageAccess => write!(f, "attempt to access an unknown message"),
-            CacheError::UncachedSequenceAccess => {
-                write!(f, "attempt to access an unknown message sequence")
-            }
-            CacheError::UncachedRoomAccess => write!(f, "attempt to access an unknown room"),
-            CacheError::Unexpected => write!(f, "an unexpected error occurred"),
-            CacheError::Context { message, source } => write!(f, "{}: {}", message, source),
-        }
-    }
-}
-
 pub fn get_or_create_room(
     cache: &Cache,
     room_id: &OwnedRoomId,
-) -> Result<Arc<RwLock<CachedChronoRoom>>, CacheError> {
+) -> Result<Arc<RwLock<CachedChronoRoom>>> {
     let mut cache_w = cache.cached_data_write_lock()?;
 
     let cached_room = match cache_w.get_mut(room_id) {
@@ -1116,7 +1104,7 @@ pub fn cache_sync_response(
     cache: &Cache,
     response: &matrix_sdk::sync::SyncResponse,
     source: SyncSource,
-) -> Result<(), CacheError> {
+) -> Result<()> {
     let next_token = &response.next_batch;
 
     // 1. go through all rooms in the response
@@ -1163,7 +1151,7 @@ pub fn cache_room_messages_response(
     response: &matrix_sdk::room::Messages,
     room_id: OwnedRoomId,
     chronological: bool,
-) -> Result<(), CacheError> {
+) -> Result<()> {
     {
         let mut cache_w = cache.cached_data_write_lock()?;
         cache_w
@@ -1189,7 +1177,7 @@ fn cache_room_messages_response_to_room(
     room: Arc<RwLock<CachedChronoRoom>>,
     response: &matrix_sdk::room::Messages,
     chronological: bool,
-) -> Result<(), CacheError> {
+) -> Result<()> {
     log::trace!("Received messages response:\n{response:#?}");
 
     let neighboring_batch: Option<String>;
@@ -1227,7 +1215,7 @@ fn unlinked_from_timeline(
     next_token: Option<&str>,
     prev_token: Option<&str>,
     chronological: bool,
-) -> Result<Vec<UnlinkedMessage>, CacheError> {
+) -> Result<Vec<UnlinkedMessage>> {
     let mut messages = vec![];
 
     for evt in events {
@@ -1293,7 +1281,7 @@ fn handle_timeline_error(evt: &TimelineEvent, err: CacheError) {
     log::error!("Failed to process event {}: {:?}", id, err);
 }
 
-fn read_event_id(msg: &Arc<RwLock<Option<CachedMessage>>>) -> Result<OwnedEventId, CacheError> {
+fn read_event_id(msg: &Arc<RwLock<Option<CachedMessage>>>) -> Result<OwnedEventId> {
     let guard = msg.read().map_err(|_| CacheError::CachePoisoned)?;
     let cached = guard.as_ref().ok_or(CacheError::UncachedMessageAccess)?;
 
@@ -1322,7 +1310,7 @@ fn advance_message(
     order: MessagesOrder,
     sync_token: &mut Option<String>,
     check_edge: bool,
-) -> Result<Option<Arc<RwLock<Option<CachedMessage>>>>, CacheError> {
+) -> Result<Option<Arc<RwLock<Option<CachedMessage>>>>> {
     let guard = msg.read().map_err(|_| CacheError::CachePoisoned)?;
     let cached = guard.as_ref().ok_or(CacheError::UncachedMessageAccess)?;
 
@@ -1370,7 +1358,7 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     skip_first: bool,
     room_client: &T,
     cache: &Cache,
-) -> Result<SequenceChunkResult, CacheError> {
+) -> Result<SequenceChunkResult> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
         room_cache_r.get_message(&from_id.clone()).clone()
@@ -1423,7 +1411,7 @@ pub fn check_cached_enough(
     limit: u32,
     order: MessagesOrder,
     skip_first: bool,
-) -> Result<Option<String>, CacheError> {
+) -> Result<Option<String>> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
         room_cache_r.get_message(&from_id.clone()).clone()
@@ -1475,7 +1463,7 @@ async fn assemble_proto_message<T: RoomClient>(
     id: OwnedEventId,
     room_client: &T,
     cache: &Cache,
-) -> Result<Option<Message>, CacheError> {
+) -> Result<Option<Message>> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
     // let (tl_evt, is_encrypted) = room_client.fetch_and_deserialize(&id).await?;
@@ -1524,7 +1512,7 @@ async fn collect_reactions_to_event<T: RoomClient>(
     id: OwnedEventId,
     room_client: &T,
     cache: &Cache,
-) -> Result<Vec<Reaction>, CacheError> {
+) -> Result<Vec<Reaction>> {
     // TODO: This will be expensive to do for every single event. Its ok to do so in
     // a first approach. For efficiency reasons we should proceed as follows:
     // 1. check if the message belongs to the latest sequence of the room.
@@ -1542,7 +1530,7 @@ fn reactions_from_matrix_relations(
     relations: MatrixRelations,
     room_id: String,
     cache: &Cache,
-) -> Result<Vec<Reaction>, CacheError> {
+) -> Result<Vec<Reaction>> {
     let mut reactions = vec![];
     for rel in relations.chunk {
         let tl_evt = match try_deserialize_evt(&rel) {
@@ -1584,7 +1572,7 @@ fn reactions_from_matrix_relations(
 fn check_message_assembly(
     cached_room: Arc<RwLock<CachedChronoRoom>>,
     id: OwnedEventId,
-) -> Result<bool, CacheError> {
+) -> Result<bool> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
     if is_marked_redacted(cached_msg.clone())? {
@@ -1600,7 +1588,7 @@ fn check_message_assembly(
 fn get_cached_msg(
     cached_room: Arc<RwLock<CachedChronoRoom>>,
     id: &OwnedEventId,
-) -> Result<Arc<RwLock<Option<CachedMessage>>>, CacheError> {
+) -> Result<Arc<RwLock<Option<CachedMessage>>>> {
     let room_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
     let cached_msg = room_r
         .get_message(id)
@@ -1608,7 +1596,7 @@ fn get_cached_msg(
     Ok(cached_msg)
 }
 
-fn is_relation(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, CacheError> {
+fn is_relation(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
     let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
     if msg_r
         .as_ref()
@@ -1621,7 +1609,7 @@ fn is_relation(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, C
     Ok(false)
 }
 
-fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, CacheError> {
+fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
     let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
     if let Some(RelationType::Thread) = msg_r
         .as_ref()
@@ -1633,7 +1621,7 @@ fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, Cac
     Ok(false)
 }
 
-fn is_marked_redacted(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool, CacheError> {
+fn is_marked_redacted(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
     let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
     let evt_type = msg_r
         .as_ref()
@@ -1650,7 +1638,7 @@ async fn get_latest_content<T: RoomClient>(
     msg: Arc<RwLock<Option<CachedMessage>>>,
     tl_evt: &TimelineEvent,
     room_client: &T,
-) -> Result<Option<MessageType>, CacheError> {
+) -> Result<Option<MessageType>> {
     let replacement_relations = get_relations(msg.clone(), &RelationType::Replacement)?;
 
     let mut replacements = BTreeMap::new();
@@ -1684,7 +1672,7 @@ async fn get_latest_content<T: RoomClient>(
     Ok(None)
 }
 
-fn get_message_type(tl_evt: &TimelineEvent) -> Result<Option<MessageType>, CacheError> {
+fn get_message_type(tl_evt: &TimelineEvent) -> Result<Option<MessageType>> {
     let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     if encrypted {
@@ -1716,7 +1704,7 @@ fn get_original_message_like_from_decrypted_any_sync_timeline(
     }
 }
 
-async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId>, CacheError> {
+async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId>> {
     let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     // cannot read relations of encrypted
@@ -1738,7 +1726,7 @@ async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId
     Ok(None)
 }
 
-fn get_mentions(tl_evt: &TimelineEvent) -> Result<Option<Mentions>, CacheError> {
+fn get_mentions(tl_evt: &TimelineEvent) -> Result<Option<Mentions>> {
     let (tl_evt, encrypted) = deserialize(tl_evt)?;
 
     // Cannot read mentions of encrypted events
@@ -1756,7 +1744,7 @@ fn get_mentions(tl_evt: &TimelineEvent) -> Result<Option<Mentions>, CacheError> 
 async fn get_latest_accessible_replacement_content<T: RoomClient>(
     mut replacements: BTreeMap<u64, Arc<RwLock<Option<CachedMessage>>>>,
     room_client: &T,
-) -> Result<Option<MessageType>, CacheError> {
+) -> Result<Option<MessageType>> {
     while let Some((_, latest_replacement)) = replacements.last_key_value() {
         let repl_id = OwnedEventId::try_from(
             latest_replacement
@@ -1818,7 +1806,7 @@ async fn get_latest_accessible_replacement_content<T: RoomClient>(
 fn get_relations(
     msg: Arc<RwLock<Option<CachedMessage>>>,
     rel_type: &RelationType,
-) -> Result<Vec<Weak<RwLock<Option<CachedMessage>>>>, CacheError> {
+) -> Result<Vec<Weak<RwLock<Option<CachedMessage>>>>> {
     let cached_msg_r = msg.read().map_err(|_| CacheError::CachePoisoned)?;
 
     let rels = cached_msg_r
@@ -1845,7 +1833,7 @@ pub async fn retry_decryption<T: RoomClient>(
     cache: &Cache,
     mut key_change_rx: mpsc::Receiver<()>,
     ctx: &ClientContext,
-) -> Result<(), CacheError> {
+) -> Result<()> {
     let Some(mut messages) = messages_opt else {
         return Ok(());
     };
@@ -1912,7 +1900,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     room: Arc<RwLock<CachedChronoRoom>>,
     ctx: &ClientContext,
     cache: &Cache,
-) -> Result<usize, CacheError> {
+) -> Result<usize> {
     let mut decrypted_count = 0;
 
     while !pending.is_empty() {
@@ -1999,7 +1987,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     Ok(decrypted_count)
 }
 
-fn deserialize(tl_event: &TimelineEvent) -> Result<(AnySyncTimelineEvent, bool), CacheError> {
+fn deserialize(tl_event: &TimelineEvent) -> Result<(AnySyncTimelineEvent, bool)> {
     let mut is_encrypted = false;
 
     let tl_evt = match &tl_event.kind {
@@ -2121,20 +2109,17 @@ impl fmt::Debug for CachedMessage {
 }
 
 pub trait RoomClient {
-    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent, CacheError>;
+    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent>;
 
     async fn try_fresh_decrypt(&self, tl_event: &TimelineEvent) -> Option<AnySyncTimelineEvent>;
 
-    async fn query_reactions_to_event(
-        &self,
-        id: OwnedEventId,
-    ) -> Result<MatrixRelations, CacheError>;
+    async fn query_reactions_to_event(&self, id: OwnedEventId) -> Result<MatrixRelations>;
 
     async fn get_content(
         &self,
         message_id: &EventId,
         message_type: MessageType,
-    ) -> Result<message::Content, CacheError>;
+    ) -> Result<message::Content>;
 
     fn room_id(&self) -> String;
 }
@@ -2155,7 +2140,7 @@ impl MatrixRoomClient {
 }
 
 impl RoomClient for MatrixRoomClient {
-    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent, CacheError> {
+    async fn fetch(&self, id: &OwnedEventId) -> Result<TimelineEvent> {
         // This method is expensive and eats up most of the runtime
         let sdk_event =
             self.room_client
@@ -2215,10 +2200,7 @@ impl RoomClient for MatrixRoomClient {
         }
     }
 
-    async fn query_reactions_to_event(
-        &self,
-        id: OwnedEventId,
-    ) -> Result<MatrixRelations, CacheError> {
+    async fn query_reactions_to_event(&self, id: OwnedEventId) -> Result<MatrixRelations> {
         let opts = RelationsOptions {
             dir: Direction::Forward,
             limit: Some(UInt::from(20u32)), // should be enough for now - TODO: replace with iteration
@@ -2240,7 +2222,7 @@ impl RoomClient for MatrixRoomClient {
         &self,
         message_id: &EventId,
         message_type: MessageType,
-    ) -> Result<message::Content, CacheError> {
+    ) -> Result<message::Content> {
         messages::generate_message_content!(
             self.media_manager,
             self.room_client,
@@ -2265,10 +2247,10 @@ mod tests {
 
     struct MockRoomClient {
         room_id_result: String,
-        fetch_room_messages_at_edge_result: Result<Option<OwnedEventId>, CacheError>,
-        fetch_result: Result<TimelineEvent, CacheError>,
+        fetch_room_messages_at_edge_result: Result<Option<OwnedEventId>>,
+        fetch_result: Result<TimelineEvent>,
         try_fresh_decrypt_result: Option<AnySyncTimelineEvent>,
-        query_reactions_to_event_result: Result<MatrixRelations, CacheError>,
+        query_reactions_to_event_result: Result<MatrixRelations>,
     }
 
     impl MockRoomClient {
@@ -2294,7 +2276,7 @@ mod tests {
 
             let raw = Raw::from_json_string(serde_json::to_string(&event_json).unwrap()).unwrap();
             let event = TimelineEvent::from_plaintext(raw);
-            let fetch_result: Result<TimelineEvent, CacheError> = Ok(event);
+            let fetch_result: Result<TimelineEvent> = Ok(event);
 
             let event: AnySyncTimelineEvent = serde_json::from_value(event_json.clone()).unwrap();
             let try_fresh_decrypt_result = Some(event);
@@ -2309,7 +2291,7 @@ mod tests {
             }
         }
 
-        fn get_clone_query_reactions_to_event_result(&self) -> Result<MatrixRelations, CacheError> {
+        fn get_clone_query_reactions_to_event_result(&self) -> Result<MatrixRelations> {
             match &self.query_reactions_to_event_result {
                 Ok(self_rel) => {
                     let rel = MatrixRelations {
@@ -2327,7 +2309,7 @@ mod tests {
     }
 
     impl RoomClient for MockRoomClient {
-        async fn fetch(&self, _id: &OwnedEventId) -> Result<TimelineEvent, CacheError> {
+        async fn fetch(&self, _id: &OwnedEventId) -> Result<TimelineEvent> {
             self.fetch_result.clone()
         }
 
@@ -2335,10 +2317,7 @@ mod tests {
             self.try_fresh_decrypt_result.clone()
         }
 
-        async fn query_reactions_to_event(
-            &self,
-            _: OwnedEventId,
-        ) -> Result<MatrixRelations, CacheError> {
+        async fn query_reactions_to_event(&self, _: OwnedEventId) -> Result<MatrixRelations> {
             self.get_clone_query_reactions_to_event_result()
         }
 
@@ -2346,7 +2325,7 @@ mod tests {
             &self,
             _message_id: &EventId,
             _message_type: MessageType,
-        ) -> Result<message::Content, CacheError> {
+        ) -> Result<message::Content> {
             Ok(message::Content::Text(MessageContentText {
                 content: "Hello World".to_owned(),
             }))
