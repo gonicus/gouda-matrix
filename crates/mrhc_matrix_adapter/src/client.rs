@@ -21,8 +21,8 @@ use url::Url;
 use crate::events::{EventManager, ReactionTracker};
 use crate::media::MediaManager;
 use crate::session::Session;
-use crate::verification::VerificationManager;
-use crate::{chat_cache, errors, messages, rooms, user, utils};
+use crate::verification::{self, VerificationManager};
+use crate::{chat_cache, errors, messages, rooms, user};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -574,7 +574,7 @@ impl ClientAbstraction for MatrixClient {
                 "InternalError: User identity not found",
             ))?;
 
-        let methods = utils::cross_signing_methods_to_matrix(request.supported_methods);
+        let methods = verification::cross_signing_methods_to_matrix(request.supported_methods);
 
         let request = user_identity
             .request_verification_with_methods(methods)

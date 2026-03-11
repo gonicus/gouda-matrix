@@ -1,4 +1,5 @@
 use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
+use matrix_sdk::ruma::events::room::member::MembershipState;
 use matrix_sdk::Client;
 use mrhc_core::Result;
 use mrhc_proto::chat::*;
@@ -6,6 +7,18 @@ use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
 
 use crate::{errors, unwrap_or_log_return_err};
+
+/// Converts a membership state to a room state.
+pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -> UserRoomState {
+    match membership_state {
+        MembershipState::Ban => UserRoomState::Banned,
+        MembershipState::Invite => UserRoomState::Invited,
+        MembershipState::Join => UserRoomState::Joined,
+        MembershipState::Knock => UserRoomState::Knocked,
+        MembershipState::Leave => UserRoomState::Unjoined,
+        _ => UserRoomState::Joined, // This is just a wyld guess
+    }
+}
 
 pub fn convert_presence_state(state: MatrixPresenceState) -> PresenceState {
     match state {
