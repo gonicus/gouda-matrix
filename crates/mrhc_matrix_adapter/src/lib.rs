@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 
-mod chat_cache;
+mod cache;
 mod client;
 mod crypto;
 mod errors;

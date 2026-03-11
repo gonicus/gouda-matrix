@@ -10,7 +10,7 @@ use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
 use ruma_common::api::error::IntoHttpError;
 
-use crate::chat_cache::CacheError;
+use crate::cache::CacheError;
 
 /// Creates a new chat error given an error type as well as an error message.
 pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {

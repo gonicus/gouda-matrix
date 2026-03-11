@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
@@ -18,11 +17,12 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
 
-use crate::events::{EventManager, ReactionTracker};
+use crate::cache::Cache;
+use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::session::Session;
 use crate::verification::{self, VerificationManager};
-use crate::{chat_cache, errors, messages, rooms, user};
+use crate::{cache, errors, messages, rooms, user};
 
 const SESSION_DIR: &str = "session_data";
 const SESSION_FILE: &str = "session";
@@ -53,6 +53,8 @@ pub struct InitializedData {
     /// The passphrase used to encrypt the database.
     pub database_passphrase: String,
 
+    /// Contains the in memory cache.
+    pub cache: cache::Cache,
     /// Manages data stored on the file system, like avatars or downloaded chat images.
     pub media_manager: MediaManager,
     /// Manages incoming events.
@@ -64,11 +66,11 @@ pub struct MatrixClient {
     /// The inner matrix client. If `None`, the client has not yet been initialized
     /// using `Self::initialize`.
     initialized_data: Option<InitializedData>,
+
     /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
     /// is called, as this method already retrieves the available idps.
     cached_idps: Option<Vec<String>>,
-    /// The chronologically-resolved room message cache
-    cached_data: Arc<RwLock<chat_cache::CachedData>>,
+
     /// The current active verification processes.
     verification_requests: Vec<VerificationManager>,
 }
@@ -93,13 +95,6 @@ impl MatrixClient {
         })?;
 
         Ok(data)
-    }
-
-    /// Returns a clone of the event manager's reaction tracker if the client has been initialized.
-    /// An error is returned if the client has not yet been initialized.
-    fn get_reaction_tracker(&self) -> Result<Arc<RwLock<ReactionTracker>>> {
-        let data = self.get_initialized_data()?;
-        Ok(data.event_manager.reaction_tracker())
     }
 
     /// Returns the initialized data if it has been initialized with `Self::initialize`.
@@ -188,8 +183,10 @@ impl MatrixClient {
         )
         .await?;
 
+        let cache = Cache::new();
         let media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
-        let event_manager = EventManager::new(client.clone(), ctx, media_manager.clone());
+        let event_manager =
+            EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
 
         let data = InitializedData {
             client,
@@ -203,6 +200,7 @@ impl MatrixClient {
             session_passphrase: request.encryption_secret,
             database_passphrase: request.persistent_storage_secret,
 
+            cache,
             media_manager,
             event_manager,
         };
@@ -214,11 +212,7 @@ impl MatrixClient {
     }
 
     /// Restores the session from the session file.
-    async fn restore_session(
-        &self,
-        ctx: ClientContext,
-        cached_data: Arc<RwLock<chat_cache::CachedData>>,
-    ) -> Result<()> {
+    async fn restore_session(&self, ctx: ClientContext) -> Result<()> {
         let initialized_data = self.get_initialized_data()?;
 
         let client = &initialized_data.client;
@@ -239,7 +233,7 @@ impl MatrixClient {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        session.sync(ctx, initialized_data, cached_data).await?;
+        session.sync(ctx, initialized_data.clone()).await?;
 
         log::info!("Successfully restored session as {:?}", client.user_id());
 
@@ -257,6 +251,7 @@ impl MatrixClient {
             session_dir,
             session_file,
             database_passphrase,
+            cache,
             media_manager,
             event_manager,
             ..
@@ -270,8 +265,10 @@ impl MatrixClient {
 
         *client = build_client(homeserver_url, session_dir, database_passphrase).await?;
 
+        *cache = Cache::new();
         *media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
-        *event_manager = EventManager::new(client.clone(), ctx, media_manager.clone());
+        *event_manager =
+            EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
 
         log::info!("Successfully reset session");
 
@@ -320,7 +317,7 @@ impl ClientAbstraction for MatrixClient {
         let initialized_data = self.initialize_data(ctx.clone(), request).await?;
 
         if initialized_data.session_file.exists() {
-            match self.restore_session(ctx, self.cached_data.clone()).await {
+            match self.restore_session(ctx).await {
                 Ok(()) => {
                     return Ok(StatusUpdate {
                         code: status_update::StatusCode::LoggedIn as i32,
@@ -438,9 +435,7 @@ impl ClientAbstraction for MatrixClient {
         )?;
 
         session.save().await?;
-        session
-            .sync(ctx.clone(), initialized_data, self.cached_data.clone())
-            .await?;
+        session.sync(ctx.clone(), initialized_data.clone()).await?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -459,8 +454,6 @@ impl ClientAbstraction for MatrixClient {
         self.reset_session(ctx.clone()).await?;
 
         let initialized_data = self.get_initialized_data()?;
-
-        let cached_data = self.cached_data.clone();
 
         // Create a channel so we can receive the login url from the async closure
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -508,10 +501,7 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            if let Err(err) = session
-                .sync(ctx.clone(), &initialized_data, cached_data)
-                .await
-            {
+            if let Err(err) = session.sync(ctx.clone(), initialized_data.clone()).await {
                 ctx.send_error(err);
                 return;
             }
@@ -1119,7 +1109,11 @@ impl ClientAbstraction for MatrixClient {
         ctx: &ClientContext,
         request: &RoomMessagesRequest,
     ) -> Result<RoomMessagesResponse> {
-        let InitializedData { media_manager, .. } = self.get_initialized_data()?;
+        let InitializedData {
+            media_manager,
+            cache,
+            ..
+        } = self.get_initialized_data()?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
         let room_id = OwnedRoomId::try_from(request.room_id.as_str())
@@ -1146,14 +1140,9 @@ impl ClientAbstraction for MatrixClient {
             Some(val) => OwnedEventId::try_from(val)
                 .map_err(|_| errors::create_unknown("invalid event ID"))?,
             None => {
-                let (_, id) = messages::fetch_messages_from_sdk(
-                    self.cached_data.clone(),
-                    order,
-                    &room,
-                    None,
-                    fetch_limit,
-                )
-                .await?;
+                let (_, id) =
+                    messages::fetch_messages_from_sdk(cache, order, &room, None, fetch_limit)
+                        .await?;
 
                 // reduce limit for subsequent fetches
                 fetch_limit = messages::subsequent_fetch_limit(limit);
@@ -1165,11 +1154,11 @@ impl ClientAbstraction for MatrixClient {
             }
         };
 
-        let cached_room = chat_cache::get_or_create_room(self.cached_data.clone(), &room_id)
-            .map_err(errors::convert_cache_error)?;
+        let cached_room =
+            cache::get_or_create_room(cache, &room_id).map_err(errors::convert_cache_error)?;
 
         loop {
-            let next_batch = chat_cache::check_cached_enough(
+            let next_batch = cache::check_cached_enough(
                 &cached_room.clone(),
                 from_id.clone(),
                 limit,
@@ -1183,7 +1172,7 @@ impl ClientAbstraction for MatrixClient {
                 Some(val) => {
                     log::debug!("Attempting to fetch further messages from sdk");
                     let (fetched, _) = messages::fetch_messages_from_sdk(
-                        self.cached_data.clone(),
+                        cache,
                         order,
                         &room,
                         Some(val),
@@ -1201,19 +1190,17 @@ impl ClientAbstraction for MatrixClient {
             }
         }
 
-        let room_client = chat_cache::MatrixRoomClient::new(&room, media_manager.clone());
-
-        let reaction_tracker = self.get_reaction_tracker()?;
+        let room_client = cache::MatrixRoomClient::new(&room, media_manager.clone());
 
         // fetch events from sdk and assemble response
-        let seq = chat_cache::get_sequence_chunk(
+        let seq = cache::get_sequence_chunk(
             &cached_room.clone(),
             from_id.clone(),
             limit,
             order,
             skip_first,
             &room_client,
-            reaction_tracker.clone(),
+            cache,
         )
         .await
         .map_err(|err| mrhc_proto::chat::Error {
@@ -1232,17 +1219,16 @@ impl ClientAbstraction for MatrixClient {
         let ctx = ctx.clone();
         let room_id = room_id.clone();
         let room_client = room_client.clone();
-        let cached_data = self.cached_data.clone();
+        let cache = cache.clone();
 
         tokio::spawn(async move {
-            let result = chat_cache::retry_decryption(
+            let result = cache::retry_decryption(
                 seq.messages,
                 &room_id,
                 &room_client,
-                cached_data,
+                &cache,
                 key_change_rx,
                 &ctx,
-                reaction_tracker.clone(),
             )
             .await;
 
@@ -1420,24 +1406,14 @@ impl ClientAbstraction for MatrixClient {
             user_id,
         } = request;
 
-        let InitializedData {
-            client,
-            event_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let InitializedData { client, cache, .. } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(&room_id).await?;
 
         let user_id =
             user_id.unwrap_or(client.user_id().map(|f| f.to_string()).unwrap_or_default());
 
-        let reaction = {
-            let arc = event_manager.reaction_tracker();
-            let mut writer = arc
-                .write()
-                .map_err(|_| errors::create_unknown("Reaction tracker lock poisoned"))?;
-            writer.untrack_reaction_by_emoji(room_id, message_id, user_id, reaction)
-        };
+        let reaction = cache.untrack_reaction_by_emoji(room_id, message_id, user_id, reaction);
 
         let Some(reaction) = reaction else {
             return Err(errors::create_error(ErrorType::ReactionNotFound));
