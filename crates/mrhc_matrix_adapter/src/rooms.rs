@@ -17,7 +17,7 @@ use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
 use crate::media::MediaManager;
-use crate::{errors, utils};
+use crate::{errors, user};
 
 pub async fn convert_to_proto(
     media_manager: &MediaManager,
@@ -81,7 +81,7 @@ pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>
     for member in members {
         result.insert(
             member.user_id().to_string(),
-            utils::membership_state_to_user_room_state(member.membership()).into(),
+            user::membership_state_to_user_room_state(member.membership()).into(),
         );
     }
 

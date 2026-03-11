@@ -10,7 +10,6 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use super::sas::SasVerificationManager;
-use crate::utils;
 
 pub enum VerificationAction {
     /// Cancel the verification request.
@@ -293,7 +292,28 @@ fn get_available_methods(
         }
     }
 
-    utils::cross_signing_methods_from_matrix(matching_methods)
+    cross_signing_methods_from_matrix(matching_methods)
+}
+
+/// Converts the cross signing verification methods to matrix verification methods.
+pub fn cross_signing_methods_to_matrix(methods: Vec<i32>) -> Vec<VerificationMethod> {
+    let mut result = Vec::new();
+
+    for method in methods {
+        let Ok(method) = CrossSigningMethod::try_from(method) else {
+            continue;
+        };
+
+        match method {
+            CrossSigningMethod::SasString | CrossSigningMethod::SasSymbol => {
+                if !result.iter().any(|m| m == &VerificationMethod::SasV1) {
+                    result.push(VerificationMethod::SasV1);
+                }
+            }
+        }
+    }
+
+    result
 }
 
 pub fn send_verification_end_event(ctx: &mut ClientContext, flow_id: String, success: bool) {
@@ -316,4 +336,19 @@ pub fn send_verification_end_event_err<E: std::fmt::Display>(
     };
 
     ctx.send_event(ResponseContent::VerificationEndEvent(event));
+}
+
+/// Converts verification methods received from the matrix-sdk to verification methods of
+/// the chat interface.
+fn cross_signing_methods_from_matrix(methods: Vec<&VerificationMethod>) -> Vec<i32> {
+    let mut result = Vec::new();
+
+    for method in methods {
+        if matches!(method, VerificationMethod::SasV1) {
+            result.push(CrossSigningMethod::SasString.into());
+            result.push(CrossSigningMethod::SasSymbol.into());
+        }
+    }
+
+    result
 }
