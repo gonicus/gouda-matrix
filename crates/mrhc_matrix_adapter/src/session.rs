@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
@@ -12,7 +11,7 @@ use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
-use crate::{chat_cache, crypto, errors};
+use crate::{cache, crypto, errors};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -101,12 +100,10 @@ impl Session {
     pub async fn sync(
         mut self,
         mut ctx: ClientContext,
-        initialized_data: &InitializedData,
-        cached_data: Arc<RwLock<chat_cache::CachedData>>,
+        initialized_data: InitializedData,
     ) -> Result<()> {
-        self.initial_sync(&mut ctx, &initialized_data.client, cached_data.clone())
-            .await?;
-        self.start_background_sync(initialized_data, ctx, cached_data)?;
+        self.initial_sync(&mut ctx, &initialized_data).await?;
+        self.start_background_sync(ctx, initialized_data)?;
         Ok(())
     }
 
@@ -118,8 +115,7 @@ impl Session {
     async fn initial_sync(
         &mut self,
         ctx: &mut ClientContext,
-        client: &Client,
-        cached_data: Arc<RwLock<chat_cache::CachedData>>,
+        initialized_data: &InitializedData,
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
@@ -129,17 +125,18 @@ impl Session {
             sync_settings = sync_settings.token(token);
         }
 
-        let response = client
+        let response = initialized_data
+            .client
             .sync_once(sync_settings)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
         self.sync_token = Some(response.next_batch.clone());
 
-        chat_cache::cache_sync_response(
-            cached_data,
+        cache::cache_sync_response(
+            &initialized_data.cache,
             &response,
-            chat_cache::SyncSource::InitialSync,
+            cache::SyncSource::InitialSync,
         )
         .map_err(errors::create_unknown)?;
 
@@ -149,7 +146,7 @@ impl Session {
         self.save().await?;
 
         send_capabilities_event(ctx);
-        send_verification_status_event(ctx, client).await?;
+        send_verification_status_event(ctx, &initialized_data.client).await?;
 
         Ok(())
     }
@@ -158,9 +155,8 @@ impl Session {
     /// making this function non blocking.
     fn start_background_sync(
         self,
-        initialized_data: &InitializedData,
         ctx: ClientContext,
-        cached_data: Arc<RwLock<chat_cache::CachedData>>,
+        initialized_data: InitializedData,
     ) -> Result<JoinHandle<()>> {
         let mut sync_settings = SyncSettings::new();
 
@@ -177,16 +173,16 @@ impl Session {
             let result = client
                 .sync_with_result_callback(sync_settings, |sync_result| {
                     let mut session = self.clone();
-                    let cached_data = cached_data.clone();
+                    let cache = initialized_data.cache.clone();
 
                     async move {
                         let response = sync_result?;
                         session.sync_token = Some(response.next_batch.clone());
 
-                        if let Err(err) = chat_cache::cache_sync_response(
-                            cached_data,
+                        if let Err(err) = cache::cache_sync_response(
+                            &cache,
                             &response,
-                            chat_cache::SyncSource::ContinuousSync,
+                            cache::SyncSource::ContinuousSync,
                         ) {
                             log::warn!("Failed to cache sync response: {err}");
                         }

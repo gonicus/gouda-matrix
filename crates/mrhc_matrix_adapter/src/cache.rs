@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use js_int::UInt;
 use matrix_sdk::room::{IncludeRelations, Relations as MatrixRelations, RelationsOptions};
@@ -29,11 +29,120 @@ use mrhc_proto::chat::{
 use ruma_common::EventId;
 use tokio::sync::mpsc;
 
-use crate::events::{Reaction as ReactionEvent, ReactionTracker};
 use crate::media::MediaManager;
-use crate::messages;
+use crate::{debug_assert_or_log, messages};
 
 pub type CachedData = HashMap<OwnedRoomId, Arc<RwLock<CachedChronoRoom>>>;
+
+#[derive(Default, Clone)]
+pub struct Cache {
+    cached_data: Arc<RwLock<CachedData>>,
+    reactions: Arc<RwLock<Vec<CachedReaction>>>,
+}
+
+impl Cache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cached_data_read_lock(&self) -> Result<RwLockReadGuard<'_, CachedData>, CacheError> {
+        self.cached_data.read().map_err(|_| {
+            log::error!("Cached data poisoned");
+            CacheError::CachePoisoned
+        })
+    }
+
+    pub fn cached_data_write_lock(&self) -> Result<RwLockWriteGuard<'_, CachedData>, CacheError> {
+        self.cached_data.write().map_err(|_| {
+            log::error!("Cached data poisoned");
+            CacheError::CachePoisoned
+        })
+    }
+
+    pub fn track_reaction(&self, reaction: CachedReaction) {
+        log::debug!("Tracking reaction: {reaction:?}");
+
+        let Ok(mut writer) = self.reactions.write() else {
+            debug_assert_or_log!(false, "Reaction lock poisoned");
+            return;
+        };
+
+        writer.push(reaction);
+    }
+
+    pub fn untrack_reaction_by_id(&self, id: &str) -> Option<CachedReaction> {
+        log::debug!("Untracking reaction: {id}");
+
+        let Ok(mut writer) = self.reactions.write() else {
+            debug_assert_or_log!(false, "Reaction lock poisoned");
+            return None;
+        };
+
+        let Some(pos) = writer.iter().position(|p| p.event_id == id) else {
+            log::warn!("Unable to find reaction in tracked reactions");
+            return None;
+        };
+
+        Some(writer.remove(pos))
+    }
+
+    pub fn untrack_reaction_by_emoji(
+        &self,
+        room_id: impl AsRef<str>,
+        message_id: impl AsRef<str>,
+        user_id: impl AsRef<str>,
+        emoji: impl AsRef<str>,
+    ) -> Option<CachedReaction> {
+        let room_id = room_id.as_ref();
+        let message_id = message_id.as_ref();
+        let user_id = user_id.as_ref();
+        let emoji = emoji.as_ref();
+
+        log::debug!(
+            "Untracking reaction: room_id: {room_id}, message_id: {message_id}, \
+            user_id: {user_id}, emoji: {emoji}"
+        );
+
+        let Ok(mut writer) = self.reactions.write() else {
+            debug_assert_or_log!(false, "Reaction lock poisoned");
+            return None;
+        };
+
+        let pos = writer.iter().position(|r| {
+            r.room_id == room_id
+                && r.message_id == message_id
+                && r.user_id == user_id
+                && r.emoji == emoji
+        });
+
+        let Some(pos) = pos else {
+            log::warn!("Unable to find reaction in tracked reactions");
+            return None;
+        };
+
+        Some(writer.remove(pos))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedReaction {
+    pub event_id: OwnedEventId,
+    pub room_id: String,
+    pub message_id: String,
+    pub user_id: String,
+    pub emoji: String,
+}
+
+impl From<CachedReaction> for mrhc_proto::chat::Reaction {
+    fn from(reaction_event: CachedReaction) -> Self {
+        Self {
+            room_id: reaction_event.room_id,
+            message_id: reaction_event.message_id,
+            reaction: reaction_event.emoji,
+            user_id: Some(reaction_event.user_id),
+        }
+    }
+}
 
 #[derive(Default, Debug)]
 pub struct CachedChronoRoom {
@@ -940,7 +1049,6 @@ pub enum CacheError {
     DeserializationFailed,
     EventFetchFailed,
     InvalidEventId,
-    ReactionTrackerPoisoned,
     UncachedMessageAccess,
     UncachedSequenceAccess,
     UncachedRoomAccess,
@@ -963,9 +1071,6 @@ impl fmt::Display for CacheError {
             }
             CacheError::EventFetchFailed => write!(f, "failed to fetch event from SDK"),
             CacheError::InvalidEventId => write!(f, "id is not a valid matrix event id"),
-            CacheError::ReactionTrackerPoisoned => {
-                write!(f, "reaction tracker has been poisoned and may be invalid")
-            }
             CacheError::UncachedMessageAccess => write!(f, "attempt to access an unknown message"),
             CacheError::UncachedSequenceAccess => {
                 write!(f, "attempt to access an unknown message sequence")
@@ -978,12 +1083,12 @@ impl fmt::Display for CacheError {
 }
 
 pub fn get_or_create_room(
-    cache: Arc<RwLock<CachedData>>,
+    cache: &Cache,
     room_id: &OwnedRoomId,
 ) -> Result<Arc<RwLock<CachedChronoRoom>>, CacheError> {
-    let mut cached_data_w = cache.write().map_err(|_| CacheError::CachePoisoned)?;
+    let mut cache_w = cache.cached_data_write_lock()?;
 
-    let cached_room = match cached_data_w.get_mut(room_id) {
+    let cached_room = match cache_w.get_mut(room_id) {
         Some(val) => {
             log::debug!("Found cached room with id {}", room_id);
             val.clone()
@@ -993,11 +1098,11 @@ pub fn get_or_create_room(
                 "Did not find cached room with id {} - creating a new empty room cache",
                 room_id
             );
-            cached_data_w.insert(
+            cache_w.insert(
                 room_id.clone(),
                 Arc::new(RwLock::new(CachedChronoRoom::new())),
             );
-            cached_data_w
+            cache_w
                 .get(&room_id.clone())
                 .ok_or(CacheError::UncachedRoomAccess)?
                 .clone()
@@ -1008,7 +1113,7 @@ pub fn get_or_create_room(
 }
 
 pub fn cache_sync_response(
-    cache: Arc<RwLock<CachedData>>,
+    cache: &Cache,
     response: &matrix_sdk::sync::SyncResponse,
     source: SyncSource,
 ) -> Result<(), CacheError> {
@@ -1018,7 +1123,7 @@ pub fn cache_sync_response(
     for (room_id, room_update) in &response.rooms.joined {
         // 2. check if row with key=roomId exists in cache, if not create a new CachedChronoRoom
         {
-            let mut cache_w = cache.write().map_err(|_| CacheError::CachePoisoned)?;
+            let mut cache_w = cache.cached_data_write_lock()?;
             cache_w
                 .entry(room_id.clone())
                 .or_insert_with(|| Arc::new(RwLock::new(CachedChronoRoom::new())));
@@ -1034,7 +1139,7 @@ pub fn cache_sync_response(
 
         // 4. call CachedChronoRoom::add_batch(messages, None, SyncSource::InitialSync)
         let room = {
-            let cache_r = cache.read().map_err(|_| CacheError::CachePoisoned)?;
+            let cache_r = cache.cached_data_read_lock()?;
 
             cache_r
                 .get(room_id)
@@ -1054,20 +1159,20 @@ pub fn cache_sync_response(
 /// and appends it to a `CachedChronoRoom` specified by `room_id`
 /// Will create a new `CachedChronoRoom` if necessary
 pub fn cache_room_messages_response(
-    cache: Arc<RwLock<CachedData>>,
+    cache: &Cache,
     response: &matrix_sdk::room::Messages,
     room_id: OwnedRoomId,
     chronological: bool,
 ) -> Result<(), CacheError> {
     {
-        let mut cache_w = cache.write().map_err(|_| CacheError::CachePoisoned)?;
+        let mut cache_w = cache.cached_data_write_lock()?;
         cache_w
             .entry(room_id.clone())
             .or_insert_with(|| Arc::new(RwLock::new(CachedChronoRoom::new())));
     }
 
     let room = {
-        let cache_r = cache.read().map_err(|_| CacheError::CachePoisoned)?;
+        let cache_r = cache.cached_data_read_lock()?;
 
         cache_r
             .get(&room_id)
@@ -1200,15 +1305,9 @@ async fn try_append_message<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     current_id: &OwnedEventId,
     room_client: &T,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) {
-    match assemble_proto_message(
-        cached_room.clone(),
-        current_id.clone(),
-        room_client,
-        reaction_tracker,
-    )
-    .await
+    match assemble_proto_message(cached_room.clone(), current_id.clone(), room_client, cache).await
     {
         Ok(Some(proto_msg)) => result.push(proto_msg),
         Ok(None) => {}
@@ -1270,7 +1369,7 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     order: MessagesOrder,
     skip_first: bool,
     room_client: &T,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) -> Result<SequenceChunkResult, CacheError> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
@@ -1297,14 +1396,7 @@ pub async fn get_sequence_chunk<T: RoomClient>(
 
         // Skip the starting message when the caller provided an explicit from_id
         if !skip_first || current_id != from_id {
-            try_append_message(
-                &mut result,
-                cached_room,
-                &current_id,
-                room_client,
-                reaction_tracker.clone(),
-            )
-            .await;
+            try_append_message(&mut result, cached_room, &current_id, room_client, cache).await;
         }
 
         let need_more = result.len() < limit;
@@ -1382,7 +1474,7 @@ async fn assemble_proto_message<T: RoomClient>(
     cached_room: Arc<RwLock<CachedChronoRoom>>,
     id: OwnedEventId,
     room_client: &T,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) -> Result<Option<Message>, CacheError> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
@@ -1421,7 +1513,7 @@ async fn assemble_proto_message<T: RoomClient>(
 
     result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
 
-    let reactions = collect_reactions_to_event(id, room_client, reaction_tracker).await?;
+    let reactions = collect_reactions_to_event(id, room_client, cache).await?;
 
     result.reactions = reactions;
 
@@ -1431,7 +1523,7 @@ async fn assemble_proto_message<T: RoomClient>(
 async fn collect_reactions_to_event<T: RoomClient>(
     id: OwnedEventId,
     room_client: &T,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) -> Result<Vec<Reaction>, CacheError> {
     // TODO: This will be expensive to do for every single event. Its ok to do so in
     // a first approach. For efficiency reasons we should proceed as follows:
@@ -1441,8 +1533,7 @@ async fn collect_reactions_to_event<T: RoomClient>(
     // 2. if not, we must assume that we have uncached reactions. In this case
     //   we need to call the Room::relations() method
     let reactions = room_client.query_reactions_to_event(id).await?;
-    let result =
-        reactions_from_matrix_relations(reactions, room_client.room_id(), reaction_tracker)?;
+    let result = reactions_from_matrix_relations(reactions, room_client.room_id(), cache)?;
 
     Ok(result)
 }
@@ -1450,7 +1541,7 @@ async fn collect_reactions_to_event<T: RoomClient>(
 fn reactions_from_matrix_relations(
     relations: MatrixRelations,
     room_id: String,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) -> Result<Vec<Reaction>, CacheError> {
     let mut reactions = vec![];
     for rel in relations.chunk {
@@ -1470,18 +1561,15 @@ fn reactions_from_matrix_relations(
             let reaction_key = reaction_content.relates_to.key.clone();
 
             // Create the Reaction event for tracking
-            let reaction_event = ReactionEvent {
-                event_id: orig.event_id.into(),
+            let reaction_event = CachedReaction {
+                event_id: orig.event_id,
                 room_id: room_id.clone(),
                 message_id: related_event_id,
                 user_id: orig.sender.to_string(),
                 emoji: reaction_key,
             };
 
-            let mut reaction_tracker_w = reaction_tracker
-                .write()
-                .map_err(|_| CacheError::ReactionTrackerPoisoned)?;
-            reaction_tracker_w.track_reaction(reaction_event.clone());
+            cache.track_reaction(reaction_event.clone());
 
             // Create the Reaction protobuf message
             let reaction = reaction_event.into();
@@ -1754,10 +1842,9 @@ pub async fn retry_decryption<T: RoomClient>(
     messages_opt: Option<Vec<Message>>,
     room_id: &OwnedRoomId,
     room_client: &T,
-    cached_data: Arc<RwLock<CachedData>>,
+    cache: &Cache,
     mut key_change_rx: mpsc::Receiver<()>,
     ctx: &ClientContext,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
 ) -> Result<(), CacheError> {
     let Some(mut messages) = messages_opt else {
         return Ok(());
@@ -1776,9 +1863,9 @@ pub async fn retry_decryption<T: RoomClient>(
     }
 
     let cached_room = {
-        let cached_data_r = cached_data.read().map_err(|_| CacheError::CachePoisoned)?;
+        let cache_r = cache.cached_data_read_lock()?;
 
-        cached_data_r
+        cache_r
             .get(room_id)
             .ok_or(CacheError::UncachedRoomAccess)?
             .clone()
@@ -1795,7 +1882,7 @@ pub async fn retry_decryption<T: RoomClient>(
             room_client,
             cached_room.clone(),
             ctx,
-            reaction_tracker,
+            cache,
         ),
     )
     .await;
@@ -1824,7 +1911,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     room_client: &T,
     room: Arc<RwLock<CachedChronoRoom>>,
     ctx: &ClientContext,
-    reaction_tracker: Arc<RwLock<ReactionTracker>>,
+    cache: &Cache,
 ) -> Result<usize, CacheError> {
     let mut decrypted_count = 0;
 
@@ -1862,14 +1949,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
 
             log::info!("Successfully decrypted event {id} on retry!");
 
-            match assemble_proto_message(
-                room.clone(),
-                id.clone(),
-                room_client,
-                reaction_tracker.clone(),
-            )
-            .await?
-            {
+            match assemble_proto_message(room.clone(), id.clone(), room_client, cache).await? {
                 Some(msg) => {
                     if msg.is_encrypted {
                         log::warn!("Event {id} still encrypted");
@@ -2277,9 +2357,9 @@ mod tests {
         }
     }
 
-    impl ReactionTracker {
-        pub fn get_tracked_reactions(&self) -> &Vec<ReactionEvent> {
-            &self.tracked
+    impl Cache {
+        pub fn reactions(&self) -> &RwLock<Vec<CachedReaction>> {
+            &self.reactions
         }
     }
 
@@ -2293,7 +2373,7 @@ mod tests {
         msgs5: Vec<UnlinkedMessage>, // prefilled - but with shuffled_order
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
-        reaction_tracker: Arc<RwLock<ReactionTracker>>,
+        cache: Cache,
     }
 
     fn new_setup() -> SetupData {
@@ -2509,7 +2589,7 @@ mod tests {
             msgs5: msgs5,
             msg_after: msg_after,
             room_client: MockRoomClient::new(),
-            reaction_tracker: Arc::new(RwLock::new(ReactionTracker::new())),
+            cache: Cache::new(),
         }
     }
 
@@ -3004,7 +3084,7 @@ mod tests {
             MessagesOrder::Forward,
             true,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3033,7 +3113,7 @@ mod tests {
             MessagesOrder::Forward,
             false,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3061,7 +3141,7 @@ mod tests {
             MessagesOrder::Forward,
             true,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3088,7 +3168,7 @@ mod tests {
             MessagesOrder::Backward,
             true,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3115,7 +3195,7 @@ mod tests {
             MessagesOrder::Backward,
             true,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3145,7 +3225,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3178,7 +3258,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3211,7 +3291,7 @@ mod tests {
             MessagesOrder::Backward,
             false,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3274,7 +3354,7 @@ mod tests {
             MessagesOrder::Forward,
             false,
             &setup.room_client,
-            setup.reaction_tracker.clone(),
+            &setup.cache,
         )
         .await
         .unwrap();
@@ -3301,8 +3381,7 @@ mod tests {
             Some("@user2:example.org".to_string())
         );
 
-        let reaction_tracker_r = setup.reaction_tracker.read().unwrap();
-
-        assert_eq!(reaction_tracker_r.get_tracked_reactions().len(), 1)
+        let tracked_reactions = setup.cache.reactions().read().unwrap();
+        assert_eq!(tracked_reactions.len(), 1)
     }
 }

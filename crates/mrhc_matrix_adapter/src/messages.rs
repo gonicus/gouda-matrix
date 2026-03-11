@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLock};
-
 use futures_util::StreamExt;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::room::MessagesOptions;
@@ -13,7 +11,7 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc;
 
-use crate::chat_cache::{cache_room_messages_response, CachedData};
+use crate::cache::{cache_room_messages_response, Cache};
 use crate::media::MediaManager;
 use crate::{errors, media};
 
@@ -297,7 +295,7 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
 }
 
 pub async fn fetch_messages_from_sdk(
-    cached_data: Arc<RwLock<CachedData>>,
+    cache: &Cache,
     order: MessagesOrder,
     room: &Room,
     next: Option<String>,
@@ -332,13 +330,8 @@ pub async fn fetch_messages_from_sdk(
         return Ok((0, None));
     }
 
-    cache_room_messages_response(
-        cached_data.clone(),
-        &messages,
-        room.room_id().to_owned(),
-        chronological,
-    )
-    .map_err(errors::convert_cache_error)?;
+    cache_room_messages_response(cache, &messages, room.room_id().to_owned(), chronological)
+        .map_err(errors::convert_cache_error)?;
 
     let len = messages.chunk.len();
 
