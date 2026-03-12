@@ -1945,10 +1945,12 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                     } else {
                         log::info!("Decrypted event {id} and sending MessageChangeEvent");
 
+                        // TODO: This needs to be fixed
                         let content = match msg.content {
                             Some(MessageContent::Text(v)) => v.content.clone(),
                             Some(MessageContent::Image(v)) => v.image_path.clone(),
                             Some(MessageContent::File(v)) => v.file_path.clone(),
+                            Some(MessageContent::MembershipChange(v)) => v.change.to_string(),
                             None => return Err(CacheError::Unexpected),
                         };
 
