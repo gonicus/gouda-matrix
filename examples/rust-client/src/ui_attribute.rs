@@ -295,6 +295,7 @@ impl UiAttribute for message_change_event::Content {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
             Self::File(_) => "File",
+            Self::MembershipChange(_) => "MembershipChange",
         };
 
         ui.vertical(|ui| {
@@ -310,6 +311,7 @@ impl UiAttribute for message_change_event::Content {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
+                Self::MembershipChange(content) => content.update(ui),
             }
         });
     }
@@ -365,6 +367,12 @@ impl UiAttribute for MessageContentFile {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui_attribute!(self, ui, file_path);
         ui_attribute!(self, ui, file_name);
+    }
+}
+
+impl UiAttribute for MessageContentMembershipChange {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        ui_attribute!(self, ui, change);
     }
 }
 
