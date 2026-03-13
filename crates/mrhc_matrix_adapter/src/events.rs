@@ -726,7 +726,7 @@ impl EventExecutor {
             message
         );
 
-        // Error when retreving the messages content.
+        // Error when retrieving the messages content.
         // Sending a Message without content is not allowed, so we will return early.
         let Some(content) = content else {
             return;
@@ -765,7 +765,7 @@ impl EventExecutor {
             message_change_event
         );
 
-        // Error when retreving the messages content.
+        // Error when retrieving the messages content.
         // Sending a Message without content is not allowed, so we will return early.
         let Some(content) = content else {
             return;
