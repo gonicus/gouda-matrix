@@ -147,6 +147,17 @@ macro_rules! generate_message_content {
 
 pub(crate) use {convert_location, download_file, download_image, generate_message_content};
 
+pub fn message_content_to_message_change_event_content(
+    content: message::Content,
+) -> message_change_event::Content {
+    match content {
+        message::Content::Text(c) => message_change_event::Content::Text(c),
+        message::Content::Image(c) => message_change_event::Content::Image(c),
+        message::Content::File(c) => message_change_event::Content::File(c),
+        message::Content::MembershipChange(c) => message_change_event::Content::MembershipChange(c),
+    }
+}
+
 pub async fn send_text_message(
     room: Room,
     related_message_id: Option<String>,

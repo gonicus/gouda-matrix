@@ -20,11 +20,9 @@ use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use mrhc_core::ClientContext;
-use mrhc_proto::chat::message::{self, Content as MessageContent};
-use mrhc_proto::chat::message_change_event::Content as MessageChangeContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    builder, EventOrigin, Message, MessageContentText, MessageRemoveEvent, MessagesOrder, Reaction,
+    builder, message, EventOrigin, Message, MessageRemoveEvent, MessagesOrder, Reaction,
 };
 use ruma_common::EventId;
 use tokio::sync::mpsc;
@@ -1498,12 +1496,8 @@ async fn assemble_proto_message<T: RoomClient>(
     };
 
     result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
-
     result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
-
-    let reactions = collect_reactions_to_event(id, room_client, cache).await?;
-
-    result.reactions = reactions;
+    result.reactions = collect_reactions_to_event(id, room_client, cache).await?;
 
     Ok(Some(result))
 }
@@ -1945,14 +1939,12 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                     } else {
                         log::info!("Decrypted event {id} and sending MessageChangeEvent");
 
-                        // TODO: This needs to be fixed
-                        let content = match msg.content {
-                            Some(MessageContent::Text(v)) => v.content.clone(),
-                            Some(MessageContent::Image(v)) => v.image_path.clone(),
-                            Some(MessageContent::File(v)) => v.file_path.clone(),
-                            Some(MessageContent::MembershipChange(v)) => v.change.to_string(),
-                            None => return Err(CacheError::Unexpected),
+                        let Some(content) = msg.content else {
+                            return Err(CacheError::Unexpected);
                         };
+
+                        let content =
+                            messages::message_content_to_message_change_event_content(content);
 
                         // Send a MessageChangeEvent with the new, decrypted content to the client
                         let response = builder::MessageChangeEventBuilder::new(
@@ -1960,7 +1952,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                             id.to_string(),
                         )
                         .change_is_encrypted(false)
-                        .change_content(MessageChangeContent::Text(MessageContentText { content }))
+                        .change_content(content)
                         .to_proto();
 
                         ctx.send_event(ResponseContent::MessageChangeEvent(response));
@@ -2243,6 +2235,7 @@ impl RoomClient for MatrixRoomClient {
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
+    use mrhc_proto::chat::MessageContentText;
     use serde_json::json;
 
     use super::*;
