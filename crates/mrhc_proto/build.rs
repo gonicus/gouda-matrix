@@ -10,6 +10,7 @@ fn main() {
             "RecoveryKeyVerificationRequest",
             "LoginUsernamePasswordRequest",
             "CrossSigningMethodSelectedEvent",
+            "MessageContentText",
         ])
         .compile_protos(&["chat.proto"], &[proto_dir])
         .expect("Failed to compile proto files");
