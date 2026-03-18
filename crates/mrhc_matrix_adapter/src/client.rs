@@ -1398,13 +1398,13 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn remove_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
+    async fn remove_reaction(&mut self, ctx: ClientContext, request: Reaction) -> Result<()> {
         let Reaction {
             room_id,
             message_id,
             reaction,
             user_id,
-        } = request;
+        } = request.clone();
 
         let InitializedData { client, cache, .. } = self.get_initialized_data_logged_in().await?;
 
@@ -1422,6 +1422,8 @@ impl ClientAbstraction for MatrixClient {
         room.redact(&reaction.event_id, None, None)
             .await
             .map_err(errors::convert_http_error)?;
+
+        ctx.send_event(ResponseContent::ReactionRemovedEvent(request));
 
         Ok(())
     }
