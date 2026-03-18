@@ -1404,7 +1404,7 @@ impl ClientAbstraction for MatrixClient {
             message_id,
             reaction,
             user_id,
-        } = request.clone();
+        } = request;
 
         let InitializedData { client, cache, .. } = self.get_initialized_data_logged_in().await?;
 
@@ -1413,17 +1413,25 @@ impl ClientAbstraction for MatrixClient {
         let user_id =
             user_id.unwrap_or(client.user_id().map(|f| f.to_string()).unwrap_or_default());
 
-        let reaction = cache.untrack_reaction_by_emoji(room_id, message_id, user_id, reaction);
+        let cached_reaction =
+            cache.untrack_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
 
-        let Some(reaction) = reaction else {
+        let Some(cached_reaction) = cached_reaction else {
             return Err(errors::create_error(ErrorType::ReactionNotFound));
         };
 
-        room.redact(&reaction.event_id, None, None)
+        room.redact(&cached_reaction.event_id, None, None)
             .await
             .map_err(errors::convert_http_error)?;
 
-        ctx.send_event(ResponseContent::ReactionRemovedEvent(request));
+        let proto = Reaction {
+            room_id,
+            message_id,
+            reaction,
+            user_id: Some(user_id),
+        };
+
+        ctx.send_event(ResponseContent::ReactionRemovedEvent(proto));
 
         Ok(())
     }

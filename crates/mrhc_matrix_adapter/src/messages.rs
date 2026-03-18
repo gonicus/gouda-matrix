@@ -145,7 +145,10 @@ macro_rules! generate_message_content {
     };
 }
 
-pub(crate) use {convert_location, download_file, download_image, generate_message_content};
+pub(crate) use convert_location;
+pub(crate) use download_file;
+pub(crate) use download_image;
+pub(crate) use generate_message_content;
 
 pub fn message_content_to_message_change_event_content(
     content: message::Content,
