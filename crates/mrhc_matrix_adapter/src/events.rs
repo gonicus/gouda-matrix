@@ -578,7 +578,7 @@ impl EventExecutor {
             room_id: room.room_id().to_owned().to_string(),
             message_id: event.event_id.to_string(),
             sender_id: event.sender.to_string(),
-            timestamp: event.origin_server_ts.as_secs().into(),
+            timestamp: event.origin_server_ts.0.into(),
             content: Some(message::Content::MembershipChange(message_content)),
             ..Default::default()
         };
