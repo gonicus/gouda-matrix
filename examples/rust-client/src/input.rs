@@ -4,8 +4,8 @@ use interprocess::local_socket::SendHalf;
 
 use crate::actions::Action;
 use crate::config::Config;
-use crate::output_window::OutputLog;
-use crate::ui_attribute::UiAttribute;
+use crate::communication::OutputLog;
+use crate::ui::InputUi;
 
 macro_rules! ui_action {
     ($self:ident, $ui:ident, $name:ident) => {

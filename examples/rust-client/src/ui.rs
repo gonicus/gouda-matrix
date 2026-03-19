@@ -1,7 +1,7 @@
 use egui::Widget;
 use mrhc_proto::chat::*;
 
-macro_rules! ui_attribute {
+macro_rules! input_attribute {
     ($self:ident, $ui:ident, $attr:ident) => {
         if $self.$attr.is_multiline() {
             $ui.label(concat!(stringify!($attr), ":"));
@@ -15,40 +15,40 @@ macro_rules! ui_attribute {
     };
 }
 
-pub trait UiAttribute {
+pub trait InputUi {
     fn update(&mut self, ui: &mut egui::Ui);
     fn is_multiline(&self) -> bool {
         false
     }
 }
 
-impl UiAttribute for String {
+impl InputUi for String {
     fn update(&mut self, ui: &mut egui::Ui) {
         ui.text_edit_singleline(self);
     }
 }
 
-impl UiAttribute for bool {
+impl InputUi for bool {
     fn update(&mut self, ui: &mut egui::Ui) {
         egui::Checkbox::without_text(self).ui(ui);
     }
 }
 
-impl UiAttribute for i32 {
+impl InputUi for i32 {
     fn update(&mut self, ui: &mut egui::Ui) {
         egui::DragValue::new(self).ui(ui);
     }
 }
 
-impl UiAttribute for u32 {
+impl InputUi for u32 {
     fn update(&mut self, ui: &mut egui::Ui) {
         egui::DragValue::new(self).ui(ui);
     }
 }
 
-impl<T> UiAttribute for Option<T>
+impl<T> InputUi for Option<T>
 where
-    T: UiAttribute + Default,
+    T: InputUi + Default,
 {
     fn update(&mut self, ui: &mut egui::Ui) {
         let mut checked = self.is_some();
@@ -70,9 +70,9 @@ where
     }
 }
 
-impl<T> UiAttribute for Vec<T>
+impl<T> InputUi for Vec<T>
 where
-    T: UiAttribute + Default,
+    T: InputUi + Default,
 {
     fn update(&mut self, ui: &mut egui::Ui) {
         const BUTTON_SIZE: egui::Vec2 = egui::Vec2::new(20.0, 20.0);
@@ -106,160 +106,160 @@ where
     }
 }
 
-impl UiAttribute for InitializationRequest {
+impl InputUi for InitializationRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, backend_url);
-        ui_attribute!(self, ui, data_root_path);
-        ui_attribute!(self, ui, persistent_storage_secret);
-        ui_attribute!(self, ui, encryption_secret);
-        ui_attribute!(self, ui, device_display_name);
+        input_attribute!(self, ui, backend_url);
+        input_attribute!(self, ui, data_root_path);
+        input_attribute!(self, ui, persistent_storage_secret);
+        input_attribute!(self, ui, encryption_secret);
+        input_attribute!(self, ui, device_display_name);
     }
 }
 
-impl UiAttribute for LoginUsernamePasswordRequest {
+impl InputUi for LoginUsernamePasswordRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, username);
-        ui_attribute!(self, ui, password);
+        input_attribute!(self, ui, username);
+        input_attribute!(self, ui, password);
     }
 }
 
-impl UiAttribute for LoginSsoRequest {
+impl InputUi for LoginSsoRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, identity_provider);
+        input_attribute!(self, ui, identity_provider);
     }
 }
 
-impl UiAttribute for RecoveryKeyVerificationRequest {
+impl InputUi for RecoveryKeyVerificationRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, recovery_key);
+        input_attribute!(self, ui, recovery_key);
     }
 }
 
-impl UiAttribute for CrossSigningStartRequest {
+impl InputUi for CrossSigningStartRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, verification_flow_id);
-        ui_attribute!(self, ui, supported_methods);
+        input_attribute!(self, ui, verification_flow_id);
+        input_attribute!(self, ui, supported_methods);
     }
 }
 
-impl UiAttribute for CrossSigningMethodSelectedRequest {
+impl InputUi for CrossSigningMethodSelectedRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, verification_flow_id);
-        ui_attribute!(self, ui, selected_method);
+        input_attribute!(self, ui, verification_flow_id);
+        input_attribute!(self, ui, selected_method);
     }
 }
 
-impl UiAttribute for CrossSigningConfirmRequest {
+impl InputUi for CrossSigningConfirmRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, verification_flow_id);
+        input_attribute!(self, ui, verification_flow_id);
     }
 }
 
-impl UiAttribute for VerificationAbortRequest {
+impl InputUi for VerificationAbortRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, verification_flow_id);
+        input_attribute!(self, ui, verification_flow_id);
     }
 }
 
-impl UiAttribute for UserSearchRequest {
+impl InputUi for UserSearchRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, query);
-        ui_attribute!(self, ui, limit);
+        input_attribute!(self, ui, query);
+        input_attribute!(self, ui, limit);
     }
 }
 
-impl UiAttribute for PublicRoomListRequest {
+impl InputUi for PublicRoomListRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, limit);
-        ui_attribute!(self, ui, since);
-        ui_attribute!(self, ui, generic_search_term);
+        input_attribute!(self, ui, limit);
+        input_attribute!(self, ui, since);
+        input_attribute!(self, ui, generic_search_term);
     }
 }
 
-impl UiAttribute for InvitationRequest {
+impl InputUi for InvitationRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, invitees);
-        ui_attribute!(self, ui, invitation_text);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, invitees);
+        input_attribute!(self, ui, invitation_text);
     }
 }
 
-impl UiAttribute for InvitedReply {
+impl InputUi for InvitedReply {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, accepted);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, accepted);
     }
 }
 
-impl UiAttribute for RoomListRequest {
+impl InputUi for RoomListRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, include_joined);
-        ui_attribute!(self, ui, include_unjoined);
+        input_attribute!(self, ui, include_joined);
+        input_attribute!(self, ui, include_unjoined);
     }
 }
 
-impl UiAttribute for RoomCreateGroupRequest {
+impl InputUi for RoomCreateGroupRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, invitees);
-        ui_attribute!(self, ui, join_rule);
-        ui_attribute!(self, ui, avatar_path);
+        input_attribute!(self, ui, display_name);
+        input_attribute!(self, ui, invitees);
+        input_attribute!(self, ui, join_rule);
+        input_attribute!(self, ui, avatar_path);
     }
 }
 
-impl UiAttribute for RoomCreateDirectRequest {
+impl InputUi for RoomCreateDirectRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, invitee);
-        ui_attribute!(self, ui, avatar_path);
+        input_attribute!(self, ui, display_name);
+        input_attribute!(self, ui, invitee);
+        input_attribute!(self, ui, avatar_path);
     }
 }
 
-impl UiAttribute for RoomChangeRequest {
+impl InputUi for RoomChangeRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, display_name);
-        ui_attribute!(self, ui, join_rule);
-        ui_attribute!(self, ui, is_favorite);
-        ui_attribute!(self, ui, avatar_path);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, display_name);
+        input_attribute!(self, ui, join_rule);
+        input_attribute!(self, ui, is_favorite);
+        input_attribute!(self, ui, avatar_path);
     }
 }
 
-impl UiAttribute for RoomLeaveRequest {
+impl InputUi for RoomLeaveRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, room_id);
     }
 }
 
-impl UiAttribute for RoomJoinRequest {
+impl InputUi for RoomJoinRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, room_id);
     }
 }
 
-impl UiAttribute for RoomKnockRequest {
+impl InputUi for RoomKnockRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, message);
     }
 }
 
-impl UiAttribute for RoomMessagesRequest {
+impl InputUi for RoomMessagesRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, order);
-        ui_attribute!(self, ui, from_message_id);
-        ui_attribute!(self, ui, limit);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, order);
+        input_attribute!(self, ui, from_message_id);
+        input_attribute!(self, ui, limit);
     }
 }
 
-impl UiAttribute for RoomMarkAsReadRequest {
+impl InputUi for RoomMarkAsReadRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, room_id);
     }
 }
 
-impl UiAttribute for message_send_request::Content {
+impl InputUi for message_send_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
@@ -289,7 +289,7 @@ impl UiAttribute for message_send_request::Content {
     }
 }
 
-impl UiAttribute for message_change_event::Content {
+impl InputUi for message_change_event::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
@@ -321,7 +321,7 @@ impl UiAttribute for message_change_event::Content {
     }
 }
 
-impl UiAttribute for message_change_request::Content {
+impl InputUi for message_change_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
@@ -351,59 +351,59 @@ impl UiAttribute for message_change_request::Content {
     }
 }
 
-impl UiAttribute for MessageContentText {
+impl InputUi for MessageContentText {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, content);
+        input_attribute!(self, ui, content);
     }
 }
 
-impl UiAttribute for MessageContentImage {
+impl InputUi for MessageContentImage {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, image_path);
+        input_attribute!(self, ui, image_path);
     }
 }
 
-impl UiAttribute for MessageContentFile {
+impl InputUi for MessageContentFile {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, file_path);
-        ui_attribute!(self, ui, file_name);
+        input_attribute!(self, ui, file_path);
+        input_attribute!(self, ui, file_name);
     }
 }
 
-impl UiAttribute for MessageContentMembershipChange {
+impl InputUi for MessageContentMembershipChange {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, change);
+        input_attribute!(self, ui, change);
     }
 }
 
-impl UiAttribute for MessageSendRequest {
+impl InputUi for MessageSendRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, related_message_id);
-        ui_attribute!(self, ui, content);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, related_message_id);
+        input_attribute!(self, ui, content);
     }
 }
 
-impl UiAttribute for MessageRemoveRequest {
+impl InputUi for MessageRemoveRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message_id);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, message_id);
     }
 }
 
-impl UiAttribute for MessageChangeRequest {
+impl InputUi for MessageChangeRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message_id);
-        ui_attribute!(self, ui, content);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, message_id);
+        input_attribute!(self, ui, content);
     }
 }
 
-impl UiAttribute for Reaction {
+impl InputUi for Reaction {
     fn update(&mut self, ui: &mut egui::Ui) {
-        ui_attribute!(self, ui, room_id);
-        ui_attribute!(self, ui, message_id);
-        ui_attribute!(self, ui, reaction);
-        ui_attribute!(self, ui, user_id);
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, message_id);
+        input_attribute!(self, ui, reaction);
+        input_attribute!(self, ui, user_id);
     }
 }

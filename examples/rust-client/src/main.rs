@@ -1,15 +1,15 @@
 mod actions;
 mod config;
-mod input_window;
-mod output_window;
-mod ui_attribute;
+mod input;
+mod communication;
+mod ui;
 
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, RecvHalf, SendHalf};
 
 use crate::config::Config;
-use crate::input_window::InputWindow;
-use crate::output_window::OutputWindow;
+use crate::input::InputWindow;
+use crate::communication::OutputWindow;
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
