@@ -6,7 +6,7 @@ use mrhc_proto::chat::*;
 use prost::Message;
 use strum_macros::{Display, EnumString};
 
-use crate::ui_attribute::UiAttribute;
+use crate::ui::InputUi;
 
 macro_rules! impl_run {
     ($method:ident, $request_name:ident) => {
@@ -111,7 +111,7 @@ impl Action {
     }
 }
 
-impl UiAttribute for Action {
+impl InputUi for Action {
     fn update(&mut self, ui: &mut egui::Ui) {
         match self {
             Self::Initialize(request) => request.update(ui),
