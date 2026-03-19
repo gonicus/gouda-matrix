@@ -568,6 +568,23 @@ impl EventExecutor {
             .to_proto();
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+
+        let message_content = MessageContentMembershipChange {
+            change: user::membership_state_to_membership_change(&event.content.membership).into(),
+            affected_user_id: event.state_key.to_string(),
+        };
+
+        let message = Message {
+            room_id: room.room_id().to_owned().to_string(),
+            message_id: event.event_id.to_string(),
+            sender_id: event.sender.to_string(),
+            timestamp: event.origin_server_ts.as_secs().into(),
+            content: Some(message::Content::MembershipChange(message_content)),
+            ..Default::default()
+        };
+
+        self.ctx
+            .send_event(ResponseContent::MessageReceivedEvent(message));
     }
 
     async fn process_own_membership_change(

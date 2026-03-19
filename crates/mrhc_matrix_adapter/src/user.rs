@@ -20,6 +20,21 @@ pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -
     }
 }
 
+pub fn membership_state_to_membership_change(
+    membership_state: &MembershipState,
+) -> message_content_membership_change::MembershipChange {
+    use message_content_membership_change::MembershipChange;
+
+    match membership_state {
+        MembershipState::Ban => MembershipChange::Banned,
+        MembershipState::Invite => MembershipChange::Invited,
+        MembershipState::Join => MembershipChange::Joined,
+        MembershipState::Knock => MembershipChange::Knocked,
+        MembershipState::Leave => MembershipChange::Left,
+        _ => MembershipChange::Joined,
+    }
+}
+
 pub fn convert_presence_state(state: MatrixPresenceState) -> PresenceState {
     match state {
         MatrixPresenceState::Offline => PresenceState::Offline,
