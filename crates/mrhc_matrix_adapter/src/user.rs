@@ -1,11 +1,11 @@
 use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
 use matrix_sdk::ruma::events::room::member::{
-    MembershipState, MembershipChange as MatrixMembershipChange,
+    MembershipChange as MatrixMembershipChange, MembershipState,
 };
 use matrix_sdk::Client;
 use mrhc_core::Result;
-use mrhc_proto::chat::*;
 use mrhc_proto::chat::message_content_membership_change::MembershipChange;
+use mrhc_proto::chat::*;
 use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
 
@@ -23,18 +23,22 @@ pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -
     }
 }
 
-pub fn membership_state_to_membership_change(
-    membership_state: &MembershipState,
-) -> message_content_membership_change::MembershipChange {
-    use message_content_membership_change::MembershipChange;
-
-    match membership_state {
-        MembershipState::Ban => MembershipChange::Banned,
-        MembershipState::Invite => MembershipChange::Invited,
-        MembershipState::Join => MembershipChange::Joined,
-        MembershipState::Knock => MembershipChange::Knocked,
-        MembershipState::Leave => MembershipChange::Left,
-        _ => MembershipChange::Joined,
+/// project a matrix_sdk::ruma::events::room::member::MembershipChange variant on
+/// the less granular representation
+/// mrhc_proto::chat::message_content_membership_change::MembershipChange
+pub fn convert_membership_change(change: &MatrixMembershipChange) -> Option<MembershipChange> {
+    match change {
+        MatrixMembershipChange::Joined
+        | MatrixMembershipChange::InvitationAccepted
+        | MatrixMembershipChange::KnockAccepted => Some(MembershipChange::Joined),
+        MatrixMembershipChange::Left => Some(MembershipChange::Left),
+        MatrixMembershipChange::Banned | MatrixMembershipChange::KickedAndBanned => {
+            Some(MembershipChange::Banned)
+        }
+        MatrixMembershipChange::Kicked => Some(MembershipChange::Kicked),
+        MatrixMembershipChange::Invited => Some(MembershipChange::Invited),
+        MatrixMembershipChange::Knocked => Some(MembershipChange::Knocked),
+        _ => return None,
     }
 }
 
@@ -135,22 +139,4 @@ pub async fn fetch_presence_state(client: &Client, user_id: &UserId) -> Presence
     };
 
     convert_presence_state(response.presence)
-}
-
-/// project a matrix_sdk::ruma::events::room::member::MembershipChange variant on
-/// the less granular representation
-/// mrhc_proto::chat::message_content_membership_change::MembershipChange
-pub fn convert_membership_change(change: &MatrixMembershipChange) -> Option<MembershipChange> {
-    match change {
-        MatrixMembershipChange::Joined
-        | MatrixMembershipChange::InvitationAccepted
-        | MatrixMembershipChange::KnockAccepted => Some(MembershipChange::Joined),
-        MatrixMembershipChange::Left => Some(MembershipChange::Left),
-        MatrixMembershipChange::Banned
-        | MatrixMembershipChange::KickedAndBanned => Some(MembershipChange::Banned),
-        MatrixMembershipChange::Kicked => Some(MembershipChange::Kicked),
-        MatrixMembershipChange::Invited => Some(MembershipChange::Invited),
-        MatrixMembershipChange::Knocked => Some(MembershipChange::Knocked),
-        _ => return None,
-    }
 }
