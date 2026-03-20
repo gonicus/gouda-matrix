@@ -3,8 +3,8 @@ use std::sync::mpsc::Sender;
 use interprocess::local_socket::SendHalf;
 
 use crate::actions::Action;
-use crate::config::Config;
 use crate::communication::OutputLog;
+use crate::config::Config;
 use crate::ui::InputUi;
 
 macro_rules! ui_action {

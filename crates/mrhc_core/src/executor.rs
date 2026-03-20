@@ -75,7 +75,7 @@ impl Executor {
     }
 
     async fn process_request(&mut self, tag: u64, content: RequestContent) {
-        let ctx = ClientContext::new(self.output_sender.clone());
+        let ctx = ClientContext::new(tag, self.output_sender.clone());
 
         match content {
             RequestContent::InitializationRequest(request) => {
@@ -176,7 +176,9 @@ impl Executor {
             }
             RequestContent::RoomMessagesRequest(request) => {
                 let result = self.client.get_room_messages(&ctx, &request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomMessagesResponse));
+                if let Err(err) = result {
+                    self.send_response(tag, Err(err));
+                }
             }
             RequestContent::RoomMarkAsReadRequest(request) => {
                 let result = self.client.mark_as_read(ctx, request).await;
@@ -2028,44 +2030,14 @@ mod tests {
     async fn test_room_messages_request() {
         // Arrange
         let request = RequestContent::RoomMessagesRequest(RoomMessagesRequest::default());
-        let response = RoomMessagesResponse {
-            message_list: vec![
-                Message {
-                    message_id: "message-1".to_owned(),
-                    room_id: "room-1".to_owned(),
-                    sender_id: "user-1".to_owned(),
-                    timestamp: 38473834,
-                    content: Some(MessageContent::Text(MessageContentText {
-                        content: "Hello world!".to_owned(),
-                    })),
-                    related_message_id: None,
-                    is_pinned: false,
-                    is_encrypted: false,
-                    ..Default::default()
-                },
-                Message {
-                    message_id: "message-2".to_owned(),
-                    room_id: "room-1".to_owned(),
-                    sender_id: "user-2".to_owned(),
-                    timestamp: 4729845738,
-                    content: Some(MessageContent::Text(MessageContentText {
-                        content: "Hello world!".to_owned(),
-                    })),
-                    related_message_id: None,
-                    is_pinned: true,
-                    is_encrypted: false,
-                    ..Default::default()
-                },
-            ],
-        };
 
         let client = ClientMock {
-            get_room_messages_response: Ok(response.clone()),
+            get_room_messages_response: Ok(()),
             ..Default::default()
         };
 
         let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
@@ -2079,10 +2051,6 @@ mod tests {
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_room_messages_called_n(1);
 
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::RoomMessagesResponse(response))
-        );
         assert!(output_rx.is_empty())
     }
 

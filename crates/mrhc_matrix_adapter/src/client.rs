@@ -1108,7 +1108,7 @@ impl ClientAbstraction for MatrixClient {
         &mut self,
         ctx: &ClientContext,
         request: &RoomMessagesRequest,
-    ) -> Result<RoomMessagesResponse> {
+    ) -> Result<()> {
         let InitializedData {
             media_manager,
             cache,
@@ -1193,7 +1193,7 @@ impl ClientAbstraction for MatrixClient {
         let room_client = cache::MatrixRoomClient::new(&room, media_manager.clone());
 
         // fetch events from sdk and assemble response
-        let seq = cache::get_sequence_chunk(
+        let seq = cache::send_and_get_sequence_chunk(
             &cached_room.clone(),
             from_id.clone(),
             limit,
@@ -1201,6 +1201,7 @@ impl ClientAbstraction for MatrixClient {
             skip_first,
             &room_client,
             cache,
+            ctx,
         )
         .await
         .map_err(|err| mrhc_proto::chat::Error {
@@ -1208,13 +1209,9 @@ impl ClientAbstraction for MatrixClient {
             error_string: Some(err.to_string()),
         })?;
 
-        if !seq.is_complete {
-            log::warn!("Returning inclomplete sequence chunk")
+        if seq.is_complete {
+            log::warn!("Sequence chunc was incomplete");
         }
-
-        let response = RoomMessagesResponse {
-            message_list: seq.messages.clone().unwrap_or(vec![]),
-        };
 
         let ctx = ctx.clone();
         let room_id = room_id.clone();
@@ -1237,7 +1234,7 @@ impl ClientAbstraction for MatrixClient {
             }
         });
 
-        Ok(response)
+        Ok(())
     }
 
     async fn mark_as_read(

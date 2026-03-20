@@ -71,7 +71,7 @@ pub struct ClientMock {
     pub knock_room_response: Result<()>,
     pub knock_room_call_count: u32,
 
-    pub get_room_messages_response: Result<RoomMessagesResponse>,
+    pub get_room_messages_response: Result<()>,
     pub get_room_messages_call_count: u32,
 
     pub mark_as_read_response: Result<RoomChangeEvent>,
@@ -162,7 +162,7 @@ impl Default for ClientMock {
             knock_room_response: Ok(()),
             knock_room_call_count: 0,
 
-            get_room_messages_response: Ok(RoomMessagesResponse::default()),
+            get_room_messages_response: Ok(()),
             get_room_messages_call_count: 0,
 
             mark_as_read_response: Ok(RoomChangeEvent::default()),
@@ -515,7 +515,7 @@ impl Client for ClientMock {
         &mut self,
         ctx: &ClientContext,
         _request: &RoomMessagesRequest,
-    ) -> Result<RoomMessagesResponse> {
+    ) -> Result<()> {
         self.received_ctx = Some(ctx.clone());
         self.get_room_messages_call_count += 1;
         self.get_room_messages_response.clone()

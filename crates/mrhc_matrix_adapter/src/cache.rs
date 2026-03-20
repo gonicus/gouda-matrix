@@ -19,7 +19,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use mrhc_core::ClientContext;
+use mrhc_core::{ClientContext, MultipartResponse};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
     builder, message, EventOrigin, Message, MessageRemoveEvent, MessagesOrder, Reaction,
@@ -1286,23 +1286,6 @@ fn read_event_id(msg: &Arc<RwLock<Option<CachedMessage>>>) -> Result<OwnedEventI
     OwnedEventId::try_from(cached.id.clone()).map_err(|_| CacheError::InvalidEventId)
 }
 
-async fn try_append_message<T: RoomClient>(
-    result: &mut Vec<Message>,
-    cached_room: &Arc<RwLock<CachedChronoRoom>>,
-    current_id: &OwnedEventId,
-    room_client: &T,
-    cache: &Cache,
-) {
-    match assemble_proto_message(cached_room.clone(), current_id.clone(), room_client, cache).await
-    {
-        Ok(Some(proto_msg)) => result.push(proto_msg),
-        Ok(None) => {}
-        Err(err) => {
-            log::warn!("Failed to assemble proto message for event {current_id}: {err}");
-        }
-    }
-}
-
 fn advance_message(
     msg: &Arc<RwLock<Option<CachedMessage>>>,
     order: MessagesOrder,
@@ -1348,7 +1331,7 @@ fn advance_message(
 /// of the original event is used as the `message_id`.
 /// None is returned if the required chunk is not fully contained in the cache. In this case,
 /// the second return value returns the sync token needed to query the next batch from the server.
-pub async fn get_sequence_chunk<T: RoomClient>(
+pub async fn send_and_get_sequence_chunk<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     from_id: OwnedEventId,
     limit: u32,
@@ -1356,6 +1339,7 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     skip_first: bool,
     room_client: &T,
     cache: &Cache,
+    ctx: &ClientContext,
 ) -> Result<SequenceChunkResult> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
@@ -1376,13 +1360,23 @@ pub async fn get_sequence_chunk<T: RoomClient>(
     let limit = usize::try_from(limit).map_err(|_| CacheError::Unexpected)?;
     let mut result = Vec::new();
 
+    let list_stream = ctx.begin_multipart_response();
+
     // iterate over msg until result has enough events
     while result.len() < limit {
         let current_id = read_event_id(&msg)?;
 
         // Skip the starting message when the caller provided an explicit from_id
         if !skip_first || current_id != from_id {
-            try_append_message(&mut result, cached_room, &current_id, room_client, cache).await;
+            try_send_and_append_message(
+                &mut result,
+                cached_room,
+                &current_id,
+                room_client,
+                cache,
+                &list_stream,
+            )
+            .await;
         }
 
         let need_more = result.len() < limit;
@@ -1401,6 +1395,28 @@ pub async fn get_sequence_chunk<T: RoomClient>(
         messages: Some(result),
         is_complete: true,
     })
+}
+
+async fn try_send_and_append_message<T: RoomClient>(
+    result: &mut Vec<Message>,
+    cached_room: &Arc<RwLock<CachedChronoRoom>>,
+    current_id: &OwnedEventId,
+    room_client: &T,
+    cache: &Cache,
+    list_stream: &MultipartResponse,
+) {
+    let proto =
+        assemble_proto_message(cached_room.clone(), current_id.clone(), room_client, cache).await;
+
+    let Ok(proto_msg) = proto else {
+        log::warn!("Failed to assemble proto message for eventy {current_id}");
+        return;
+    };
+
+    if let Some(proto_msg) = proto_msg {
+        result.push(proto_msg.clone());
+        list_stream.send_item(ResponseContent::MessageReceivedEvent(proto_msg));
+    }
 }
 
 pub fn check_cached_enough(
@@ -2235,8 +2251,10 @@ impl RoomClient for MatrixRoomClient {
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
+    use mrhc_core::OutputTask;
     use mrhc_proto::chat::MessageContentText;
     use serde_json::json;
+    use tokio::sync::mpsc::UnboundedReceiver;
 
     use super::*;
 
@@ -2347,6 +2365,8 @@ mod tests {
         msgs5: Vec<UnlinkedMessage>, // prefilled - but with shuffled_order
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
+        output_recv: UnboundedReceiver<OutputTask>,
+        ctx: ClientContext,
         cache: Cache,
     }
 
@@ -2553,6 +2573,8 @@ mod tests {
             .unwrap()
             .prev_token = prev_token.clone();
 
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
         SetupData {
             prefilled_room: prefilled_room,
             msgs0: msgs0,
@@ -2563,6 +2585,8 @@ mod tests {
             msgs5: msgs5,
             msg_after: msg_after,
             room_client: MockRoomClient::new(),
+            output_recv: rx,
+            ctx: ClientContext::new(0, tx),
             cache: Cache::new(),
         }
     }
@@ -3051,7 +3075,7 @@ mod tests {
         let setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(4),
             2,
@@ -3059,6 +3083,7 @@ mod tests {
             true,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3080,7 +3105,7 @@ mod tests {
         setup.room_client.fetch_room_messages_at_edge_result =
             Ok(Some(OwnedEventId::try_from(test_id(4)).unwrap()));
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(4),
             3,
@@ -3088,6 +3113,7 @@ mod tests {
             false,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3108,7 +3134,7 @@ mod tests {
         let setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(4),
             3,
@@ -3116,6 +3142,7 @@ mod tests {
             true,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3135,7 +3162,7 @@ mod tests {
         let setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(6),
             2,
@@ -3143,6 +3170,7 @@ mod tests {
             true,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3162,7 +3190,7 @@ mod tests {
         let setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(6),
             3,
@@ -3170,6 +3198,7 @@ mod tests {
             true,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3192,7 +3221,7 @@ mod tests {
             Ok(Some(OwnedEventId::try_from(test_id(6)).unwrap()));
 
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(6),
             3,
@@ -3200,6 +3229,7 @@ mod tests {
             false,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3225,7 +3255,7 @@ mod tests {
             Ok(Some(OwnedEventId::try_from(test_id(7)).unwrap()));
 
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(7),
             3,
@@ -3233,6 +3263,7 @@ mod tests {
             false,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3258,7 +3289,7 @@ mod tests {
             Ok(Some(OwnedEventId::try_from(test_id(8)).unwrap()));
 
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(8),
             3,
@@ -3266,6 +3297,7 @@ mod tests {
             false,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
@@ -3321,7 +3353,7 @@ mod tests {
         setup.room_client.query_reactions_to_event_result = Ok(matrix_relations);
 
         // Act
-        let result = get_sequence_chunk(
+        let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
             test_id(1),
             1,
@@ -3329,6 +3361,7 @@ mod tests {
             false,
             &setup.room_client,
             &setup.cache,
+            &setup.ctx,
         )
         .await
         .unwrap();
