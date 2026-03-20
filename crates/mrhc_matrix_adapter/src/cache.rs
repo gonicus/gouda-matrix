@@ -10,11 +10,14 @@ use matrix_sdk::ruma::events::relation::RelationType as MatrixRelationType;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, Relation as EncryptionRelation,
 };
+use matrix_sdk::ruma::events::room::member::{
+    MembershipChange as MatrixMembershipChange, RoomMemberEventContent,
+};
 use matrix_sdk::ruma::events::room::message::{MessageType, Relation, RoomMessageEventContent};
 use matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions, OriginalSyncMessageLikeEvent,
-    SyncMessageLikeEvent,
+    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, Mentions,
+    OriginalSyncMessageLikeEvent, StateEventType, SyncMessageLikeEvent, SyncStateEvent,
 };
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
@@ -22,13 +25,15 @@ use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind
 use mrhc_core::{ClientContext, MultipartResponse};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    builder, message, EventOrigin, Message, MessageRemoveEvent, MessagesOrder, Reaction,
+    builder, EventOrigin, message, Message, MessageContentMembershipChange,
+    MessageRemoveEvent, MessagesOrder, Reaction,
 };
 use ruma_common::EventId;
 use tokio::sync::mpsc;
 
 use crate::media::MediaManager;
 use crate::{debug_assert_or_log, messages};
+use crate::user::convert_membership_change;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CacheError {
@@ -870,7 +875,7 @@ impl fmt::Display for SequenceSentinel {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub enum EventType {
     Encrypted,
     Message,
@@ -1507,9 +1512,20 @@ async fn assemble_proto_message<T: RoomClient>(
         return Ok(None);
     }
 
+    // Assemble content if event is State
+    if is_state(cached_msg.clone())? {
+        result.content = get_state_content(&tl_evt)?;
+    }
+
+    // Assmble content if event is MessageLike
     if let Some(content) = get_latest_content(cached_msg.clone(), &tl_evt, room_client).await? {
-        result.content = Some(room_client.get_content(&id, content).await?);
+        result.content = Some(room_client.get_message_like_content(&id, content).await?);
     };
+
+    // Return if don't yet support or do not want to display a message with that content
+    if result.content.is_none() {
+        return Ok(None);
+    }
 
     result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
     result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
@@ -1619,16 +1635,24 @@ fn is_relation(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
     Ok(false)
 }
 
-fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
+fn is_state(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
     let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
-    if let Some(RelationType::Thread) = msg_r
+    let evt_type = msg_r
         .as_ref()
         .ok_or(CacheError::UncachedMessageAccess)?
-        .rel_type
-    {
-        return Ok(true);
-    }
-    Ok(false)
+        .r#type;
+
+    Ok(evt_type == EventType::State)
+}
+
+fn is_thread(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
+    let msg_r = cached_msg.read().map_err(|_| CacheError::CachePoisoned)?;
+    let rel_type = msg_r
+        .as_ref()
+        .ok_or(CacheError::UncachedMessageAccess)?
+        .rel_type;
+
+    Ok(rel_type == Some(RelationType::Thread))
 }
 
 fn is_marked_redacted(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<bool> {
@@ -1638,10 +1662,7 @@ fn is_marked_redacted(cached_msg: Arc<RwLock<Option<CachedMessage>>>) -> Result<
         .ok_or(CacheError::UncachedMessageAccess)?
         .r#type;
 
-    match evt_type {
-        EventType::Redacted => Ok(true),
-        _ => Ok(false),
-    }
+    Ok(evt_type == EventType::Redacted)
 }
 
 async fn get_latest_content<T: RoomClient>(
@@ -1712,6 +1733,85 @@ fn get_original_message_like_from_decrypted_any_sync_timeline(
         // support other MessageLike events
         _ => None,
     }
+}
+
+fn get_state_content(tl_evt: &TimelineEvent) -> Result<Option<message::Content>> {
+    let (tl_evt, encrypted) = deserialize(tl_evt)?;
+
+    if encrypted {
+        log::warn!("Encountered encrypted state event");
+        return Ok(None);
+    };
+
+    let Some(state_type) = get_state_type(&tl_evt)? else {
+        return Ok(None);
+    };
+
+    match state_type {
+        StateEventType::PolicyRuleRoom => Ok(None),
+        StateEventType::PolicyRuleServer => Ok(None),
+        StateEventType::PolicyRuleUser => Ok(None),
+        StateEventType::RoomAliases => Ok(None),
+        StateEventType::RoomAvatar => Ok(None),
+        StateEventType::RoomCanonicalAlias => Ok(None),
+        StateEventType::RoomCreate => Ok(None),
+        StateEventType::RoomEncryption => Ok(None),
+        StateEventType::RoomGuestAccess => Ok(None),
+        StateEventType::RoomHistoryVisibility => Ok(None),
+        StateEventType::RoomJoinRules => Ok(None),
+        StateEventType::RoomMember => get_membership_change_content(tl_evt),
+        StateEventType::RoomName => Ok(None),
+        StateEventType::RoomPinnedEvents => Ok(None),
+        StateEventType::RoomPowerLevels => Ok(None),
+        StateEventType::RoomServerAcl => Ok(None),
+        StateEventType::RoomThirdPartyInvite => Ok(None),
+        StateEventType::RoomTombstone => Ok(None),
+        StateEventType::RoomTopic => Ok(None),
+        StateEventType::SpaceChild => Ok(None),
+        StateEventType::SpaceParent => Ok(None),
+        _ => Ok(None), // covers _Custom variants
+    }
+}
+
+fn get_membership_change_content(tl_evt: AnySyncTimelineEvent) -> Result<Option<message::Content>> {
+    let AnySyncTimelineEvent::State(state_evt) = tl_evt else {
+        return Err(CacheError::Unexpected);
+    };
+
+    let AnySyncStateEvent::RoomMember(member_evt) = state_evt else {
+        return Err(CacheError::Unexpected);
+    };
+
+    let Some(change) = get_membership_change(&member_evt) else {
+        return Err(CacheError::Unexpected);
+    };
+
+    let Some(membership_change) = convert_membership_change(&change) else {
+        return Ok(None);
+    };
+
+    let membership_change_content = MessageContentMembershipChange {
+        change: membership_change.into(),
+        affected_user_id: member_evt.state_key().to_string(),
+    };
+
+    Ok(Some(message::Content::MembershipChange(membership_change_content)))
+}
+
+fn get_membership_change(
+    member_evt: &SyncStateEvent<RoomMemberEventContent>,
+) -> Option<MatrixMembershipChange<'_>> {
+    let orig = member_evt.as_original()?;
+
+    Some(orig.membership_change())
+}
+
+fn get_state_type(tl_evt: &AnySyncTimelineEvent) -> Result<Option<StateEventType>> {
+    let AnySyncTimelineEvent::State(state_evt) = tl_evt else {
+        return Ok(None);
+    };
+
+    Ok(Some(state_evt.event_type()))
 }
 
 async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId>> {
@@ -2125,7 +2225,7 @@ pub trait RoomClient {
 
     async fn query_reactions_to_event(&self, id: OwnedEventId) -> Result<MatrixRelations>;
 
-    async fn get_content(
+    async fn get_message_like_content(
         &self,
         message_id: &EventId,
         message_type: MessageType,
@@ -2228,7 +2328,7 @@ impl RoomClient for MatrixRoomClient {
         Ok(relations)
     }
 
-    async fn get_content(
+    async fn get_message_like_content(
         &self,
         message_id: &EventId,
         message_type: MessageType,
@@ -2334,7 +2434,7 @@ mod tests {
             self.get_clone_query_reactions_to_event_result()
         }
 
-        async fn get_content(
+        async fn get_message_like_content(
             &self,
             _message_id: &EventId,
             _message_type: MessageType,

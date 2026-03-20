@@ -1,6 +1,6 @@
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{Error, ResponseContainer};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender};
 
 use crate::output_processor::OutputTask;
 use crate::MultipartResponse;
