@@ -569,8 +569,14 @@ impl EventExecutor {
 
         self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
 
+        let membership_change = user::convert_membership_change(&event.membership_change());
+        let Some(membership_change) = membership_change else {
+            log::warn!("Unknown membership change: {:?}", event.membership_change());
+            return;
+        };
+
         let message_content = MessageContentMembershipChange {
-            change: user::membership_state_to_membership_change(&event.content.membership).into(),
+            change: membership_change.into(),
             affected_user_id: event.state_key.to_string(),
         };
 

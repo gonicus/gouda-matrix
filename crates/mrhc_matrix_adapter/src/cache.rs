@@ -25,15 +25,15 @@ use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind
 use mrhc_core::{ClientContext, MultipartResponse};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
-    builder, EventOrigin, message, Message, MessageContentMembershipChange,
-    MessageRemoveEvent, MessagesOrder, Reaction,
+    builder, message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent,
+    MessagesOrder, Reaction,
 };
 use ruma_common::EventId;
 use tokio::sync::mpsc;
 
 use crate::media::MediaManager;
-use crate::{debug_assert_or_log, messages};
 use crate::user::convert_membership_change;
+use crate::{debug_assert_or_log, messages};
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CacheError {
@@ -1795,7 +1795,9 @@ fn get_membership_change_content(tl_evt: AnySyncTimelineEvent) -> Result<Option<
         affected_user_id: member_evt.state_key().to_string(),
     };
 
-    Ok(Some(message::Content::MembershipChange(membership_change_content)))
+    Ok(Some(message::Content::MembershipChange(
+        membership_change_content,
+    )))
 }
 
 fn get_membership_change(
