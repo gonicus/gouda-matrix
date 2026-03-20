@@ -2,12 +2,9 @@ use std::any::Any;
 
 use async_trait::async_trait;
 use mrhc_proto::chat::error::ErrorType;
-use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
-use tokio::sync::mpsc::UnboundedSender;
 
-use crate::output_processor::OutputTask;
-use crate::Result;
+use crate::{ClientContext, Result};
 
 #[inline]
 fn not_implemented_error<T>() -> Result<T> {
@@ -15,41 +12,6 @@ fn not_implemented_error<T>() -> Result<T> {
         r#type: ErrorType::NotImplemented.into(),
         error_string: Some("The requested feature is not implemented by this client".to_owned()),
     })
-}
-
-#[derive(Clone)]
-pub struct ClientContext {
-    output_sender: UnboundedSender<OutputTask>,
-}
-
-impl ClientContext {
-    pub fn new(output_sender: UnboundedSender<OutputTask>) -> Self {
-        Self { output_sender }
-    }
-
-    /// Helper method to send a response container to the output processor.
-    #[inline]
-    fn send_to_output(&self, re: ResponseContainer) {
-        self.output_sender
-            .send(OutputTask::Response(Box::new(re)))
-            .expect("Receiver of the output sender dropped");
-    }
-
-    /// Sends an event to the receiving half.
-    pub fn send_event(&self, content: ResponseContent) {
-        self.send_to_output(ResponseContainer {
-            tag: 0,
-            content: Some(content),
-        });
-    }
-
-    /// Sends an error event to the receiving half.
-    pub fn send_error(&self, err: Error) {
-        self.send_to_output(ResponseContainer {
-            tag: 0,
-            content: Some(ResponseContent::Error(err)),
-        });
-    }
 }
 
 #[async_trait]
@@ -227,7 +189,7 @@ pub trait Client: Send {
         &mut self,
         ctx: &ClientContext,
         request: &RoomMessagesRequest,
-    ) -> Result<RoomMessagesResponse> {
+    ) -> Result<()> {
         not_implemented_error()
     }
 
