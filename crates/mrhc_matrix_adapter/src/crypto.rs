@@ -75,6 +75,7 @@ pub async fn decrypt<R: AsyncReadExt + Unpin>(mut reader: R, key: &[u8; 32]) -> 
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::io::Cursor;
 

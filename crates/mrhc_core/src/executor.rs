@@ -237,10 +237,9 @@ mod tests {
     use std::collections::HashMap;
 
     use mrhc_proto::chat::error::ErrorType;
-    use mrhc_proto::chat::message::Content as MessageContent;
     use mrhc_proto::chat::request_container::Content as RequestContent;
     use mrhc_proto::chat::response_container::Content as ResponseContent;
-    use mrhc_proto::chat::{MessageContentText, *};
+    use mrhc_proto::chat::*;
     use tokio::sync::mpsc;
 
     use super::*;
@@ -349,7 +348,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            initialize_response: Ok(response.clone()),
+            initialize_response: Ok(response),
             ..Default::default()
         };
 
@@ -566,7 +565,7 @@ mod tests {
         };
 
         let client = ClientMock {
-            login_username_password_response: Ok(response.clone()),
+            login_username_password_response: Ok(response),
             ..Default::default()
         };
 
