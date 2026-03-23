@@ -1180,7 +1180,7 @@ mod tests {
             }
         }
 
-        pub fn is_up_to_date(mut self, is_up_to_date: MockedResult<bool>) -> Self {
+        pub fn up_to_date(mut self, is_up_to_date: MockedResult<bool>) -> Self {
             self.is_up_to_date = is_up_to_date;
             self
         }
@@ -1201,8 +1201,8 @@ mod tests {
         }
 
         /// Helper method for `Self::is_up_to_date` to return the specified result.
-        pub fn is_up_to_date_result(self, is_up_to_date: bool) -> Self {
-            self.is_up_to_date(Arc::new(move || Ok(is_up_to_date)))
+        pub fn up_to_date_result(self, is_up_to_date: bool) -> Self {
+            self.up_to_date(Arc::new(move || Ok(is_up_to_date)))
         }
 
         /// Helper method for `Self::download` to return the specified download.
@@ -1385,7 +1385,7 @@ mod tests {
             "mxc://some_asset",
         );
 
-        let asset = AssetMock::new("some_asset").is_up_to_date_result(true);
+        let asset = AssetMock::new("some_asset").up_to_date_result(true);
         let mut manager = setup_asset_manager(&dirs, asset);
 
         // Act
@@ -1440,7 +1440,7 @@ mod tests {
 
         let asset = AssetMock::new("some_asset")
             .download_result(download_result)
-            .is_up_to_date_result(false);
+            .up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, asset);
 
@@ -1501,7 +1501,7 @@ mod tests {
 
         let asset = AssetMock::new("some_asset")
             .download_result(download_result)
-            .is_up_to_date_result(false);
+            .up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, asset);
 
@@ -1553,7 +1553,7 @@ mod tests {
 
         let asset = AssetMock::new("some_asset")
             .was_removed(true)
-            .is_up_to_date_result(false);
+            .up_to_date_result(false);
 
         let mut manager = setup_asset_manager(&dirs, asset);
 

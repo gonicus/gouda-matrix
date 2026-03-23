@@ -1210,7 +1210,7 @@ impl ClientAbstraction for MatrixClient {
         })?;
 
         if seq.is_complete {
-            log::warn!("Sequence chunc was incomplete");
+            log::warn!("Sequence chunk was incomplete");
         }
 
         let ctx = ctx.clone();

@@ -116,15 +116,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_size() {
-        let data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00];
-        let result = read_size(&mut data.as_ref()).await.unwrap();
+        let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let result = read_size(&mut data).await.unwrap();
         assert_eq!(result, 693857);
     }
 
     #[tokio::test]
     async fn test_read_size_early_eof() {
-        let data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
-        let result = read_size(&mut data.as_ref()).await;
+        let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
+        let result = read_size(&mut data).await;
         assert_eq!(
             result.unwrap_err().kind(),
             tokio::io::ErrorKind::UnexpectedEof
@@ -133,7 +133,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_request() {
-        let data: &[u8] = &[
+        let mut data: &[u8] = &[
             0x08, 0x57, 0x12, 0x5E, 0x0A, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x74,
             0x65, 0x73, 0x74, 0x2E, 0x62, 0x61, 0x63, 0x6B, 0x65, 0x6E, 0x64, 0x12, 0x11, 0x2F,
             0x74, 0x6D, 0x70, 0x2F, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x5F, 0x64, 0x61, 0x74,
@@ -156,7 +156,8 @@ mod tests {
             )),
         };
 
-        let result = read_request(&mut data.as_ref(), data.len() as u64).await;
+        let len = data.len() as u64;
+        let result = read_request(&mut data, len).await;
 
         assert_eq!(result, expected);
     }
@@ -164,23 +165,24 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "early eof")]
     async fn test_read_request_early_eof() {
-        let data: &'static [u8] = &[
+        let mut data: &'static [u8] = &[
             0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
             0x72, 0x12,
         ];
-        let _ = read_request(&mut data.as_ref(), 36).await;
+        let _ = read_request(&mut data, 36).await;
     }
 
     #[tokio::test]
     #[should_panic]
     async fn test_read_request_decode_error() {
-        let data: &'static [u8] = &[
+        let mut data: &'static [u8] = &[
             0x12, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
             0x72, 0x12, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x74, 0x65, 0x73, 0x74,
             0x2e, 0x62, 0x61, 0x63, 0x6b, 0x65, 0x6e, 0x64,
         ];
 
-        let _ = read_request(&mut data.as_ref(), data.len() as u64).await;
+        let len = data.len() as u64;
+        let _ = read_request(&mut data, len).await;
     }
 
     #[tokio::test]

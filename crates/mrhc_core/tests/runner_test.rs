@@ -62,7 +62,7 @@ async fn setup<T: Client + 'static>(test_client: T) -> Result<TestSetup, std::io
         client_sender: sender,
     };
 
-    return Ok(test_setup);
+    Ok(test_setup)
 }
 
 async fn read_payload_from_stream(recv: &mut RecvHalf) -> Vec<u8> {
@@ -75,7 +75,7 @@ async fn read_payload_from_stream(recv: &mut RecvHalf) -> Vec<u8> {
     let mut data_buf = vec![0u8; len as usize];
     recv.read_exact(&mut data_buf).await.unwrap();
 
-    return data_buf;
+    data_buf
 }
 
 #[tokio::test]
@@ -140,7 +140,7 @@ async fn test_initialization_request_on_success() {
     };
 
     let client: ClientMock = ClientMock {
-        initialize_response: Ok(response.clone()),
+        initialize_response: Ok(response),
         ..Default::default()
     };
     let mut setup = setup(client).await.expect("test setup failed");
@@ -325,7 +325,7 @@ async fn test_login_username_password_request_on_success() {
     };
 
     let client: ClientMock = ClientMock {
-        login_username_password_response: Ok(response.clone()),
+        login_username_password_response: Ok(response),
         ..Default::default()
     };
     let mut setup = setup(client).await.expect("test setup failed");

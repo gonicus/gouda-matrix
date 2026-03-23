@@ -1336,6 +1336,8 @@ fn advance_message(
 /// of the original event is used as the `message_id`.
 /// None is returned if the required chunk is not fully contained in the cache. In this case,
 /// the second return value returns the sync token needed to query the next batch from the server.
+// This is going to be fixed with a bigger refactoring.
+#[allow(clippy::too_many_arguments)]
 pub async fn send_and_get_sequence_chunk<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     from_id: OwnedEventId,
@@ -2350,8 +2352,9 @@ impl RoomClient for MatrixRoomClient {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod tests {
     use mrhc_core::OutputTask;
     use mrhc_proto::chat::MessageContentText;
@@ -2399,10 +2402,10 @@ mod tests {
 
             MockRoomClient {
                 room_id_result: "!000000000000000000:example.org".to_string(),
-                fetch_room_messages_at_edge_result: fetch_room_messages_at_edge_result,
-                fetch_result: fetch_result,
-                try_fresh_decrypt_result: try_fresh_decrypt_result,
-                query_reactions_to_event_result: query_reactions_to_event_result,
+                fetch_room_messages_at_edge_result,
+                fetch_result,
+                try_fresh_decrypt_result,
+                query_reactions_to_event_result,
             }
         }
 
@@ -2413,7 +2416,7 @@ mod tests {
                         chunk: self_rel.chunk.clone(),
                         prev_batch_token: self_rel.prev_batch_token.clone(),
                         next_batch_token: self_rel.next_batch_token.clone(),
-                        recursion_depth: self_rel.recursion_depth.clone(),
+                        recursion_depth: self_rel.recursion_depth,
                     };
 
                     Ok(rel)
@@ -2467,7 +2470,7 @@ mod tests {
         msgs5: Vec<UnlinkedMessage>, // prefilled - but with shuffled_order
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
-        output_recv: UnboundedReceiver<OutputTask>,
+        _output_recv: UnboundedReceiver<OutputTask>,
         ctx: ClientContext,
         cache: Cache,
     }
@@ -2660,14 +2663,14 @@ mod tests {
 
         let prev_token = msgs0[0].prev_token.clone();
         let next_token = msgs0[2].next_token.clone();
-        let last_id = OwnedEventId::try_from(test_id(6)).unwrap();
+        let last_id = test_id(6);
         prefilled_room.chrono_sequences[0].messages[&last_id]
             .write()
             .unwrap()
             .as_mut()
             .unwrap()
             .next_token = next_token.clone();
-        let first_id = OwnedEventId::try_from(test_id(4)).unwrap();
+        let first_id = test_id(4);
         prefilled_room.chrono_sequences[0].messages[&first_id]
             .write()
             .unwrap()
@@ -2678,16 +2681,16 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         SetupData {
-            prefilled_room: prefilled_room,
-            msgs0: msgs0,
-            msgs1: msgs1,
-            msgs2: msgs2,
-            msgs3: msgs3,
-            msgs4: msgs4,
-            msgs5: msgs5,
-            msg_after: msg_after,
+            prefilled_room,
+            msgs0,
+            msgs1,
+            msgs2,
+            msgs3,
+            msgs4,
+            msgs5,
+            msg_after,
             room_client: MockRoomClient::new(),
-            output_recv: rx,
+            _output_recv: rx,
             ctx: ClientContext::new(0, tx),
             cache: Cache::new(),
         }
@@ -2725,40 +2728,35 @@ mod tests {
 
         let mut messages = HashMap::new();
 
-        for i in 0..count {
+        for i in msgs.iter().take(count) {
             messages.insert(
-                OwnedEventId::try_from(msgs[i].id.clone()).unwrap(),
-                Arc::new(RwLock::new(Some(msgs[i].clone()))),
+                OwnedEventId::try_from(i.id.clone()).unwrap(),
+                Arc::new(RwLock::new(Some(i.clone()))),
             );
         }
 
         // link
         for i in (0..count).rev() {
-            let mut m_w = messages[&OwnedEventId::try_from(test_id(start + i)).unwrap()]
-                .write()
-                .unwrap();
+            let mut m_w = messages[&test_id(start + i)].write().unwrap();
             let m = m_w.as_mut().unwrap();
 
             if i == 0 {
                 m.before = begin_arc.clone();
             } else {
-                m.before =
-                    messages[&OwnedEventId::try_from(test_id(start + i - 1)).unwrap()].clone();
+                m.before = messages[&test_id(start + i - 1)].clone();
             }
 
             if i == count - 1 {
                 m.after = Arc::downgrade(&end_arc.clone());
             } else {
-                m.after = Arc::downgrade(
-                    &messages[&OwnedEventId::try_from(test_id(start + i + 1)).unwrap()].clone(),
-                );
+                m.after = Arc::downgrade(&messages[&test_id(start + i + 1)].clone());
             }
         }
 
         begin_arc.write().unwrap().as_mut().unwrap().after =
-            Arc::downgrade(&messages[&OwnedEventId::try_from(test_id(start)).unwrap()].clone());
+            Arc::downgrade(&messages[&test_id(start)].clone());
         end_arc.write().unwrap().as_mut().unwrap().before =
-            messages[&OwnedEventId::try_from(test_id(start + count - 1)).unwrap()].clone();
+            messages[&test_id(start + count - 1)].clone();
 
         CachedChronoSequence {
             messages,
@@ -2791,15 +2789,11 @@ mod tests {
         let sequence = room
             .chrono_sequences
             .iter_mut()
-            .find(|seq| {
-                seq.messages
-                    .contains_key(&OwnedEventId::try_from(test_id(parent)).unwrap())
-            })
+            .find(|seq| seq.messages.contains_key(&test_id(parent)))
             .expect("Parent message not found in any sequence");
 
-        let parent_msg =
-            sequence.messages[&OwnedEventId::try_from(test_id(parent)).unwrap()].clone();
-        let child_msg = sequence.messages[&OwnedEventId::try_from(test_id(child)).unwrap()].clone();
+        let parent_msg = sequence.messages[&test_id(parent)].clone();
+        let child_msg = sequence.messages[&test_id(child)].clone();
 
         child_msg.write().unwrap().as_mut().unwrap().rel_to = parent_msg.clone();
         child_msg.write().unwrap().as_mut().unwrap().rel_type = Some(relation_type);
@@ -2821,7 +2815,7 @@ mod tests {
     }
 
     fn b_after_a(sequence: &CachedChronoSequence, a: usize, b: usize) -> bool {
-        if !(sequence.messages[&OwnedEventId::try_from(test_id(b)).unwrap()]
+        if sequence.messages[&test_id(b)]
             .read()
             .unwrap()
             .as_ref()
@@ -2832,12 +2826,12 @@ mod tests {
             .as_ref()
             .unwrap()
             .id
-            == OwnedEventId::try_from(test_id(a)).unwrap())
+            != test_id(a)
         {
             return false;
         }
 
-        if !(sequence.messages[&OwnedEventId::try_from(test_id(a)).unwrap()]
+        if sequence.messages[&test_id(a)]
             .read()
             .unwrap()
             .as_ref()
@@ -2850,17 +2844,17 @@ mod tests {
             .as_ref()
             .unwrap()
             .id
-            == OwnedEventId::try_from(test_id(b)).unwrap())
+            != test_id(b)
         {
             return false;
         }
 
-        return true;
+        true
     }
 
     fn set_b_replaces_a(sequence: &CachedChronoSequence, a: usize, b: usize) {
-        let replaced_msg = sequence.messages[&OwnedEventId::try_from(test_id(a)).unwrap()].clone();
-        let replacing_msg = sequence.messages[&OwnedEventId::try_from(test_id(b)).unwrap()].clone();
+        let replaced_msg = sequence.messages[&test_id(a)].clone();
+        let replacing_msg = sequence.messages[&test_id(b)].clone();
         replacing_msg.write().unwrap().as_mut().unwrap().rel_to = replaced_msg.clone();
         replacing_msg.write().unwrap().as_mut().unwrap().rel_type = Some(RelationType::Replacement);
         replaced_msg.write().unwrap().as_mut().unwrap().rel_by =
@@ -2868,8 +2862,8 @@ mod tests {
     }
 
     fn set_b_redacts_a(sequence: &CachedChronoSequence, a: usize, b: usize) {
-        let redacted_msg = sequence.messages[&OwnedEventId::try_from(test_id(a)).unwrap()].clone();
-        let redacting_msg = sequence.messages[&OwnedEventId::try_from(test_id(b)).unwrap()].clone();
+        let redacted_msg = sequence.messages[&test_id(a)].clone();
+        let redacting_msg = sequence.messages[&test_id(b)].clone();
         redacting_msg.write().unwrap().as_mut().unwrap().rel_to = redacted_msg.clone();
         redacting_msg.write().unwrap().as_mut().unwrap().rel_type = Some(RelationType::Redaction);
         redacted_msg.write().unwrap().as_mut().unwrap().r#type = EventType::Redacted;
@@ -2887,15 +2881,9 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 3);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
     }
@@ -2912,9 +2900,7 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 1);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(7)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(7)));
     }
 
     #[tokio::test]
@@ -2929,15 +2915,9 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 3);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
     }
@@ -2954,15 +2934,9 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 3);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
     }
@@ -2979,18 +2953,10 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 4);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(7)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(7)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
         assert!(b_after_a(&room.chrono_sequences[0], 6, 7));
@@ -3009,15 +2975,9 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 3);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
         assert!(b_after_a(&room.chrono_sequences[0], 6, 4));
     }
@@ -3035,24 +2995,12 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 6);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(7)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(8)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(9)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(7)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(8)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(9)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
         assert!(b_after_a(&room.chrono_sequences[0], 6, 7));
@@ -3073,24 +3021,12 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 6);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(1)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(2)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(3)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(1)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(2)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(3)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
         assert!(b_after_a(&room.chrono_sequences[0], 1, 2));
         assert!(b_after_a(&room.chrono_sequences[0], 2, 3));
         assert!(b_after_a(&room.chrono_sequences[0], 3, 4));
@@ -3111,21 +3047,11 @@ mod tests {
         assert_eq!(room.chrono_sequences.len(), 2);
         assert_eq!(room.chrono_sequences[0].messages.len(), 3);
         assert_eq!(room.chrono_sequences[1].messages.len(), 2);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
-        assert!(room.chrono_sequences[1]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(8)).unwrap()));
-        assert!(room.chrono_sequences[1]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(9)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
+        assert!(room.chrono_sequences[1].messages.contains_key(&test_id(8)));
+        assert!(room.chrono_sequences[1].messages.contains_key(&test_id(9)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
         assert!(b_after_a(&room.chrono_sequences[1], 8, 9));
@@ -3143,18 +3069,10 @@ mod tests {
         // Assert
         assert_eq!(room.chrono_sequences.len(), 1);
         assert_eq!(room.chrono_sequences[0].messages.len(), 4);
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(4)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(5)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(6)).unwrap()));
-        assert!(room.chrono_sequences[0]
-            .messages
-            .contains_key(&OwnedEventId::try_from(test_id(7)).unwrap()));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(4)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(5)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(6)));
+        assert!(room.chrono_sequences[0].messages.contains_key(&test_id(7)));
         assert!(b_after_a(&room.chrono_sequences[0], 4, 5));
         assert!(b_after_a(&room.chrono_sequences[0], 5, 6));
         assert!(b_after_a(&room.chrono_sequences[0], 6, 7));
@@ -3204,8 +3122,7 @@ mod tests {
         // Arrange
         let mut setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
-        setup.room_client.fetch_room_messages_at_edge_result =
-            Ok(Some(OwnedEventId::try_from(test_id(4)).unwrap()));
+        setup.room_client.fetch_room_messages_at_edge_result = Ok(Some(test_id(4)));
         // Act
         let result = send_and_get_sequence_chunk(
             &room_arc.clone(),
@@ -3319,8 +3236,7 @@ mod tests {
         // Arrange
         let mut setup = new_setup();
         let room_arc = Arc::new(RwLock::new(setup.prefilled_room));
-        setup.room_client.fetch_room_messages_at_edge_result =
-            Ok(Some(OwnedEventId::try_from(test_id(6)).unwrap()));
+        setup.room_client.fetch_room_messages_at_edge_result = Ok(Some(test_id(6)));
 
         // Act
         let result = send_and_get_sequence_chunk(
@@ -3350,11 +3266,10 @@ mod tests {
     async fn test_get_sequence_chunk_backward_complete_from_end_with_replacements() {
         // Arrange
         let mut setup = new_setup();
-        let mut room = make_cached_chrono_room(4, 4);
-        set_b_replaces_a(&mut room.chrono_sequences[0], 4, 6);
+        let room = make_cached_chrono_room(4, 4);
+        set_b_replaces_a(&room.chrono_sequences[0], 4, 6);
         let room_arc = Arc::new(RwLock::new(room));
-        setup.room_client.fetch_room_messages_at_edge_result =
-            Ok(Some(OwnedEventId::try_from(test_id(7)).unwrap()));
+        setup.room_client.fetch_room_messages_at_edge_result = Ok(Some(test_id(7)));
 
         // Act
         let result = send_and_get_sequence_chunk(
@@ -3384,11 +3299,10 @@ mod tests {
     async fn test_get_sequence_chunk_backward_complete_from_end_with_redaction() {
         // Arrange
         let mut setup = new_setup();
-        let mut room = make_cached_chrono_room(4, 5);
-        set_b_redacts_a(&mut room.chrono_sequences[0], 6, 7);
+        let room = make_cached_chrono_room(4, 5);
+        set_b_redacts_a(&room.chrono_sequences[0], 6, 7);
         let room_arc = Arc::new(RwLock::new(room));
-        setup.room_client.fetch_room_messages_at_edge_result =
-            Ok(Some(OwnedEventId::try_from(test_id(8)).unwrap()));
+        setup.room_client.fetch_room_messages_at_edge_result = Ok(Some(test_id(8)));
 
         // Act
         let result = send_and_get_sequence_chunk(
