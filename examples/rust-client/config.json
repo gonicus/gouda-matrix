@@ -58,6 +58,9 @@
     "include_joined": true,
     "include_unjoined": false
   },
+  "room-users": {
+    "room_id": "!eLGPlyqLmcdHCsdqxz:matrix.gonicus.de"
+  },
   "create-group-room": {
     "display_name": "New Group Room",
     "invitees": [
@@ -102,7 +105,7 @@
     "content": { "Text": {
         "content": "Hallo YAMA"
     }},
-    "mime_type": "text/plain"
+    "mentioned_user_ids": []
   },
   "remove-message": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",
@@ -113,7 +116,9 @@
     "message_id": "$59M6TFNv38JwFZqJUtOsdLwD_i0XLiUnWJDbhC1Y71k",
     "content": { "Text": {
         "content": "Hello world!"
-    }}
+    }},
+    "has_mentioned_user_ids_changed": false,
+    "mentioned_user_ids": []
   },
   "create-reaction": {
     "room_id": "!Texbi7wtKVjEI4rHGl:matrix.gonicus.de",

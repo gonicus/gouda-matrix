@@ -122,10 +122,6 @@ impl Executor {
                 let result = self.client.abort_verification(ctx, request).await;
                 self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
             }
-            RequestContent::UserListRequest(_) => {
-                let result = self.client.get_users(ctx).await;
-                self.send_response(tag, result.map(ResponseContent::UserListResponse));
-            }
             RequestContent::UserSearchRequest(request) => {
                 let result = self.client.search_users(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::UserSearchResponse));
@@ -147,6 +143,10 @@ impl Executor {
             RequestContent::RoomListRequest(request) => {
                 let result = self.client.get_rooms(ctx, request).await;
                 self.send_response(tag, result.map(ResponseContent::RoomListResponse));
+            }
+            RequestContent::RoomUsersRequest(request) => {
+                let result = self.client.get_room_users(ctx, request).await;
+                self.send_response(tag, result.map(ResponseContent::UserListResponse));
             }
             RequestContent::RoomCreateGroupRequest(request) => {
                 let result = self.client.create_group_room(ctx, request).await;
@@ -1052,90 +1052,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_user_list_request() {
-        // Arrange
-        let request = RequestContent::UserListRequest(UserListRequest::default());
-        let response = UserListResponse {
-            user_list: vec![
-                User {
-                    user_id: "user_0".to_owned(),
-                    display_name: Some("Test User 1".to_owned()),
-                    presence_state: None,
-                    avatar_path: None,
-                },
-                User {
-                    user_id: "user_1".to_owned(),
-                    display_name: Some("Test User 2".to_owned()),
-                    presence_state: None,
-                    avatar_path: None,
-                },
-            ],
-        };
-
-        let client = ClientMock {
-            get_users_response: Ok(response.clone()),
-            ..Default::default()
-        };
-
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
-
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
-
-        // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor.run().await.unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_get_users_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::UserListResponse(response))
-        );
-        assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
-    async fn test_user_list_request_err() {
-        // Arrange
-        let request = RequestContent::UserListRequest(UserListRequest::default());
-        let response = Error {
-            r#type: ErrorType::Unknown as i32,
-            error_string: Some("Test error".to_owned()),
-        };
-
-        let client = ClientMock {
-            get_users_response: Err(response.clone()),
-            ..Default::default()
-        };
-
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
-
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
-
-        // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor.run().await.unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_get_users_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
-        );
-        assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
     async fn test_user_search_request() {
         // Arrange
         let request = RequestContent::UserSearchRequest(UserSearchRequest::default());
@@ -1543,6 +1459,90 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_rooms_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_users_request() {
+        // Arrange
+        let request = RequestContent::RoomUsersRequest(RoomUsersRequest::default());
+        let response = UserListResponse {
+            user_list: vec![
+                User {
+                    user_id: "user_0".to_owned(),
+                    display_name: Some("Test User 1".to_owned()),
+                    presence_state: None,
+                    avatar_path: None,
+                },
+                User {
+                    user_id: "user_1".to_owned(),
+                    display_name: Some("Test User 2".to_owned()),
+                    presence_state: None,
+                    avatar_path: None,
+                },
+            ],
+        };
+
+        let client = ClientMock {
+            get_room_users_response: Ok(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_room_users_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::UserListResponse(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_users_request_err() {
+        // Arrange
+        let request = RequestContent::RoomUsersRequest(RoomUsersRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            get_room_users_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+
+        // Act
+        executor_tx.send(create_executor_task(2, request)).unwrap();
+        executor_tx.send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_room_users_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),

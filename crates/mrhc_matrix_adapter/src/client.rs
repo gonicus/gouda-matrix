@@ -671,47 +671,6 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn get_users(&mut self, _ctx: ClientContext) -> Result<UserListResponse> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
-
-        // It is not possible to retrieve all known users using the matrix-sdk.
-        // As a workaround, we retrieve all rooms and get their members.
-        let rooms = client.rooms();
-
-        let mut result: Vec<User> = Vec::new();
-
-        for room in rooms {
-            let members = room
-                .members(RoomMemberships::all())
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
-            for member in members {
-                // Skip duplicates
-                if result.iter().any(|m| m.user_id == *member.user_id()) {
-                    continue;
-                }
-
-                let presence = user::fetch_presence_state(client, member.user_id()).await;
-                let display_name =
-                    user::fetch_display_name(client, member.user_id().to_owned()).await;
-
-                result.push(User {
-                    user_id: member.user_id().to_string(),
-                    display_name,
-                    presence_state: Some(presence.into()),
-                    avatar_path: media_manager.get_room_member_avatar_path(&member).await,
-                });
-            }
-        }
-
-        Ok(UserListResponse { user_list: result })
-    }
-
     async fn search_users(
         &mut self,
         _ctx: ClientContext,
@@ -897,6 +856,42 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(RoomListResponse { room_list: result })
+    }
+
+    async fn get_room_users(
+        &mut self,
+        _ctx: ClientContext,
+        request: RoomUsersRequest,
+    ) -> Result<UserListResponse> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
+
+        let room = self.get_matrix_room(&request.room_id).await?;
+
+        let members = room
+            .members(RoomMemberships::all())
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        let mut result = Vec::new();
+
+        for member in members {
+            let presence = user::fetch_presence_state(client, member.user_id()).await;
+            let display_name =
+                user::fetch_display_name(client, member.user_id().to_owned()).await;
+
+            result.push(User {
+                user_id: member.user_id().to_string(),
+                display_name,
+                presence_state: Some(presence.into()),
+                avatar_path: media_manager.get_room_member_avatar_path(&member).await,
+            });
+        }
+
+        Ok(UserListResponse { user_list: result })
     }
 
     async fn create_group_room(
@@ -1286,6 +1281,7 @@ impl ClientAbstraction for MatrixClient {
             room_id,
             related_message_id,
             content,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
@@ -1340,6 +1336,7 @@ impl ClientAbstraction for MatrixClient {
             room_id,
             message_id,
             content,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;

@@ -198,6 +198,12 @@ impl InputUi for RoomListRequest {
     }
 }
 
+impl InputUi for RoomUsersRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        input_attribute!(self, ui, room_id);
+    }
+}
+
 impl InputUi for RoomCreateGroupRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, display_name);
