@@ -95,8 +95,6 @@ pub trait Client: Send {
         not_implemented_error()
     }
 
-    async fn get_users(&mut self, ctx: ClientContext) -> Result<UserListResponse>;
-
     #[allow(unused_variables)]
     async fn search_users(
         &mut self,
@@ -137,6 +135,13 @@ pub trait Client: Send {
     ) -> Result<RoomListResponse> {
         not_implemented_error()
     }
+
+    #[allow(unused_variables)]
+    async fn get_room_users(
+        &mut self,
+        ctx: ClientContext,
+        request: RoomUsersRequest,
+    ) -> Result<UserListResponse>;
 
     #[allow(unused_variables)]
     async fn create_group_room(

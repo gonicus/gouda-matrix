@@ -761,7 +761,7 @@ async fn test_send_message_request_on_error() {
 }
 
 #[tokio::test]
-async fn test_get_user_list_on_success() {
+async fn test_get_room_users_on_success() {
     // arrange
     let response = UserListResponse {
         user_list: vec![
@@ -786,7 +786,7 @@ async fn test_get_user_list_on_success() {
         ],
     };
     let client: ClientMock = ClientMock {
-        get_users_response: Ok(response.clone()),
+        get_room_users_response: Ok(response.clone()),
         ..Default::default()
     };
     let mut setup = setup(client).await.expect("test setup failed");
@@ -796,7 +796,7 @@ async fn test_get_user_list_on_success() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::UserListRequest(UserListRequest::default())),
+        content: Some(RequestContent::RoomUsersRequest(RoomUsersRequest::default())),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();
@@ -822,14 +822,14 @@ async fn test_get_user_list_on_success() {
 }
 
 #[tokio::test]
-async fn test_get_user_list_on_error() {
+async fn test_get_room_users_on_error() {
     // arrange
     let response = Error {
         r#type: ErrorType::Authorization as i32,
         error_string: Some("mocked error: Authorization".to_string()),
     };
     let client: ClientMock = ClientMock {
-        get_users_response: Err(response.clone()),
+        get_room_users_response: Err(response.clone()),
         ..Default::default()
     };
     let mut setup = setup(client).await.expect("test setup failed");
@@ -839,7 +839,7 @@ async fn test_get_user_list_on_error() {
 
     let test_data_obj = RequestContainer {
         tag: 1,
-        content: Some(RequestContent::UserListRequest(UserListRequest::default())),
+        content: Some(RequestContent::RoomUsersRequest(RoomUsersRequest::default())),
     };
 
     let mut payload: Vec<u8> = test_data_obj.encode_to_vec();

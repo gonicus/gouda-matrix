@@ -48,12 +48,12 @@ pub enum Action {
     CrossSigningSelectMethod(Box<CrossSigningMethodSelectedRequest>),
     CrossSigningConfirm(Box<CrossSigningConfirmRequest>),
     AbortVerification(Box<VerificationAbortRequest>),
-    UserList,
     UserSearch(Box<UserSearchRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
     Invite(Box<InvitationRequest>),
     InvitationReply(Box<InvitedReply>),
     RoomList(Box<RoomListRequest>),
+    RoomUsers(Box<RoomUsersRequest>),
     CreateGroupRoom(Box<RoomCreateGroupRequest>),
     CreateDirectRoom(Box<RoomCreateDirectRequest>),
     ChangeRoom(Box<RoomChangeRequest>),
@@ -88,12 +88,12 @@ impl Action {
             }
             Self::CrossSigningConfirm(request) => run_cross_signing_confirm(tag, sender, *request),
             Self::AbortVerification(request) => run_abort_verification(tag, sender, *request),
-            Self::UserList => run_user_list(tag, sender),
             Self::UserSearch(request) => run_user_search(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
             Self::Invite(request) => run_invite(tag, sender, *request),
             Self::InvitationReply(request) => run_invitation_reply(tag, sender, *request),
             Self::RoomList(request) => run_room_list(tag, sender, *request),
+            Self::RoomUsers(request) => run_room_users(tag, sender, *request),
             Self::CreateGroupRoom(request) => run_create_group_room(tag, sender, *request),
             Self::CreateDirectRoom(request) => run_create_direct_room(tag, sender, *request),
             Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
@@ -124,12 +124,12 @@ impl InputUi for Action {
             Self::CrossSigningSelectMethod(request) => request.update(ui),
             Self::CrossSigningConfirm(request) => request.update(ui),
             Self::AbortVerification(request) => request.update(ui),
-            Self::UserList => (),
             Self::UserSearch(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
             Self::Invite(request) => request.update(ui),
             Self::InvitationReply(request) => request.update(ui),
             Self::RoomList(request) => request.update(ui),
+            Self::RoomUsers(request) => request.update(ui),
             Self::CreateGroupRoom(request) => request.update(ui),
             Self::CreateDirectRoom(request) => request.update(ui),
             Self::ChangeRoom(request) => request.update(ui),
@@ -192,7 +192,6 @@ impl_run!(
     VerificationAbortRequest,
     VerificationAbortRequest
 );
-impl_run!(run_user_list, UserListRequest);
 impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
 impl_run!(
     run_public_room_list,
@@ -202,6 +201,7 @@ impl_run!(
 impl_run!(run_invite, InvitationRequest, InvitationRequest);
 impl_run!(run_invitation_reply, InvitedReply, InvitedReply);
 impl_run!(run_room_list, RoomListRequest, RoomListRequest);
+impl_run!(run_room_users, RoomUsersRequest, RoomUsersRequest);
 impl_run!(
     run_create_group_room,
     RoomCreateGroupRequest,

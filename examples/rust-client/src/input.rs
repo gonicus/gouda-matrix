@@ -112,7 +112,6 @@ impl InputWindow {
                     AbortVerification,
                     self.config.abort_verification.clone()
                 );
-                ui_action!(self, ui, UserList);
                 ui_action!(self, ui, UserSearch, self.config.user_search.clone());
                 ui_action!(
                     self,
@@ -128,6 +127,7 @@ impl InputWindow {
                     self.config.invitation_reply.clone()
                 );
                 ui_action!(self, ui, RoomList, self.config.room_list);
+                ui_action!(self, ui, RoomUsers, self.config.room_users.clone());
                 ui_action!(
                     self,
                     ui,
