@@ -386,6 +386,7 @@ impl InputUi for MessageSendRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, room_id);
         input_attribute!(self, ui, related_message_id);
+        input_attribute!(self, ui, mentioned_user_ids);
         input_attribute!(self, ui, content);
     }
 }
@@ -401,6 +402,8 @@ impl InputUi for MessageChangeRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, room_id);
         input_attribute!(self, ui, message_id);
+        input_attribute!(self, ui, has_mentioned_user_ids_changed);
+        input_attribute!(self, ui, mentioned_user_ids);
         input_attribute!(self, ui, content);
     }
 }

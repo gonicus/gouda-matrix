@@ -8,7 +8,7 @@ use matrix_sdk::{Client, Room};
 use mrhc_core::Result;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::*;
-use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
+use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId};
 use tokio::sync::mpsc;
 
 use crate::cache::{cache_room_messages_response, Cache};
@@ -164,6 +164,7 @@ pub fn message_content_to_message_change_event_content(
 pub async fn send_text_message(
     room: Room,
     related_message_id: Option<String>,
+    mentioned_user_ids: Vec<String>,
     content: MessageContentText,
 ) -> Result<MessageSendResponse> {
     let mut event = RoomMessageEventContent::text_markdown(content.content);
@@ -178,6 +179,11 @@ pub async fn send_text_message(
         );
     }
 
+    if !mentioned_user_ids.is_empty() {
+        let mentions = proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
+        event = event.add_mentions(mentions);
+    }
+
     let re = room
         .send(event)
         .await
@@ -186,6 +192,19 @@ pub async fn send_text_message(
     Ok(MessageSendResponse {
         message_id: re.event_id.to_string(),
     })
+}
+
+pub fn proto_mentions_to_matrix_mentions(mentioned_user_ids: &[String]) -> Result<Mentions> {
+    let user_ids: Vec<OwnedUserId> = mentioned_user_ids
+        .iter()
+        .map(|f| {
+            UserId::parse(f)
+                .map(|f| f.to_owned())
+                .map_err(|_| errors::create_error(ErrorType::InvalidUserId))
+        })
+        .collect::<Result<Vec<OwnedUserId>>>()?;
+
+    Ok(Mentions::with_user_ids(user_ids))
 }
 
 pub async fn send_image_message(
@@ -225,7 +244,7 @@ pub async fn send_file_message(
     Ok(MessageSendResponse { message_id })
 }
 
-pub fn convert_mentions(mentions: &Option<Mentions>) -> Vec<String> {
+pub fn matrix_mentions_to_proto_mentions(mentions: &Option<Mentions>) -> Vec<String> {
     let Some(mentions) = &mentions else {
         return Vec::new();
     };

@@ -1530,7 +1530,8 @@ async fn assemble_proto_message<T: RoomClient>(
     }
 
     result.related_message_id = get_replied_to_id(&tl_evt).await?.map(|s| s.to_string());
-    result.mentioned_user_ids = messages::convert_mentions(&get_mentions(&tl_evt)?);
+    result.mentioned_user_ids =
+        messages::matrix_mentions_to_proto_mentions(&get_mentions(&tl_evt)?);
     result.reactions = collect_reactions_to_event(id, room_client, cache).await?;
 
     Ok(Some(result))
