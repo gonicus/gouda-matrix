@@ -96,6 +96,15 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
+    async fn get_user(
+        &mut self,
+        ctx: ClientContext,
+        request: UserRequest,
+    ) -> Result<User> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
     async fn search_users(
         &mut self,
         ctx: ClientContext,

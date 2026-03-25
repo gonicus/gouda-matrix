@@ -33,6 +33,9 @@
   "abort-verification": {
     "verification_flow_id": "ec16d60a78d5482ea52a196f83e15d28"
   },
+  "user": {
+    "user_id": "test-user@matrix.gonicus.de"
+  },
   "user-search": {
     "query": "test-user",
     "limit": 30

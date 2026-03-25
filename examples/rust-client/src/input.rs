@@ -112,6 +112,7 @@ impl InputWindow {
                     AbortVerification,
                     self.config.abort_verification.clone()
                 );
+                ui_action!(self, ui, User, self.config.user.clone());
                 ui_action!(self, ui, UserSearch, self.config.user_search.clone());
                 ui_action!(
                     self,

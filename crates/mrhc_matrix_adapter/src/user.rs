@@ -51,31 +51,6 @@ pub fn convert_presence_state(state: MatrixPresenceState) -> PresenceState {
     }
 }
 
-pub async fn fetch_display_name(client: &Client, user_id: OwnedUserId) -> Option<String> {
-    use matrix_sdk::ruma::api::client::profile::ProfileFieldName;
-
-    let result = client
-        .account()
-        .fetch_profile_field_of(user_id, ProfileFieldName::DisplayName)
-        .await;
-
-    let value = match result {
-        Ok(value) => value,
-        Err(err) => {
-            log::error!("Error retrieving display name: {err}");
-            return None;
-        }
-    }?;
-
-    match value {
-        ProfileFieldValue::DisplayName(display_name) => Some(display_name),
-        _ => {
-            log::error!("Received unexpected profile field value when fetching display name");
-            None
-        }
-    }
-}
-
 /// Retrieves the avatar URL from the user profile using the specified user ID.
 /// Returns Ok(None) if the user does not have an avatar set.
 pub async fn fetch_avatar_uri(

@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use matrix_sdk::attachment::AttachmentConfig;
 use matrix_sdk::media::{MediaEventContent, MediaFormat, MediaRequestParameters};
 use matrix_sdk::room::reply::Reply;
-use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::api::client::user_directory::search_users::v3::User;
 use matrix_sdk::ruma::events::room::avatar::ImageInfo;
 use matrix_sdk::ruma::events::room::MediaSource;

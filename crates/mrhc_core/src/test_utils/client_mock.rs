@@ -35,6 +35,9 @@ pub struct ClientMock {
     pub abort_verification_response: Result<VerificationEndEvent>,
     pub abort_verification_call_count: u32,
 
+    pub get_user_response: Result<User>,
+    pub get_user_call_count: u32,
+
     pub search_users_response: Result<UserSearchResponse>,
     pub search_users_call_count: u32,
 
@@ -122,6 +125,9 @@ impl Default for ClientMock {
 
             abort_verification_response: Ok(VerificationEndEvent::default()),
             abort_verification_call_count: 0,
+
+            get_user_response: Ok(User::default()),
+            get_user_call_count: 0,
 
             search_users_response: Ok(UserSearchResponse::default()),
             search_users_call_count: 0,
@@ -225,6 +231,10 @@ impl ClientMock {
 
     pub fn assert_abort_verification_called_n(&self, n: u32) {
         assert!(self.abort_verification_call_count == n);
+    }
+
+    pub fn assert_get_user_called_n(&self, n: u32) {
+        assert!(self.get_user_call_count == n);
     }
 
     pub fn assert_search_users_called_n(&self, n: u32) {
@@ -395,6 +405,16 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.abort_verification_call_count += 1;
         self.abort_verification_response.clone()
+    }
+
+    async fn get_user(
+        &mut self,
+        ctx: ClientContext,
+        _request: UserRequest,
+    ) -> Result<User> {
+        self.received_ctx = Some(ctx);
+        self.get_user_call_count += 1;
+        self.get_user_response.clone()
     }
 
     async fn search_users(
