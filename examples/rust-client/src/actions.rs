@@ -53,7 +53,6 @@ pub enum Action {
     Invite(Box<InvitationRequest>),
     InvitationReply(Box<InvitedReply>),
     RoomList(Box<RoomListRequest>),
-    RoomUsers(Box<RoomUsersRequest>),
     CreateGroupRoom(Box<RoomCreateGroupRequest>),
     CreateDirectRoom(Box<RoomCreateDirectRequest>),
     ChangeRoom(Box<RoomChangeRequest>),
@@ -93,7 +92,6 @@ impl Action {
             Self::Invite(request) => run_invite(tag, sender, *request),
             Self::InvitationReply(request) => run_invitation_reply(tag, sender, *request),
             Self::RoomList(request) => run_room_list(tag, sender, *request),
-            Self::RoomUsers(request) => run_room_users(tag, sender, *request),
             Self::CreateGroupRoom(request) => run_create_group_room(tag, sender, *request),
             Self::CreateDirectRoom(request) => run_create_direct_room(tag, sender, *request),
             Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
@@ -129,7 +127,6 @@ impl InputUi for Action {
             Self::Invite(request) => request.update(ui),
             Self::InvitationReply(request) => request.update(ui),
             Self::RoomList(request) => request.update(ui),
-            Self::RoomUsers(request) => request.update(ui),
             Self::CreateGroupRoom(request) => request.update(ui),
             Self::CreateDirectRoom(request) => request.update(ui),
             Self::ChangeRoom(request) => request.update(ui),
@@ -201,7 +198,6 @@ impl_run!(
 impl_run!(run_invite, InvitationRequest, InvitationRequest);
 impl_run!(run_invitation_reply, InvitedReply, InvitedReply);
 impl_run!(run_room_list, RoomListRequest, RoomListRequest);
-impl_run!(run_room_users, RoomUsersRequest, RoomUsersRequest);
 impl_run!(
     run_create_group_room,
     RoomCreateGroupRequest,
