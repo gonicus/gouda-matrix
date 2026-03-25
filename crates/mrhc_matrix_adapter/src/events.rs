@@ -739,7 +739,8 @@ impl EventExecutor {
 
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         let related_message_id = get_related_message_id(&event);
-        let mentioned_user_ids = messages::convert_mentions(&event.content.mentions);
+        let mentioned_user_ids =
+            messages::matrix_mentions_to_proto_mentions(&event.content.mentions);
 
         let content = messages::generate_message_content!(
             self.media_manager,
@@ -778,7 +779,7 @@ impl EventExecutor {
         relation: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         let original_message_id = relation.event_id.to_string();
-        let mentions = messages::convert_mentions(&relation.new_content.mentions);
+        let mentions = messages::matrix_mentions_to_proto_mentions(&relation.new_content.mentions);
 
         let content = messages::generate_message_content!(
             self.media_manager,

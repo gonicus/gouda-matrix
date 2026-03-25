@@ -1276,8 +1276,8 @@ impl ClientAbstraction for MatrixClient {
         let MessageSendRequest {
             room_id,
             related_message_id,
+            mentioned_user_ids,
             content,
-            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
@@ -1288,7 +1288,8 @@ impl ClientAbstraction for MatrixClient {
 
         match content {
             Content::Text(content) => {
-                messages::send_text_message(room, related_message_id, content).await
+                messages::send_text_message(room, related_message_id, mentioned_user_ids, content)
+                    .await
             }
             Content::Image(content) => {
                 messages::send_image_message(media_manager, room, related_message_id, content).await
@@ -1331,8 +1332,9 @@ impl ClientAbstraction for MatrixClient {
         let MessageChangeRequest {
             room_id,
             message_id,
+            has_mentioned_user_ids_changed,
+            mentioned_user_ids,
             content,
-            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
@@ -1345,7 +1347,16 @@ impl ClientAbstraction for MatrixClient {
         };
 
         let content = match content {
-            Content::Text(text) => RoomMessageEventContentWithoutRelation::text_plain(text.content),
+            Content::Text(text) => {
+                let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
+
+                if has_mentioned_user_ids_changed {
+                    let mentions = messages::proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
+                    event = event.add_mentions(mentions);
+                }
+
+                event
+            },
             Content::Image(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }
