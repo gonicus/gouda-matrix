@@ -50,9 +50,6 @@ pub struct ClientMock {
     pub get_rooms_response: Result<RoomListResponse>,
     pub get_rooms_call_count: u32,
 
-    pub get_room_users_response: Result<UserListResponse>,
-    pub get_room_users_call_count: u32,
-
     pub create_group_room_response: Result<Room>,
     pub create_group_room_call_count: u32,
 
@@ -140,9 +137,6 @@ impl Default for ClientMock {
 
             get_rooms_response: Ok(RoomListResponse::default()),
             get_rooms_call_count: 0,
-
-            get_room_users_response: Ok(UserListResponse::default()),
-            get_room_users_call_count: 0,
 
             create_group_room_response: Ok(Room::default()),
             create_group_room_call_count: 0,
@@ -251,10 +245,6 @@ impl ClientMock {
 
     pub fn assert_get_rooms_called_n(&self, n: u32) {
         assert!(self.get_rooms_call_count == n);
-    }
-
-    pub fn assert_get_room_users_called_n(&self, n: u32) {
-        assert!(self.get_room_users_call_count == n);
     }
 
     pub fn assert_create_group_room_called_n(&self, n: u32) {
@@ -451,16 +441,6 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.get_rooms_call_count += 1;
         self.get_rooms_response.clone()
-    }
-
-    async fn get_room_users(
-        &mut self,
-        ctx: ClientContext,
-        _request: RoomUsersRequest,
-    ) -> Result<UserListResponse> {
-        self.received_ctx = Some(ctx);
-        self.get_room_users_call_count += 1;
-        self.get_room_users_response.clone()
     }
 
     async fn create_group_room(

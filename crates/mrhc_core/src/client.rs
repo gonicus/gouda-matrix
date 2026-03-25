@@ -137,13 +137,6 @@ pub trait Client: Send {
     }
 
     #[allow(unused_variables)]
-    async fn get_room_users(
-        &mut self,
-        ctx: ClientContext,
-        request: RoomUsersRequest,
-    ) -> Result<UserListResponse>;
-
-    #[allow(unused_variables)]
     async fn create_group_room(
         &mut self,
         ctx: ClientContext,

@@ -170,18 +170,6 @@ impl MediaManager {
             .await
     }
 
-    /// Returns the relative path to the room members avatar, starting in the
-    /// data root directory. This method downloads the avatar
-    /// if it doesn't exist, or updates the existing one if a new avatar
-    /// has been uploaded to the Matrix server.
-    /// Returns None if no avatar is set for the room member.
-    pub async fn get_room_member_avatar_path(&self, member: &RoomMember) -> Option<String> {
-        log::info!("Receiving avatar for room member: {}", member.user_id());
-        self.inner
-            .get_user_avatar_path(member.user_id().to_owned())
-            .await
-    }
-
     /// Uploads and sends a new attachment to the specified room.
     /// This method moves the attachment to the correct directory after upload.
     ///

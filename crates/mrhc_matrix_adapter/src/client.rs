@@ -8,7 +8,7 @@ use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UserId};
-use matrix_sdk::{Client, RoomMemberships};
+use matrix_sdk::Client;
 use matrix_sdk_base::RoomStateFilter;
 use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
 use mrhc_proto::chat::error::ErrorType;
@@ -856,42 +856,6 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(RoomListResponse { room_list: result })
-    }
-
-    async fn get_room_users(
-        &mut self,
-        _ctx: ClientContext,
-        request: RoomUsersRequest,
-    ) -> Result<UserListResponse> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
-
-        let room = self.get_matrix_room(&request.room_id).await?;
-
-        let members = room
-            .members(RoomMemberships::all())
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        let mut result = Vec::new();
-
-        for member in members {
-            let presence = user::fetch_presence_state(client, member.user_id()).await;
-            let display_name =
-                user::fetch_display_name(client, member.user_id().to_owned()).await;
-
-            result.push(User {
-                user_id: member.user_id().to_string(),
-                display_name,
-                presence_state: Some(presence.into()),
-                avatar_path: media_manager.get_room_member_avatar_path(&member).await,
-            });
-        }
-
-        Ok(UserListResponse { user_list: result })
     }
 
     async fn create_group_room(
