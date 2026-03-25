@@ -672,11 +672,7 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn get_user(
-        &mut self,
-        _ctx: ClientContext,
-        request: UserRequest,
-    ) -> Result<User> {
+    async fn get_user(&mut self, _ctx: ClientContext, request: UserRequest) -> Result<User> {
         let InitializedData {
             client,
             media_manager,
@@ -687,7 +683,9 @@ impl ClientAbstraction for MatrixClient {
             .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
             .to_owned();
 
-        let profile = client.account().fetch_user_profile_of(&user_id)
+        let profile = client
+            .account()
+            .fetch_user_profile_of(&user_id)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
@@ -1351,12 +1349,13 @@ impl ClientAbstraction for MatrixClient {
                 let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
 
                 if has_mentioned_user_ids_changed {
-                    let mentions = messages::proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
+                    let mentions =
+                        messages::proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
                     event = event.add_mentions(mentions);
                 }
 
                 event
-            },
+            }
             Content::Image(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }

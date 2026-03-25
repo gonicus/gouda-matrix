@@ -1,6 +1,7 @@
+use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
-use mrhc_proto::chat::{RequestContainer, ResponseContainer};
+use mrhc_proto::chat::{Error, RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::output_processor::OutputTask;
@@ -212,8 +213,17 @@ impl Executor {
                     self.send_response(tag, Err(err));
                 }
             }
-            request => {
-                log::error!("Request {request:?} is currently not implemented");
+            RequestContent::MessageRequest(_) => {
+                // TODO: Implement MessageRequest
+                self.send_response(
+                    tag,
+                    Err(Error {
+                        r#type: ErrorType::NotImplemented.into(),
+                        error_string: Some(
+                            "MessageRequest ist currently not implemented".to_owned(),
+                        ),
+                    }),
+                );
             }
         }
     }
