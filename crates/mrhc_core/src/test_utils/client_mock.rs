@@ -407,11 +407,7 @@ impl Client for ClientMock {
         self.abort_verification_response.clone()
     }
 
-    async fn get_user(
-        &mut self,
-        ctx: ClientContext,
-        _request: UserRequest,
-    ) -> Result<User> {
+    async fn get_user(&mut self, ctx: ClientContext, _request: UserRequest) -> Result<User> {
         self.received_ctx = Some(ctx);
         self.get_user_call_count += 1;
         self.get_user_response.clone()
