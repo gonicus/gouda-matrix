@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::MessagesOptions;
+use matrix_sdk::ruma::api::client::profile::DisplayName;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
@@ -669,6 +670,37 @@ impl ClientAbstraction for MatrixClient {
                 "Verification flow with the given ID not found",
             ))
         }
+    }
+
+    async fn get_user(
+        &mut self,
+        _ctx: ClientContext,
+        request: UserRequest,
+    ) -> Result<User> {
+        let InitializedData {
+            client,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
+
+        let user_id = UserId::parse(request.user_id)
+            .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
+            .to_owned();
+
+        let profile = client.account().fetch_user_profile_of(&user_id)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        let display_name = profile.get_static::<DisplayName>().unwrap_or_default();
+
+        let proto = User {
+            user_id: user_id.to_string(),
+            display_name,
+            presence_state: Some(user::fetch_presence_state(client, &user_id).await.into()),
+            avatar_path: media_manager.get_user_avatar_path(user_id.clone()).await,
+        };
+
+        Ok(proto)
     }
 
     async fn search_users(

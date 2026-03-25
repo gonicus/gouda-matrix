@@ -14,6 +14,7 @@ pub struct Config {
     pub cross_signing_start: CrossSigningStartRequest,
     pub cross_signing_confirm: CrossSigningConfirmRequest,
     pub abort_verification: VerificationAbortRequest,
+    pub user: UserRequest,
     pub user_search: UserSearchRequest,
     pub public_room_list: PublicRoomListRequest,
     pub invite: InvitationRequest,

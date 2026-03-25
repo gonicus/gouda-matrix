@@ -48,6 +48,7 @@ pub enum Action {
     CrossSigningSelectMethod(Box<CrossSigningMethodSelectedRequest>),
     CrossSigningConfirm(Box<CrossSigningConfirmRequest>),
     AbortVerification(Box<VerificationAbortRequest>),
+    User(Box<UserRequest>),
     UserSearch(Box<UserSearchRequest>),
     PublicRoomList(Box<PublicRoomListRequest>),
     Invite(Box<InvitationRequest>),
@@ -87,6 +88,7 @@ impl Action {
             }
             Self::CrossSigningConfirm(request) => run_cross_signing_confirm(tag, sender, *request),
             Self::AbortVerification(request) => run_abort_verification(tag, sender, *request),
+            Self::User(request) => run_user(tag, sender, *request),
             Self::UserSearch(request) => run_user_search(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
             Self::Invite(request) => run_invite(tag, sender, *request),
@@ -122,6 +124,7 @@ impl InputUi for Action {
             Self::CrossSigningSelectMethod(request) => request.update(ui),
             Self::CrossSigningConfirm(request) => request.update(ui),
             Self::AbortVerification(request) => request.update(ui),
+            Self::User(request) => request.update(ui),
             Self::UserSearch(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
             Self::Invite(request) => request.update(ui),
@@ -189,6 +192,7 @@ impl_run!(
     VerificationAbortRequest,
     VerificationAbortRequest
 );
+impl_run!(run_user, UserRequest, UserRequest);
 impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
 impl_run!(
     run_public_room_list,
