@@ -687,7 +687,7 @@ impl ClientAbstraction for MatrixClient {
             .account()
             .fetch_user_profile_of(&user_id)
             .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .map_err(|_| errors::create_error(ErrorType::UserNotFound))?;
 
         let display_name = profile.get_static::<DisplayName>().unwrap_or_default();
 
