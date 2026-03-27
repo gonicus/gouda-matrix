@@ -38,7 +38,7 @@ pub fn convert_membership_change(change: &MatrixMembershipChange) -> Option<Memb
         MatrixMembershipChange::Kicked => Some(MembershipChange::Kicked),
         MatrixMembershipChange::Invited => Some(MembershipChange::Invited),
         MatrixMembershipChange::Knocked => Some(MembershipChange::Knocked),
-        _ => return None,
+        _ => None,
     }
 }
 
