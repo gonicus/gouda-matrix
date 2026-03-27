@@ -220,7 +220,7 @@ impl Executor {
                     Err(Error {
                         r#type: ErrorType::NotImplemented.into(),
                         error_string: Some(
-                            "MessageRequest ist currently not implemented".to_owned(),
+                            "MessageRequest is currently not implemented".to_owned(),
                         ),
                     }),
                 );
