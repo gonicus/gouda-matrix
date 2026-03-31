@@ -55,13 +55,13 @@ impl std::fmt::Debug for CrossSigningMethodSelectedEvent {
     }
 }
 
-// impl std::fmt::Debug for MessageContentText {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("MessageContentText")
-//             .field("content", &REDACTED_VALUE)
-//             .finish()
-//     }
-// }
+impl std::fmt::Debug for MessageContentText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MessageContentText")
+            .field("content", &REDACTED_VALUE)
+            .finish()
+    }
+}
 
 impl Default for message_send_request::Content {
     fn default() -> Self {
