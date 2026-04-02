@@ -20,11 +20,11 @@ use crate::{
     unwrap_or_log_return_option, user, utils,
 };
 
-const INFO_FILE_SUFFIX: &str = "_info";
-
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";
 const USER_AVATARS_FOLDER: &str = "user_avatars";
 const ATTACHMENTS_FOLDER: &str = "attachments";
+
+const INFO_FILE_SUFFIX: &str = "_info";
 
 macro_rules! log_avatar_result {
     ($result:expr, $object:literal) => {
@@ -95,14 +95,21 @@ pub struct MediaManager {
 }
 
 impl MediaManager {
-    pub async fn new(client: Client, data_root_dir: impl Into<PathBuf>) -> Self {
+    pub async fn new(
+        client: Client,
+        data_root_dir: impl Into<PathBuf>,
+        media_dir_relative: impl Into<PathBuf>,
+    ) -> Self {
+        let data_root_dir = data_root_dir.into();
+        let media_dir_relative = media_dir_relative.into();
+
         let inner = MediaManagerInner {
             client,
-            data_root_dir: data_root_dir.into(),
+            data_root_dir,
 
-            room_avatars_dir: PathBuf::from(ROOM_AVATARS_FOLDER),
-            user_avatars_dir: PathBuf::from(USER_AVATARS_FOLDER),
-            attachments_dir: PathBuf::from(ATTACHMENTS_FOLDER),
+            room_avatars_dir: media_dir_relative.join(ROOM_AVATARS_FOLDER),
+            user_avatars_dir: media_dir_relative.join(USER_AVATARS_FOLDER),
+            attachments_dir: media_dir_relative.join(ATTACHMENTS_FOLDER),
         }
         .init_dirs()
         .await;
@@ -253,7 +260,7 @@ impl MediaManagerInner {
     async fn init_dir_relative(&self, dir: &Path) {
         let absolute = self.data_root_dir.join(dir);
 
-        if let Err(err) = fs::create_dir(absolute).await {
+        if let Err(err) = fs::create_dir_all(absolute).await {
             if err.kind() != tokio::io::ErrorKind::AlreadyExists {
                 log::error!("Error initializing directory {dir:?}: {err}");
             }
