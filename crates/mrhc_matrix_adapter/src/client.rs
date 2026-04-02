@@ -25,8 +25,10 @@ use crate::session::Session;
 use crate::verification::{self, VerificationManager};
 use crate::{cache, errors, messages, rooms, user};
 
-const SESSION_DIR: &str = "session_data";
-const SESSION_FILE: &str = "session";
+const SESSION_DIR: &str = "session";
+const MEDIA_DIR: &str = "media";
+
+const AUTH_FILE: &str = "auth";
 
 const CRYPTO_DB: &str = "matrix-sdk-crypto.sqlite3";
 const EVENT_CACHE_DB: &str = "matrix-sdk-event-cache.sqlite3";
@@ -43,16 +45,17 @@ pub struct InitializedData {
     /// The display name of this device.
     pub device_display_name: String,
 
-    /// The absolute path to the root directory where data is stored.
-    pub data_root_dir: PathBuf,
-    /// The absolute path to the directory where the session data is stored.
-    pub session_dir: PathBuf,
-    /// The absolute path to the file where the current session metadata is stored.
-    pub session_file: PathBuf,
     /// The passphrase used to encrypt the session data.
     pub session_passphrase: String,
     /// The passphrase used to encrypt the database.
     pub database_passphrase: String,
+
+    /// The absolute path to the root directory where data is stored.
+    pub data_root_dir: PathBuf,
+    /// The absolute path to the directory where the session data is stored.
+    pub session_dir: PathBuf,
+    /// The absolute path to the file where the current session auth is stored.
+    pub auth_file: PathBuf,
 
     /// Contains the in memory cache.
     pub cache: cache::Cache,
@@ -175,7 +178,7 @@ impl MatrixClient {
 
         let data_root_dir = PathBuf::from(request.data_root_path);
         let session_dir = data_root_dir.join(SESSION_DIR);
-        let session_file = session_dir.join(SESSION_FILE);
+        let session_file = session_dir.join(AUTH_FILE);
 
         let client = build_client(
             &homeserver_url,
@@ -185,7 +188,14 @@ impl MatrixClient {
         .await?;
 
         let cache = Cache::new();
-        let media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
+
+        let media_manager = MediaManager::new(
+            client.clone(),
+            data_root_dir.clone(),
+            PathBuf::from(MEDIA_DIR),
+        )
+        .await;
+
         let event_manager =
             EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
 
@@ -195,11 +205,12 @@ impl MatrixClient {
             homeserver_url,
             device_display_name: request.device_display_name,
 
-            data_root_dir,
-            session_dir,
-            session_file,
             session_passphrase: request.encryption_secret,
             database_passphrase: request.persistent_storage_secret,
+
+            data_root_dir,
+            session_dir,
+            auth_file: session_file,
 
             cache,
             media_manager,
@@ -217,7 +228,7 @@ impl MatrixClient {
         let initialized_data = self.get_initialized_data()?;
 
         let client = &initialized_data.client;
-        let session_file = initialized_data.session_file.clone();
+        let session_file = initialized_data.auth_file.clone();
         let session_passphrase = initialized_data.session_passphrase.clone();
 
         log::debug!("Previous session found in '{session_file:?}'");
@@ -248,10 +259,10 @@ impl MatrixClient {
         let InitializedData {
             client,
             homeserver_url,
+            database_passphrase,
             data_root_dir,
             session_dir,
-            session_file,
-            database_passphrase,
+            auth_file: session_file,
             cache,
             media_manager,
             event_manager,
@@ -267,7 +278,14 @@ impl MatrixClient {
         *client = build_client(homeserver_url, session_dir, database_passphrase).await?;
 
         *cache = Cache::new();
-        *media_manager = MediaManager::new(client.clone(), data_root_dir.clone()).await;
+
+        *media_manager = MediaManager::new(
+            client.clone(),
+            data_root_dir.clone(),
+            PathBuf::from(MEDIA_DIR),
+        )
+        .await;
+
         *event_manager =
             EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
 
@@ -317,7 +335,7 @@ impl ClientAbstraction for MatrixClient {
 
         let initialized_data = self.initialize_data(ctx.clone(), request).await?;
 
-        if initialized_data.session_file.exists() {
+        if initialized_data.auth_file.exists() {
             match self.restore_session(ctx).await {
                 Ok(()) => {
                     return Ok(StatusUpdate {
@@ -431,7 +449,7 @@ impl ClientAbstraction for MatrixClient {
 
         let session = Session::new(
             &initialized_data.client,
-            initialized_data.session_file.to_path_buf(),
+            initialized_data.auth_file.to_path_buf(),
             initialized_data.session_passphrase.clone(),
         )?;
 
@@ -476,7 +494,7 @@ impl ClientAbstraction for MatrixClient {
         // Clone the data so we can move it into the tokio task
         let initialized_data = initialized_data.clone();
         let session_passphrase = initialized_data.session_passphrase.clone();
-        let session_file = initialized_data.session_file.clone();
+        let session_file = initialized_data.auth_file.clone();
 
         // Spawn a tokio task which waits for the successful login in order to send
         // a status update to the application.
