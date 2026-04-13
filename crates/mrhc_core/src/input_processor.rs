@@ -1,7 +1,7 @@
 use mrhc_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 
 use crate::executor::ExecutorTask;
 use crate::output_processor::OutputTask;
@@ -15,7 +15,7 @@ pub struct InputProcessor {
     /// From where to read and decode input.
     reader: BufReader<Box<Reader>>,
     /// Where to send the decoded input.
-    executor_sender: UnboundedSender<ExecutorTask>,
+    executor_sender: Sender<ExecutorTask>,
     /// Where to send output. This is currently only used when reaching an EOF.
     output_sender: UnboundedSender<OutputTask>,
 }
@@ -23,7 +23,7 @@ pub struct InputProcessor {
 impl InputProcessor {
     pub fn new(
         reader: Box<Reader>,
-        executor_sender: UnboundedSender<ExecutorTask>,
+        executor_sender: Sender<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
         Self {
@@ -39,69 +39,78 @@ impl InputProcessor {
     pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             loop {
-                log::debug!("Waiting for input...");
-
-                match read_size(&mut self.reader).await {
-                    Ok(size) => {
-                        log::trace!("Read size: {size}");
-
-                        let request = read_request(&mut self.reader, size).await;
-
-                        log::debug!("Read request: {request:?}");
-
-                        log::debug!("Sending event to executor...");
-
-                        self.executor_sender
-                            .send(ExecutorTask::Request(Box::new(request)))
-                            .expect("error sending executor event");
-
-                        log::debug!("Successfully send event to executor");
-                    }
-                    Err(err) => {
-                        if err.kind() == tokio::io::ErrorKind::UnexpectedEof {
-                            log::info!("Exiting as an EOF was received on the input reader");
-                            self.exit();
-                            break;
-                        } else {
-                            panic!("Received io error: {err}");
-                        }
-                    }
+                if self.read_input().await {
+                    break;
                 }
             }
-
             self
         })
     }
 
-    fn exit(&mut self) {
+    async fn read_input(&mut self) -> bool {
+        log::debug!("Waiting for input...");
+
+        let size = match read_size(&mut self.reader).await {
+            Ok(size) => size,
+            Err(err) => {
+                log::error!("Exiting as an IO error was received: {err}");
+                self.exit().await;
+                return true;
+            }
+        };
+
+        let request = match read_request(&mut self.reader, size).await {
+            Ok(request) => request,
+            Err(err) => {
+                log::error!("Error reading request: {err}");
+                self.exit().await;
+                return true;
+            }
+        };
+
+        log::debug!("Read request: {request:?}");
+        log::debug!("Sending event to executor");
+
+        let result = self
+            .executor_sender
+            .send(ExecutorTask::Request(Box::new(request)))
+            .await;
+
+        if let Err(err) = result {
+            log::error!("Error sending executor event: {err}");
+            return true;
+        }
+
+        log::debug!("Successfully send event to executor");
+
+        false
+    }
+
+    async fn exit(&mut self) {
         log::debug!("Sending exit task to executor");
-        self.executor_sender
-            .send(ExecutorTask::Exit)
-            .expect("Error sending exit event to executor");
+        if let Err(e) = self.executor_sender.send(ExecutorTask::Exit).await {
+            log::error!("Error sending exit event to executor: {e}");
+        }
 
         log::debug!("Sending exit task to output processor");
-        self.output_sender
-            .send(OutputTask::Exit)
-            .expect("Error sending exit event to output processor");
+        if let Err(e) = self.output_sender.send(OutputTask::Exit) {
+            log::error!("Error sending exit event to output processor: {e}");
+        }
     }
 }
 
 async fn read_size(reader: &mut Reader) -> Result<u64, tokio::io::Error> {
     let mut buf = [0; 8];
     reader.read_exact(&mut buf).await?;
-
     Ok(u64::from_le_bytes(buf))
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> RequestContainer {
+async fn read_request(reader: &mut Reader, len: u64) -> Result<RequestContainer, tokio::io::Error> {
     let mut buf = vec![0; len as usize];
-    reader
-        .read_exact(&mut buf)
-        .await
-        .expect("error reading buffer of size {len}");
+    reader.read_exact(&mut buf).await?;
 
     RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
-        .expect("error decoding RequestContainer")
+        .map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::InvalidData, e))
 }
 
 #[cfg(test)]
@@ -157,23 +166,28 @@ mod tests {
         };
 
         let len = data.len() as u64;
-        let result = read_request(&mut data, len).await;
+        let result = read_request(&mut data, len).await.unwrap();
 
         assert_eq!(result, expected);
     }
 
     #[tokio::test]
-    #[should_panic(expected = "early eof")]
     async fn test_read_request_early_eof() {
         let mut data: &'static [u8] = &[
             0x08, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
             0x72, 0x12,
         ];
-        let _ = read_request(&mut data, 36).await;
+
+        let result = read_request(&mut data, 36).await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind(),
+            tokio::io::ErrorKind::UnexpectedEof
+        );
     }
 
     #[tokio::test]
-    #[should_panic]
     async fn test_read_request_decode_error() {
         let mut data: &'static [u8] = &[
             0x12, 0x57, 0x2a, 0x20, 0x0a, 0x09, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x75, 0x73, 0x65,
@@ -182,7 +196,13 @@ mod tests {
         ];
 
         let len = data.len() as u64;
-        let _ = read_request(&mut data, len).await;
+        let result = read_request(&mut data, len).await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind(),
+            tokio::io::ErrorKind::InvalidData
+        );
     }
 
     #[tokio::test]
@@ -214,7 +234,7 @@ mod tests {
             )),
         }));
 
-        let (executor_tx, mut executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, mut executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
         let input_processor =
             InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
