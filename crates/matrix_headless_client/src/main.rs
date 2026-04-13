@@ -15,27 +15,27 @@ const LOG_LEVEL_CUSTOM: LevelFilter = LevelFilter::Debug;
 const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
 
     let request_socket = std::env::args()
         .nth(1)
-        .expect("Request socket not specified");
+        .ok_or("Request socket not specified")?;
 
     let response_socket = std::env::args()
         .nth(2)
-        .expect("Response socket not specified");
+        .ok_or("Response socket not specified")?;
 
     log::info!("Socket for incoming requests: '{request_socket}'");
     log::info!("Socket for outgoing responses: '{response_socket}'");
 
-    let (recv, _send_unused) = connect_socket(&request_socket).await;
-    let (_recv_unused, send) = connect_socket(&response_socket).await;
+    let (recv, _send_unused) = connect_socket(&request_socket).await?;
+    let (_recv_unused, send) = connect_socket(&response_socket).await?;
 
     let client = mrhc_matrix_adapter::MatrixClient::new();
     let runner = Runner::new(Box::new(client), Box::new(recv), Box::new(send));
 
-    runner.run().await
+    runner.run().await.map(|_| ()).map_err(|err| err.into())
 }
 
 fn setup_logging() {
@@ -43,11 +43,17 @@ fn setup_logging() {
     let encoder = PatternEncoder::new("{h({d(%H:%M:%S)} {l} {t} - {m}{n})}");
 
     // Setup appenders
-    let file = FileAppender::builder()
+    let file = match FileAppender::builder()
         .encoder(Box::new(encoder))
         .append(false)
         .build(LOG_FILE)
-        .expect("Error initializing log file appender");
+    {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Warning: could not initialize log file appender: {e}");
+            return;
+        }
+    };
 
     // Build final config
     let config = Config::builder()
@@ -71,18 +77,20 @@ fn setup_custom_logger(name: &str) -> Logger {
         .build(name, LOG_LEVEL_CUSTOM)
 }
 
-async fn connect_socket(socket_name: &str) -> (RecvHalf, SendHalf) {
-    let socket_name = socket_name
+async fn connect_socket(
+    socket_name: &str,
+) -> Result<(RecvHalf, SendHalf), Box<dyn std::error::Error>> {
+    let name = socket_name
         .to_fs_name::<GenericFilePath>()
-        .expect("Error creating socket name: '{socket_name}'");
+        .map_err(|e| format!("Error creating socket name '{socket_name}': {e}"))?;
 
-    log::info!("Waiting for local socket connection at '{socket_name:?}'");
+    log::info!("Waiting for local socket connection at '{name:?}'");
 
-    let conn = Stream::connect(socket_name)
+    let conn = Stream::connect(name)
         .await
-        .expect("Error connecting to socket");
+        .map_err(|e| format!("Error connecting to socket '{socket_name}': {e}"))?;
 
     log::info!("Successfully connected to local socket");
 
-    conn.split()
+    Ok(conn.split())
 }

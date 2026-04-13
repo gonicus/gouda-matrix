@@ -21,9 +21,10 @@ impl ClientContext {
     /// Helper method to send a response container to the output processor.
     #[inline]
     fn send_to_output(&self, re: ResponseContainer) {
-        self.output_sender
-            .send(OutputTask::Response(Box::new(re)))
-            .expect("Receiver of the output sender dropped");
+        if let Err(err) = self.output_sender.send(OutputTask::Response(Box::new(re))) {
+            debug_assert!(false, "Failed to send response to output processor: {err}");
+            log::error!("Failed to send response to output processor: {err}");
+        }
     }
 
     /// Sends an event to the output processor with the request's tag.
