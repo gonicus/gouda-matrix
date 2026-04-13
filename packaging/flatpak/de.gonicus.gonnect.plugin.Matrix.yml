@@ -1,6 +1,6 @@
 id: de.gonicus.gonnect.plugin.Matrix
 runtime: de.gonicus.gonnect
-runtime-version: 'stable'
+runtime-version: 'beta'
 branch: "2"
 
 sdk: org.kde.Sdk//6.10
@@ -13,6 +13,8 @@ separate-locales: false
 build-options:
   prefix: /app/plugins/matrix
   prepend-path: /app/plugins/matrix
+  env:
+    RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
 command: matrix-headless-client
 

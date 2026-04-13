@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-hash poetry 2>/dev/null || { echo >&2 "error: poetry not found"; exit 1; }
+hash uv 2>/dev/null || { echo >&2 "error: uv not found"; exit 1; }
 hash curl 2>/dev/null || { echo >&2 "error: curl not found"; exit 1; }
 
 set -e
 
 BASE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/../.." &> /dev/null && pwd )
-cd "$BASE_DIR/packaging/flatpak"
 
-poetry install
+cd "$BASE_DIR"
+cargo generate-lockfile
+
+cd "$BASE_DIR/packaging/flatpak"
 
 if [ ! -f flatpak-cargo-generator.py ]; then
     curl -O https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/refs/heads/master/cargo/flatpak-cargo-generator.py
 fi
 
-eval $(poetry env activate)
-python flatpak-cargo-generator.py "$BASE_DIR/Cargo.lock" --yaml -o "cargo-sources.yml"
+uv run --with aiohttp flatpak-cargo-generator.py "$BASE_DIR/Cargo.lock" --yaml -o "cargo-sources.yml"
