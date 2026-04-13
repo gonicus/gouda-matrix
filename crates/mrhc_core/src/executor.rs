@@ -2,7 +2,7 @@ use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{Error, RequestContainer, ResponseContainer};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 use crate::output_processor::OutputTask;
 use crate::{Client, ClientContext, Result};
@@ -22,7 +22,7 @@ pub struct Executor {
     /// The client to be used to execute incoming tasks.
     client: Box<dyn Client>,
     /// Receiver for tasks to be executed.
-    task_receiver: UnboundedReceiver<ExecutorTask>,
+    task_receiver: Receiver<ExecutorTask>,
     /// Where to send the resulting output tasks.
     output_sender: UnboundedSender<OutputTask>,
 }
@@ -30,7 +30,7 @@ pub struct Executor {
 impl Executor {
     pub fn new(
         client: Box<dyn Client>,
-        task_receiver: UnboundedReceiver<ExecutorTask>,
+        task_receiver: Receiver<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
         Self {
@@ -273,7 +273,7 @@ mod tests {
     async fn test_executor_run() {
         // Arrange
         let client = ClientMock::new();
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
@@ -284,12 +284,14 @@ mod tests {
 
         // Act
         executor_tx
-            .send(create_executor_task(12, request.clone()))
+            .try_send(create_executor_task(12, request.clone()))
             .unwrap();
 
-        executor_tx.send(create_executor_task(13, request)).unwrap();
+        executor_tx
+            .try_send(create_executor_task(13, request))
+            .unwrap();
 
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -315,14 +317,16 @@ mod tests {
 
         let client = ClientMock::default();
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -362,14 +366,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -398,14 +404,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -436,14 +444,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -472,14 +482,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -507,14 +519,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -543,14 +557,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -579,14 +595,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -616,14 +634,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -651,14 +671,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -687,14 +709,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -725,14 +749,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -763,14 +789,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -798,14 +826,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -834,14 +864,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -868,14 +900,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -902,14 +936,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -934,14 +970,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -967,14 +1005,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1003,14 +1043,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1039,14 +1081,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1077,14 +1121,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1113,14 +1159,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1161,14 +1209,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1197,14 +1247,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1239,14 +1291,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1275,14 +1329,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1324,14 +1380,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1360,14 +1418,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1392,14 +1452,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1424,14 +1486,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1493,14 +1557,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1529,14 +1595,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1577,14 +1645,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1613,14 +1683,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1661,14 +1733,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1697,14 +1771,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1746,14 +1822,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1782,14 +1860,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1819,14 +1899,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1855,14 +1937,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1903,14 +1987,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1939,14 +2025,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -1971,14 +2059,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2003,14 +2093,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2035,14 +2127,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2067,14 +2161,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2116,14 +2212,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2152,14 +2250,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2187,14 +2287,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2223,14 +2325,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2255,14 +2359,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2287,14 +2393,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2319,14 +2427,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2351,14 +2461,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2383,14 +2495,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2415,14 +2529,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2447,14 +2563,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 
@@ -2479,14 +2597,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (executor_tx, executor_rx) = mpsc::unbounded_channel();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
         let executor = Executor::new(Box::new(client), executor_rx, output_tx);
 
         // Act
-        executor_tx.send(create_executor_task(2, request)).unwrap();
-        executor_tx.send(ExecutorTask::Exit).unwrap();
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
         let Executor { client, .. } = executor.run().await.unwrap();
 

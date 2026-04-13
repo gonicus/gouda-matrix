@@ -60,29 +60,34 @@ impl OutputProcessor {
         match task {
             // OutputTask::Exit is handled by the `Self::run` method.
             OutputTask::Exit => (),
-            OutputTask::Response(response) => {
-                log::debug!("Writing proto message...");
-
-                let serialized = response.encode_to_vec();
-                let size = serialized.len().to_le_bytes().to_vec();
-
-                self.writer
-                    .write_all(&size)
-                    .await
-                    .expect("error writing size");
-
-                self.writer
-                    .write_all(&serialized)
-                    .await
-                    .expect("error writing response");
-
-                log::trace!("Flushing writer");
-
-                self.writer.flush().await.expect("error flushing writer");
-
-                log::debug!("Finished writing response");
-            }
+            OutputTask::Response(response) => self.write_response(*response).await,
         }
+    }
+
+    async fn write_response(&mut self, response: ResponseContainer) {
+        log::debug!("Writing proto message...");
+
+        let serialized = response.encode_to_vec();
+        let size = serialized.len().to_le_bytes().to_vec();
+
+        self.writer
+            .write_all(&size)
+            .await
+            .expect("Error writing size");
+
+        self.writer
+            .write_all(&serialized)
+            .await
+            .expect("Error writing response");
+
+        log::trace!("Flushing writer");
+
+        if let Err(err) = self.writer.flush().await {
+            debug_assert!(false, "Error flushing writer: {err}");
+            log::error!("Error flushing writer: {err}");
+        };
+
+        log::debug!("Finished writing response");
     }
 }
 
