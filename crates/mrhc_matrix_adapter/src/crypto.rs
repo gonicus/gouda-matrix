@@ -1,15 +1,59 @@
+use std::path::Path;
+
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::Aes256Gcm;
 use argon2::Argon2;
-use mrhc_core::Result;
 use tokio::io::AsyncReadExt;
 
-use crate::errors;
+#[derive(thiserror::Error, Debug)]
+pub enum CryptoError {
+    #[error("hash error")]
+    Hash,
+
+    #[error("cipher error")]
+    Cipher,
+
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+pub type Result<T> = std::result::Result<T, CryptoError>;
+
+// TODO: Add tests and code documentation
+pub async fn decrypt_file(file: impl AsRef<Path>, passphrase: impl AsRef<str>) -> Result<Vec<u8>> {
+    let mut reader = tokio::fs::File::open(file).await?;
+
+    let mut salt = [0u8; 16];
+    reader.read_exact(&mut salt).await?;
+
+    let key = derive_key(passphrase.as_ref(), &salt)?;
+    let decrypted = decrypt(reader, &key).await?;
+
+    Ok(decrypted)
+}
+
+// TODO: Add tests and code documentation
+pub async fn encrypt_to_file(
+    file: impl AsRef<Path>,
+    passphrase: impl AsRef<str>,
+    decrypted: Vec<u8>,
+) -> Result<()> {
+    let (salt, key) = derive_new_key(passphrase.as_ref())?;
+
+    let mut encrypted = encrypt(decrypted, &key)?;
+
+    let mut result = salt.to_vec();
+    result.append(&mut encrypted);
+
+    tokio::fs::write(file, result).await?;
+
+    Ok(())
+}
 
 /// Derives a new 32-byte key from the given passphrase using argon2.
 /// Returns: A tuple containing the 16-byte generated salt and the 32-byte derived key.
-pub fn derive_new_key(passphrase: &str) -> Result<([u8; 16], [u8; 32])> {
+fn derive_new_key(passphrase: &str) -> Result<([u8; 16], [u8; 32])> {
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
 
@@ -17,18 +61,18 @@ pub fn derive_new_key(passphrase: &str) -> Result<([u8; 16], [u8; 32])> {
 
     Argon2::default()
         .hash_password_into(passphrase.as_bytes(), &salt, &mut key)
-        .map_err(|_| errors::create_unknown("Error hashing password"))?;
+        .map_err(|_| CryptoError::Hash)?;
 
     Ok((salt, key))
 }
 
 /// Derives a key from an already existing salt using argon2.
-pub fn derive_key(passphrase: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
+fn derive_key(passphrase: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
 
     Argon2::default()
         .hash_password_into(passphrase.as_bytes(), salt, &mut key)
-        .map_err(|_| errors::create_unknown("Error hashing password"))?;
+        .map_err(|_| CryptoError::Hash)?;
 
     Ok(key)
 }
@@ -36,13 +80,13 @@ pub fn derive_key(passphrase: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
 /// Encrypts the given data using AES 256 GCM with the provided 32 bytes key.
 /// Returns a byte vector, the first 12 bytes of which contain the generated nonce,
 /// followed by the encrypted data.
-pub fn encrypt(data: Vec<u8>, key: &[u8; 32]) -> Result<Vec<u8>> {
+fn encrypt(data: Vec<u8>, key: &[u8; 32]) -> Result<Vec<u8>> {
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-
     let cipher = Aes256Gcm::new(key.into());
+
     let mut ciphertext = cipher
         .encrypt(&nonce, data.as_ref())
-        .map_err(|_| errors::create_unknown("Error encrypting data"))?;
+        .map_err(|_| CryptoError::Cipher)?;
 
     let mut result = nonce.to_vec();
     result.append(&mut ciphertext);
@@ -53,23 +97,18 @@ pub fn encrypt(data: Vec<u8>, key: &[u8; 32]) -> Result<Vec<u8>> {
 /// Decryptes the given data using AES 256 GCM with the provided 32 bytes key.
 /// Returns a byte vector containing the decrypted data.
 /// Expects the nonce to be the first 12 bytes.
-pub async fn decrypt<R: AsyncReadExt + Unpin>(mut reader: R, key: &[u8; 32]) -> Result<Vec<u8>> {
+async fn decrypt<R: AsyncReadExt + Unpin>(mut reader: R, key: &[u8; 32]) -> Result<Vec<u8>> {
     let mut nonce = [0; 12];
-    reader
-        .read_exact(&mut nonce)
-        .await
-        .map_err(|_| errors::create_unknown("Error reading nonce"))?;
+    reader.read_exact(&mut nonce).await?;
 
     let mut data = Vec::new();
-    reader
-        .read_to_end(&mut data)
-        .await
-        .map_err(|_| errors::create_unknown("Error reading data"))?;
+    reader.read_to_end(&mut data).await?;
 
     let cipher = Aes256Gcm::new(key.into());
+
     let decrypted = cipher
         .decrypt(&nonce.into(), data.as_ref())
-        .map_err(|_| errors::create_unknown("Error decrypting data"))?;
+        .map_err(|_| CryptoError::Cipher)?;
 
     Ok(decrypted)
 }

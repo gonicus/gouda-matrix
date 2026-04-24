@@ -15,7 +15,10 @@ fn not_implemented_error<T>() -> Result<T> {
 }
 
 #[async_trait]
-pub trait Client: Send {
+pub trait Client: Send + Sync {
+    #[allow(unused_variables)]
+    async fn on_response(&mut self, response: &ResponseContainer) {}
+
     async fn initialize(
         &mut self,
         ctx: ClientContext,

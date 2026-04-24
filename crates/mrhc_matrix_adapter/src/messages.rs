@@ -11,8 +11,8 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId};
 use tokio::sync::mpsc;
 
-use crate::cache::{cache_room_messages_response, Cache};
 use crate::media::MediaManager;
+use crate::memory_cache::{cache_room_messages_response, MemoryCache};
 use crate::{errors, media};
 
 macro_rules! download_file {
@@ -328,7 +328,7 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
 }
 
 pub async fn fetch_messages_from_sdk(
-    cache: &Cache,
+    cache: &MemoryCache,
     order: MessagesOrder,
     room: &Room,
     next: Option<String>,

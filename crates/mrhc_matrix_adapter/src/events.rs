@@ -32,8 +32,8 @@ use ruma_common::serde::Raw;
 use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::cache::{Cache, CachedReaction};
 use crate::media::MediaManager;
+use crate::memory_cache::{CachedReaction, MemoryCache};
 use crate::{messages, rooms, unwrap_or_log_return, user};
 
 // After how many seconds does an event count as historical?
@@ -93,7 +93,7 @@ impl EventManager {
     pub fn new(
         client: Client,
         ctx: ClientContext,
-        cache: Cache,
+        memory_cache: MemoryCache,
         media_manager: MediaManager,
     ) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -103,7 +103,7 @@ impl EventManager {
             action_sender: tx,
         };
 
-        EventExecutor::new(client, ctx, rx, cache, media_manager).run();
+        EventExecutor::new(client, ctx, rx, memory_cache, media_manager).run();
 
         manager
     }
@@ -314,7 +314,8 @@ struct EventExecutor {
     client: Client,
     ctx: ClientContext,
     recv: UnboundedReceiver<Action>,
-    cache: Cache,
+
+    memory_cache: MemoryCache,
     media_manager: MediaManager,
 
     user_changes: HashMap<String, UserChange>,
@@ -326,14 +327,14 @@ impl EventExecutor {
         client: Client,
         ctx: ClientContext,
         recv: UnboundedReceiver<Action>,
-        cache: Cache,
+        memory_cache: MemoryCache,
         media_manager: MediaManager,
     ) -> Self {
         Self {
             client,
             ctx,
             recv,
-            cache,
+            memory_cache,
             media_manager,
 
             user_changes: HashMap::new(),
@@ -501,11 +502,12 @@ impl EventExecutor {
         };
 
         self.ctx
-            .send_event(ResponseContent::MessageRemoveEvent(proto));
+            .send_event(ResponseContent::MessageRemoveEvent(proto))
+            .await;
     }
 
     async fn redact_reaction(&mut self, event_id: &str) {
-        let Some(reaction) = self.cache.untrack_reaction_by_id(event_id) else {
+        let Some(reaction) = self.memory_cache.untrack_reaction_by_id(event_id) else {
             return;
         };
 
@@ -525,7 +527,8 @@ impl EventExecutor {
         };
 
         self.ctx
-            .send_event(ResponseContent::ReactionRemovedEvent(proto));
+            .send_event(ResponseContent::ReactionRemovedEvent(proto))
+            .await;
     }
 
     async fn exec_room_name_event(&self, room: Room, event: OriginalSyncRoomNameEvent) {
@@ -533,7 +536,9 @@ impl EventExecutor {
             .change_display_name(event.content.name.clone())
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
@@ -567,7 +572,9 @@ impl EventExecutor {
             .change_user_id_list(members)
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
 
         let membership_change = user::convert_membership_change(&event.membership_change());
         let Some(membership_change) = membership_change else {
@@ -590,7 +597,8 @@ impl EventExecutor {
         };
 
         self.ctx
-            .send_event(ResponseContent::MessageReceivedEvent(message));
+            .send_event(ResponseContent::MessageReceivedEvent(message))
+            .await;
     }
 
     async fn process_own_membership_change(
@@ -636,7 +644,9 @@ impl EventExecutor {
             message: event.content.reason.clone(),
         };
 
-        self.ctx.send_event(ResponseContent::RoomLeftEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomLeftEvent(proto))
+            .await;
     }
 
     async fn exec_stripped_room_member_event(
@@ -660,7 +670,9 @@ impl EventExecutor {
             room_display_name: room.display_name().await.ok().map(|n| n.to_string()),
         };
 
-        self.ctx.send_event(ResponseContent::InvitedEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::InvitedEvent(proto))
+            .await;
     }
 
     async fn process_profile_change(
@@ -696,7 +708,9 @@ impl EventExecutor {
         self.track_user_change(user_id, change);
 
         let proto = builder.to_proto();
-        self.ctx.send_event(ResponseContent::UserChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::UserChangeEvent(proto))
+            .await;
     }
 
     async fn exec_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
@@ -706,7 +720,9 @@ impl EventExecutor {
             .change_join_rule(join_rule)
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_room_avatar_event(&self, room: Room, _event: OriginalSyncRoomAvatarEvent) {
@@ -720,7 +736,9 @@ impl EventExecutor {
             .change_avatar_path(avatar_path)
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_room_message_event(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
@@ -770,7 +788,8 @@ impl EventExecutor {
         };
 
         self.ctx
-            .send_event(ResponseContent::MessageReceivedEvent(proto));
+            .send_event(ResponseContent::MessageReceivedEvent(proto))
+            .await;
     }
 
     async fn process_replacement_message(
@@ -801,7 +820,8 @@ impl EventExecutor {
             .to_proto();
 
         self.ctx
-            .send_event(ResponseContent::MessageChangeEvent(proto));
+            .send_event(ResponseContent::MessageChangeEvent(proto))
+            .await;
     }
 
     async fn exec_reaction_event(&mut self, room: Room, event: OriginalSyncReactionEvent) {
@@ -820,10 +840,11 @@ impl EventExecutor {
             user_id: Some(reaction.user_id.clone()),
         };
 
-        self.cache.track_reaction(reaction);
+        self.memory_cache.track_reaction(reaction);
 
         self.ctx
-            .send_event(ResponseContent::ReactionCreatedEvent(proto));
+            .send_event(ResponseContent::ReactionCreatedEvent(proto))
+            .await
     }
 
     async fn exec_presence_event(&mut self, event: PresenceEvent) {
@@ -844,7 +865,9 @@ impl EventExecutor {
             .change_presence_state(presence)
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::UserChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::UserChangeEvent(proto))
+            .await;
     }
 
     async fn exec_tag_event(&mut self, room: Room, event: TagEvent) {
@@ -854,7 +877,9 @@ impl EventExecutor {
             .change_is_favourite(is_favourite.is_some())
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
@@ -879,7 +904,9 @@ impl EventExecutor {
 
         self.track_room_change(proto.clone());
 
-        self.ctx.send_event(ResponseContent::RoomChangeEvent(proto));
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 }
 

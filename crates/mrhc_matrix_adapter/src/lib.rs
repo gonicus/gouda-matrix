@@ -1,14 +1,15 @@
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 
-mod cache;
 mod client;
 mod crypto;
 mod errors;
 mod events;
 mod macros;
 mod media;
+mod memory_cache;
 mod messages;
+mod proto_cache;
 mod rooms;
 mod sas;
 mod session;

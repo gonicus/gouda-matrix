@@ -8,7 +8,7 @@ use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::{assign, OwnedUserId};
-use matrix_sdk::Room as MatrixRoom;
+use matrix_sdk::{Client, Room as MatrixRoom};
 use mrhc_core::Result;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::*;
@@ -18,6 +18,25 @@ use ruma_common::UserId;
 
 use crate::media::MediaManager;
 use crate::{errors, user};
+
+/// Fetches all known rooms the user is in.
+pub async fn fetch_all(
+    client: &Client,
+    media_manager: &MediaManager,
+    user_id: &UserId,
+) -> Result<Vec<Room>> {
+    let mut result = Vec::new();
+
+    for room in client.rooms() {
+        if room.is_space() {
+            continue;
+        }
+
+        result.push(convert_to_proto(media_manager, room, user_id).await?);
+    }
+
+    Ok(result)
+}
 
 pub async fn convert_to_proto(
     media_manager: &MediaManager,

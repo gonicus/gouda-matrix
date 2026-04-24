@@ -80,3 +80,47 @@ impl Default for message_change_event::Content {
         Self::Text(MessageContentText::default())
     }
 }
+
+impl RoomChangeEvent {
+    pub fn update_room(&self, room: &mut Room) {
+        if self.has_user_id_list_changed {
+            room.user_id_list = self.user_id_list.clone();
+        }
+
+        if let Some(display_name) = self.display_name.clone() {
+            if display_name.is_empty() {
+                room.display_name = None;
+            } else {
+                room.display_name = Some(display_name);
+            }
+        }
+
+        if let Some(unread_count) = self.unread_count {
+            room.unread_count = unread_count;
+        }
+
+        if let Some(join_rule) = self.join_rule {
+            room.join_rule = join_rule;
+        }
+
+        if let Some(is_direct) = self.is_direct {
+            room.is_direct = is_direct;
+        }
+
+        if let Some(permissions) = self.permissions {
+            room.permissions = Some(permissions);
+        }
+
+        if let Some(avatar_path) = self.avatar_path.clone() {
+            if avatar_path.is_empty() {
+                room.avatar_path = None;
+            } else {
+                room.avatar_path = Some(avatar_path);
+            }
+        }
+
+        if let Some(is_favorite) = self.is_favorite {
+            room.is_favorite = is_favorite;
+        }
+    }
+}
