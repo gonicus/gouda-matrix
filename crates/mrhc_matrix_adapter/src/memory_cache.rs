@@ -76,12 +76,12 @@ type Result<T> = std::result::Result<T, CacheError>;
 pub type CachedData = HashMap<OwnedRoomId, Arc<RwLock<CachedChronoRoom>>>;
 
 #[derive(Default, Clone)]
-pub struct Cache {
+pub struct MemoryCache {
     cached_data: Arc<RwLock<CachedData>>,
     reactions: Arc<RwLock<Vec<CachedReaction>>>,
 }
 
-impl Cache {
+impl MemoryCache {
     pub fn new() -> Self {
         Self::default()
     }
@@ -1074,7 +1074,7 @@ impl Iterator for MessageIterator {
 }
 
 pub fn get_or_create_room(
-    cache: &Cache,
+    cache: &MemoryCache,
     room_id: &OwnedRoomId,
 ) -> Result<Arc<RwLock<CachedChronoRoom>>> {
     let mut cache_w = cache.cached_data_write_lock()?;
@@ -1104,7 +1104,7 @@ pub fn get_or_create_room(
 }
 
 pub fn cache_sync_response(
-    cache: &Cache,
+    cache: &MemoryCache,
     response: &matrix_sdk::sync::SyncResponse,
     source: SyncSource,
 ) -> Result<()> {
@@ -1150,7 +1150,7 @@ pub fn cache_sync_response(
 /// and appends it to a `CachedChronoRoom` specified by `room_id`
 /// Will create a new `CachedChronoRoom` if necessary
 pub fn cache_room_messages_response(
-    cache: &Cache,
+    cache: &MemoryCache,
     response: &matrix_sdk::room::Messages,
     room_id: OwnedRoomId,
     chronological: bool,
@@ -1345,7 +1345,7 @@ pub async fn send_and_get_sequence_chunk<T: RoomClient>(
     order: MessagesOrder,
     skip_first: bool,
     room_client: &T,
-    cache: &Cache,
+    cache: &MemoryCache,
     ctx: &ClientContext,
 ) -> Result<SequenceChunkResult> {
     let msg_opt = {
@@ -1409,7 +1409,7 @@ async fn try_send_and_append_message<T: RoomClient>(
     cached_room: &Arc<RwLock<CachedChronoRoom>>,
     current_id: &OwnedEventId,
     room_client: &T,
-    cache: &Cache,
+    cache: &MemoryCache,
     list_stream: &MultipartResponse,
 ) {
     let proto =
@@ -1422,7 +1422,9 @@ async fn try_send_and_append_message<T: RoomClient>(
 
     if let Some(proto_msg) = proto_msg {
         result.push(proto_msg.clone());
-        list_stream.send_item(ResponseContent::MessageReceivedEvent(proto_msg));
+        list_stream
+            .send_item(ResponseContent::MessageReceivedEvent(proto_msg))
+            .await;
     }
 }
 
@@ -1483,7 +1485,7 @@ async fn assemble_proto_message<T: RoomClient>(
     cached_room: Arc<RwLock<CachedChronoRoom>>,
     id: OwnedEventId,
     room_client: &T,
-    cache: &Cache,
+    cache: &MemoryCache,
 ) -> Result<Option<Message>> {
     let cached_msg = get_cached_msg(cached_room.clone(), &id)?;
 
@@ -1540,7 +1542,7 @@ async fn assemble_proto_message<T: RoomClient>(
 async fn collect_reactions_to_event<T: RoomClient>(
     id: OwnedEventId,
     room_client: &T,
-    cache: &Cache,
+    cache: &MemoryCache,
 ) -> Result<Vec<Reaction>> {
     // TODO: This will be expensive to do for every single event. Its ok to do so in
     // a first approach. For efficiency reasons we should proceed as follows:
@@ -1558,7 +1560,7 @@ async fn collect_reactions_to_event<T: RoomClient>(
 fn reactions_from_matrix_relations(
     relations: MatrixRelations,
     room_id: String,
-    cache: &Cache,
+    cache: &MemoryCache,
 ) -> Result<Vec<Reaction>> {
     let mut reactions = vec![];
     for rel in relations.chunk {
@@ -1945,7 +1947,7 @@ pub async fn retry_decryption<T: RoomClient>(
     messages_opt: Option<Vec<Message>>,
     room_id: &OwnedRoomId,
     room_client: &T,
-    cache: &Cache,
+    cache: &MemoryCache,
     mut key_change_rx: mpsc::Receiver<()>,
     ctx: &ClientContext,
 ) -> Result<()> {
@@ -2014,7 +2016,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     room_client: &T,
     room: Arc<RwLock<CachedChronoRoom>>,
     ctx: &ClientContext,
-    cache: &Cache,
+    cache: &MemoryCache,
 ) -> Result<usize> {
     let mut decrypted_count = 0;
 
@@ -2076,7 +2078,8 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                         .change_content(content)
                         .to_proto();
 
-                        ctx.send_event(ResponseContent::MessageChangeEvent(response));
+                        ctx.send_event(ResponseContent::MessageChangeEvent(response))
+                            .await;
                         decrypted_count += 1;
                     }
                 }
@@ -2087,7 +2090,8 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
                         reason: None,
                         origin: EventOrigin::BackendOrigin.into(),
                     };
-                    ctx.send_event(ResponseContent::MessageRemoveEvent(response));
+                    ctx.send_event(ResponseContent::MessageRemoveEvent(response))
+                        .await;
                 }
             }
         }
@@ -2357,10 +2361,10 @@ impl RoomClient for MatrixRoomClient {
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use mrhc_core::OutputTask;
+    use mrhc_core::ExecutorTask;
     use mrhc_proto::chat::MessageContentText;
     use serde_json::json;
-    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::Receiver;
 
     use super::*;
 
@@ -2455,7 +2459,7 @@ mod tests {
         }
     }
 
-    impl Cache {
+    impl MemoryCache {
         pub fn reactions(&self) -> &RwLock<Vec<CachedReaction>> {
             &self.reactions
         }
@@ -2471,9 +2475,9 @@ mod tests {
         msgs5: Vec<UnlinkedMessage>, // prefilled - but with shuffled_order
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
-        _output_recv: UnboundedReceiver<OutputTask>,
+        _executor_recv: Receiver<ExecutorTask>,
         ctx: ClientContext,
-        cache: Cache,
+        cache: MemoryCache,
     }
 
     fn new_setup() -> SetupData {
@@ -2679,7 +2683,7 @@ mod tests {
             .unwrap()
             .prev_token = prev_token.clone();
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         SetupData {
             prefilled_room,
@@ -2691,9 +2695,9 @@ mod tests {
             msgs5,
             msg_after,
             room_client: MockRoomClient::new(),
-            _output_recv: rx,
+            _executor_recv: rx,
             ctx: ClientContext::new(0, tx),
-            cache: Cache::new(),
+            cache: MemoryCache::new(),
         }
     }
 

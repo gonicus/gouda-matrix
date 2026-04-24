@@ -154,12 +154,14 @@ impl VerificationProcessor {
 
                 let available_methods = get_available_methods(&our_methods, &their_methods);
 
-                self.ctx.send_event(ResponseContent::CrossSigningStartEvent(
-                    CrossSigningStartEvent {
-                        verification_flow_id: self.flow_id.clone(),
-                        available_methods,
-                    },
-                ));
+                self.ctx
+                    .send_event(ResponseContent::CrossSigningStartEvent(
+                        CrossSigningStartEvent {
+                            verification_flow_id: self.flow_id.clone(),
+                            available_methods,
+                        },
+                    ))
+                    .await;
 
                 false
             }
@@ -201,7 +203,7 @@ impl VerificationProcessor {
             }
             VerificationRequestState::Cancelled(_) => {
                 log::debug!("Verification request transitioned into Cancelled state");
-                send_verification_end_event(&mut self.ctx, self.flow_id.clone(), false);
+                send_verification_end_event(&mut self.ctx, self.flow_id.clone(), false).await;
                 true
             }
         }
@@ -258,9 +260,9 @@ impl VerificationProcessor {
 
         if let Err(err) = self.verification.cancel().await {
             log::error!("Error canceling verification flow {err}");
-            send_verification_end_event_err(&mut self.ctx, self.flow_id.clone(), err);
+            send_verification_end_event_err(&mut self.ctx, self.flow_id.clone(), err).await;
         } else {
-            send_verification_end_event(&mut self.ctx, self.flow_id.clone(), false);
+            send_verification_end_event(&mut self.ctx, self.flow_id.clone(), false).await;
         }
     }
 
@@ -271,7 +273,7 @@ impl VerificationProcessor {
             log::error!("Error canceling verification flow {err}");
         }
 
-        send_verification_end_event_err(&mut self.ctx, self.flow_id.clone(), err);
+        send_verification_end_event_err(&mut self.ctx, self.flow_id.clone(), err).await;
     }
 }
 
@@ -316,16 +318,17 @@ pub fn cross_signing_methods_to_matrix(methods: Vec<i32>) -> Vec<VerificationMet
     result
 }
 
-pub fn send_verification_end_event(ctx: &mut ClientContext, flow_id: String, success: bool) {
+pub async fn send_verification_end_event(ctx: &mut ClientContext, flow_id: String, success: bool) {
     let event = VerificationEndEvent {
         verification_flow_id: Some(flow_id),
         result: Some(verification_end_event::Result::Successful(success)),
     };
 
-    ctx.send_event(ResponseContent::VerificationEndEvent(event));
+    ctx.send_event(ResponseContent::VerificationEndEvent(event))
+        .await;
 }
 
-pub fn send_verification_end_event_err<E: std::fmt::Display>(
+pub async fn send_verification_end_event_err<E: std::fmt::Display>(
     ctx: &mut ClientContext,
     flow_id: String,
     error: E,
@@ -335,7 +338,8 @@ pub fn send_verification_end_event_err<E: std::fmt::Display>(
         result: Some(verification_end_event::Result::Error(error.to_string())),
     };
 
-    ctx.send_event(ResponseContent::VerificationEndEvent(event));
+    ctx.send_event(ResponseContent::VerificationEndEvent(event))
+        .await;
 }
 
 /// Converts verification methods received from the matrix-sdk to verification methods of

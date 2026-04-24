@@ -11,6 +11,7 @@ pub mod test_utils;
 
 pub use client::Client;
 pub use context::ClientContext;
+pub use executor::ExecutorTask;
 pub use multipart_response::MultipartResponse;
 pub use output_processor::OutputTask;
 pub use runner::Runner;

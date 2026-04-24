@@ -83,7 +83,7 @@ impl<'a> SasVerificationManager<'a> {
             }
             SasState::KeysExchanged { emojis, decimals } => {
                 log::debug!("SAS verification transitioned into KeysExchanged state");
-                self.present_sas(emojis, decimals);
+                self.present_sas(emojis, decimals).await;
                 false
             }
             SasState::Confirmed => {
@@ -96,7 +96,8 @@ impl<'a> SasVerificationManager<'a> {
                     &mut self.ctx,
                     self.flow_id.to_owned(),
                     true,
-                );
+                )
+                .await;
                 true
             }
             SasState::Cancelled(_) => {
@@ -105,7 +106,8 @@ impl<'a> SasVerificationManager<'a> {
                     &mut self.ctx,
                     self.flow_id.to_owned(),
                     false,
-                );
+                )
+                .await;
                 true
             }
         }
@@ -129,7 +131,8 @@ impl<'a> SasVerificationManager<'a> {
             VerificationAction::Confirm => {
                 if let Err(err) = self.verification.confirm().await {
                     log::error!("Error confirming SAS verification: {err}");
-                    send_verification_end_event_err(&mut self.ctx, self.flow_id.to_owned(), err);
+                    send_verification_end_event_err(&mut self.ctx, self.flow_id.to_owned(), err)
+                        .await;
                     true
                 } else {
                     false
@@ -143,7 +146,11 @@ impl<'a> SasVerificationManager<'a> {
     /// the participants have exchanged keys and agreed on a short authentication string.
     /// If emojis are specified, the emojis (`VerificationCode::Symbols`) will be used.
     /// Otherwise, the decimal representation (`VerificationCode::StringCode`) is used.
-    fn present_sas(&mut self, emojis: Option<EmojiShortAuthString>, decimals: (u16, u16, u16)) {
+    async fn present_sas(
+        &mut self,
+        emojis: Option<EmojiShortAuthString>,
+        decimals: (u16, u16, u16),
+    ) {
         let method = if emojis.is_some() {
             CrossSigningMethod::SasSymbol
         } else {
@@ -163,7 +170,8 @@ impl<'a> SasVerificationManager<'a> {
         };
 
         self.ctx
-            .send_event(ResponseContent::CrossSigningMethodSelectedEvent(re));
+            .send_event(ResponseContent::CrossSigningMethodSelectedEvent(re))
+            .await;
     }
 
     /// Cancels the verification flow and sends the corresponding `VerificationEndEvent`
@@ -177,13 +185,15 @@ impl<'a> SasVerificationManager<'a> {
                 &mut self.ctx,
                 self.flow_id.to_owned(),
                 err,
-            );
+            )
+            .await;
         } else {
             verification::send_verification_end_event(
                 &mut self.ctx,
                 self.flow_id.to_owned(),
                 false,
-            );
+            )
+            .await;
         }
     }
 }

@@ -1,8 +1,8 @@
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{Error, ResponseContainer};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::Sender;
 
-use crate::output_processor::OutputTask;
+use crate::executor::ExecutorTask;
 use crate::MultipartResponse;
 
 #[derive(Clone)]
@@ -10,45 +10,53 @@ pub struct ClientContext {
     /// The tag of the request this context belongs to.
     tag: u64,
     /// An unbounded sender to send tasks to the output processor.
-    output_sender: UnboundedSender<OutputTask>,
+    executor_sender: Sender<ExecutorTask>,
 }
 
 impl ClientContext {
-    pub fn new(tag: u64, output_sender: UnboundedSender<OutputTask>) -> Self {
-        Self { tag, output_sender }
+    pub fn new(tag: u64, executor_sender: Sender<ExecutorTask>) -> Self {
+        Self {
+            tag,
+            executor_sender,
+        }
     }
 
     /// Helper method to send a response container to the output processor.
     #[inline]
-    fn send_to_output(&self, re: ResponseContainer) {
-        if let Err(err) = self.output_sender.send(OutputTask::Response(Box::new(re))) {
+    async fn send_to_output(&self, re: ResponseContainer) {
+        let task = ExecutorTask::Response(Box::new(re));
+
+        if let Err(err) = self.executor_sender.send(task).await {
             debug_assert!(false, "Failed to send response to output processor: {err}");
             log::error!("Failed to send response to output processor: {err}");
         }
     }
 
     /// Sends an event to the output processor with the request's tag.
-    pub(crate) fn send_event_with_tag(&self, content: ResponseContent) {
+    pub(crate) async fn send_event_with_tag(&self, content: ResponseContent) {
         self.send_to_output(ResponseContainer {
             tag: self.tag,
             content: Some(content),
-        });
+        })
+        .await;
     }
 
     /// Sends an event to the receiving half.
-    pub fn send_event(&self, content: ResponseContent) {
+    pub async fn send_event(&self, content: ResponseContent) {
         self.send_to_output(ResponseContainer {
             tag: 0,
             content: Some(content),
-        });
+        })
+        .await;
     }
 
     /// Sends an error event to the receiving half.
-    pub fn send_error(&self, err: Error) {
+    pub async fn send_error(&self, err: Error) {
         self.send_to_output(ResponseContainer {
             tag: 0,
             content: Some(ResponseContent::Error(err)),
-        });
+        })
+        .await;
     }
 
     /// Begins a new list stream.

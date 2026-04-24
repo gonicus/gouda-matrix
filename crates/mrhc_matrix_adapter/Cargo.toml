@@ -8,6 +8,8 @@ publish = false
 mrhc_proto.workspace = true
 mrhc_core.workspace = true
 
+prost.workspace = true
+
 tokio.workspace = true
 async-trait.workspace = true
 
