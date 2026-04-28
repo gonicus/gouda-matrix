@@ -265,7 +265,7 @@ enum Action {
 struct UserChange {
     pub displayname: Option<String>,
     pub avatar_uri: Option<String>,
-    pub presence_state: Option<PresenceState>,
+    pub status: Option<UserStatus>,
 }
 
 impl UserChange {
@@ -273,7 +273,7 @@ impl UserChange {
         Self {
             displayname: None,
             avatar_uri: None,
-            presence_state: None,
+            status: None,
         }
     }
 
@@ -304,8 +304,8 @@ impl UserChange {
         self
     }
 
-    pub fn presence_state(mut self, presence_state: PresenceState) -> Self {
-        self.presence_state = Some(presence_state);
+    pub fn status(mut self, status: UserStatus) -> Self {
+        self.status = Some(status);
         self
     }
 }
@@ -850,7 +850,13 @@ impl EventExecutor {
     async fn exec_presence_event(&mut self, event: PresenceEvent) {
         let user_id = event.sender.to_string();
         let presence = user::convert_presence_state(event.content.presence);
-        let change = UserChange::new().presence_state(presence);
+
+        let user_status = UserStatus {
+            state: presence.into(),
+            status_message: event.content.status_msg,
+        };
+
+        let change = UserChange::new().status(user_status.clone());
 
         if !self.is_new_user_change(&user_id, &change) {
             log::debug!(
@@ -862,7 +868,7 @@ impl EventExecutor {
         self.track_user_change(&user_id, change);
 
         let proto = builder::UserChangeEventBuilder::new(user_id)
-            .change_presence_state(presence)
+            .change_status(user_status)
             .to_proto();
 
         self.ctx

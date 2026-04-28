@@ -151,6 +151,7 @@ impl Executor {
                 self.send_result(tag, result.map(ResponseContent::UserSearchResponse))
                     .await;
             }
+            RequestContent::UserStatusSetOwnRequest(_) => todo!(),
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.get_public_rooms(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::PublicRoomListResponse))

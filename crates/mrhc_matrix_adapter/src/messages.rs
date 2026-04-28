@@ -15,6 +15,29 @@ use crate::media::MediaManager;
 use crate::memory_cache::{cache_room_messages_response, MemoryCache};
 use crate::{errors, media};
 
+macro_rules! download_image {
+    ($image:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+        let result = $media_manager
+            .download_from_media_event_content(
+                &$room,
+                &$event_id,
+                &$image,
+                $image.filename.as_deref().or(Some(&$image.body)),
+            )
+            .await;
+
+        match result {
+            Ok(path) => Some($dest_proto_message::Content::Image(
+                mrhc_proto::chat::MessageContentImage { image_path: path },
+            )),
+            Err(err) => {
+                log::error!("Error downloading attached image: {err}");
+                None
+            }
+        }
+    }};
+}
+
 macro_rules! download_file {
     ($file:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
         let file_name = $file.filename.clone().unwrap_or($file.body.clone());
@@ -38,23 +61,46 @@ macro_rules! download_file {
     }};
 }
 
-macro_rules! download_image {
-    ($image:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+macro_rules! download_audio {
+    ($audio:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+        let file_name = $audio.filename.clone().unwrap_or($audio.body.clone());
+
         let result = $media_manager
-            .download_from_media_event_content(
-                &$room,
-                &$event_id,
-                &$image,
-                $image.filename.as_deref().or(Some(&$image.body)),
-            )
+            .download_from_media_event_content(&$room, &$event_id, &$audio, Some(&file_name))
             .await;
 
         match result {
-            Ok(path) => Some($dest_proto_message::Content::Image(
-                mrhc_proto::chat::MessageContentImage { image_path: path },
+            Ok(path) => Some($dest_proto_message::Content::AudioFile(
+                mrhc_proto::chat::MessageContentAudio {
+                    file_path: path,
+                    file_name: Some(file_name),
+                },
             )),
             Err(err) => {
-                log::error!("Error downloading attached image: {err}");
+                log::error!("Error downloading attached audio: {err}");
+                None
+            }
+        }
+    }};
+}
+
+macro_rules! download_video {
+    ($video:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
+        let file_name = $video.filename.clone().unwrap_or($video.body.clone());
+
+        let result = $media_manager
+            .download_from_media_event_content(&$room, &$event_id, &$video, Some(&file_name))
+            .await;
+
+        match result {
+            Ok(path) => Some($dest_proto_message::Content::VideoFile(
+                mrhc_proto::chat::MessageContentVideo {
+                    file_path: path,
+                    file_name: Some(file_name),
+                },
+            )),
+            Err(err) => {
+                log::error!("Error downloading attached video: {err}");
                 None
             }
         }
@@ -79,7 +125,7 @@ macro_rules! generate_message_content {
     ($media_manager:expr, $room:expr, $event_id:expr, $msgtype:expr, $dest_proto_message:ident) => {
         match $msgtype {
             matrix_sdk::ruma::events::room::message::MessageType::Audio(audio) => {
-                messages::download_file!(
+                messages::download_audio!(
                     audio,
                     $media_manager,
                     $room,
@@ -129,7 +175,7 @@ macro_rules! generate_message_content {
                 }),
             ),
             matrix_sdk::ruma::events::room::message::MessageType::Video(video) => {
-                messages::download_file!(
+                messages::download_video!(
                     video,
                     $media_manager,
                     $room,
@@ -146,8 +192,10 @@ macro_rules! generate_message_content {
 }
 
 pub(crate) use convert_location;
+pub(crate) use download_audio;
 pub(crate) use download_file;
 pub(crate) use download_image;
+pub(crate) use download_video;
 pub(crate) use generate_message_content;
 
 pub fn message_content_to_message_change_event_content(
@@ -158,6 +206,8 @@ pub fn message_content_to_message_change_event_content(
         message::Content::Image(c) => message_change_event::Content::Image(c),
         message::Content::File(c) => message_change_event::Content::File(c),
         message::Content::MembershipChange(c) => message_change_event::Content::MembershipChange(c),
+        message::Content::AudioFile(c) => message_change_event::Content::AudioFile(c),
+        message::Content::VideoFile(c) => message_change_event::Content::VideoFile(c),
     }
 }
 
@@ -217,6 +267,48 @@ pub async fn send_image_message(
 
     let message_id = media_manager
         .send_room_attachment(&room, content.image_path, None, related_message_id)
+        .await
+        .map_err(media::convert_error)?;
+
+    Ok(MessageSendResponse { message_id })
+}
+
+pub async fn send_audio_message(
+    media_manager: &MediaManager,
+    room: Room,
+    related_message_id: Option<String>,
+    content: MessageContentAudio,
+) -> Result<MessageSendResponse> {
+    let related_message_id = convert_related_message_id(related_message_id)?;
+
+    let message_id = media_manager
+        .send_room_attachment(
+            &room,
+            content.file_path,
+            content.file_name,
+            related_message_id,
+        )
+        .await
+        .map_err(media::convert_error)?;
+
+    Ok(MessageSendResponse { message_id })
+}
+
+pub async fn send_video_message(
+    media_manager: &MediaManager,
+    room: Room,
+    related_message_id: Option<String>,
+    content: MessageContentVideo,
+) -> Result<MessageSendResponse> {
+    let related_message_id = convert_related_message_id(related_message_id)?;
+
+    let message_id = media_manager
+        .send_room_attachment(
+            &room,
+            content.file_path,
+            content.file_name,
+            related_message_id,
+        )
         .await
         .map_err(media::convert_error)?;
 
