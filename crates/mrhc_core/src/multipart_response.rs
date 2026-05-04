@@ -12,14 +12,18 @@ impl MultipartResponse {
         Self { ctx }
     }
 
-    pub fn send_item(&self, item: ResponseContent) {
-        self.ctx.send_event_with_tag(item);
+    pub async fn send_item(&self, item: ResponseContent) {
+        self.ctx.send_event_with_tag(item).await;
     }
 }
 
 impl Drop for MultipartResponse {
     fn drop(&mut self) {
-        self.ctx
-            .send_event_with_tag(ResponseContent::MultipartEnd(MultipartEnd {}));
+        let ctx = self.ctx.clone();
+
+        tokio::spawn(async move {
+            ctx.send_event_with_tag(ResponseContent::MultipartEnd(MultipartEnd {}))
+                .await;
+        });
     }
 }

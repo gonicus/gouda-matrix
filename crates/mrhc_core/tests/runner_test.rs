@@ -85,10 +85,8 @@ async fn test_on_invalid_data() {
     let client: ClientMock = ClientMock {
         ..Default::default()
     };
-    let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.runner.run());
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let mut setup = setup(client).await.expect("test setup failed");
 
     let test_data: Vec<u8> = vec![
         0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -96,26 +94,20 @@ async fn test_on_invalid_data() {
 
     // act
     setup.client_sender.write_all(&test_data).await.unwrap();
-
-    let _response_payload = read_payload_from_stream(&mut setup.client_receiver).await;
-
-    app_task.abort();
+    let result = setup.runner.run().await;
 
     // assert
-    // - should have panicked -
+    assert!(result.is_err());
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_on_too_large_header() {
     // arrange
     let client: ClientMock = ClientMock {
         ..Default::default()
     };
-    let mut setup = setup(client).await.expect("test setup failed");
 
-    let app_task = tokio::spawn(setup.runner.run());
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let mut setup = setup(client).await.expect("test setup failed");
 
     let test_data: Vec<u8> = vec![
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04,
@@ -123,13 +115,10 @@ async fn test_on_too_large_header() {
 
     // act
     setup.client_sender.write_all(&test_data).await.unwrap();
-
-    let _response_payload = read_payload_from_stream(&mut setup.client_receiver).await;
-
-    app_task.abort();
+    let result = setup.runner.run().await;
 
     // assert
-    // - should have panicked -
+    assert!(result.is_err());
 }
 
 #[tokio::test]

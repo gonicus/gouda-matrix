@@ -2,7 +2,7 @@ use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::request_container::Content as RequestContent;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{Error, RequestContainer, ResponseContainer};
-use tokio::sync::mpsc::{Receiver, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
 use crate::output_processor::OutputTask;
 use crate::{Client, ClientContext, Result};
@@ -13,6 +13,10 @@ pub enum ExecutorTask {
     Exit,
     /// Executes some request send to this client.
     Request(Box<RequestContainer>),
+    /// Execute some response to be send to the application.
+    /// This calls the `on_response` event handler of the client and sends
+    /// the response to the output processor afterwards.
+    Response(Box<ResponseContainer>),
 }
 
 /// The executor is responsible for receiving decoded messages from the input and executing
@@ -23,6 +27,9 @@ pub struct Executor {
     client: Box<dyn Client>,
     /// Receiver for tasks to be executed.
     task_receiver: Receiver<ExecutorTask>,
+    /// Sender for new executor tasks. Used to be cloned when creating
+    /// new client contexts on new requests.
+    task_sender: Sender<ExecutorTask>,
     /// Where to send the resulting output tasks.
     output_sender: UnboundedSender<OutputTask>,
 }
@@ -31,11 +38,13 @@ impl Executor {
     pub fn new(
         client: Box<dyn Client>,
         task_receiver: Receiver<ExecutorTask>,
+        task_sender: Sender<ExecutorTask>,
         output_sender: UnboundedSender<OutputTask>,
     ) -> Self {
         Self {
             client,
             task_receiver,
+            task_sender,
             output_sender,
         }
     }
@@ -72,150 +81,172 @@ impl Executor {
 
                 self.process_request(container.tag, content).await;
             }
+            ExecutorTask::Response(container) => self.send_response(*container).await,
         }
     }
 
     async fn process_request(&mut self, tag: u64, content: RequestContent) {
-        let ctx = ClientContext::new(tag, self.output_sender.clone());
+        let ctx = ClientContext::new(tag, self.task_sender.clone());
 
         match content {
             RequestContent::InitializationRequest(request) => {
                 let result = self.client.initialize(ctx, request).await;
-                self.send_response(0, result.map(ResponseContent::StatusUpdate));
+                self.send_result(0, result.map(ResponseContent::StatusUpdate))
+                    .await;
             }
             RequestContent::LoginFlowsRequest(_) => {
                 let result = self.client.get_login_flows(ctx).await;
-                self.send_response(tag, result.map(ResponseContent::LoginFlowsResponse));
+                self.send_result(tag, result.map(ResponseContent::LoginFlowsResponse))
+                    .await;
             }
             RequestContent::IdentityProvidersRequest(_) => {
                 let result = self.client.get_identity_providers(ctx).await;
-                self.send_response(tag, result.map(ResponseContent::IdentityProvidersResponse));
+                self.send_result(tag, result.map(ResponseContent::IdentityProvidersResponse))
+                    .await;
             }
             RequestContent::LoginUsernamePasswordRequest(request) => {
                 let result = self.client.login_username_password(ctx, request).await;
-                self.send_response(0, result.map(ResponseContent::StatusUpdate));
+                self.send_result(0, result.map(ResponseContent::StatusUpdate))
+                    .await;
             }
             RequestContent::LoginSsoRequest(request) => {
                 let result = self.client.login_sso(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::LoginSsoResponse));
+                self.send_result(tag, result.map(ResponseContent::LoginSsoResponse))
+                    .await;
             }
             RequestContent::RecoveryKeyVerificationRequest(request) => {
                 let result = self.client.recovery_key_verification(ctx, request).await;
-                self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
+                self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
+                    .await;
             }
             RequestContent::CrossSigningStartRequest(request) => {
                 let result = self.client.cross_signing_start(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::CrossSigningStartResponse));
+                self.send_result(tag, result.map(ResponseContent::CrossSigningStartResponse))
+                    .await;
             }
             RequestContent::CrossSigningMethodSelectedRequest(request) => {
                 let result = self.client.cross_signing_select_method(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::CrossSigningConfirmRequest(request) => {
                 let result = self.client.cross_signing_confirm(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::VerificationAbortRequest(request) => {
                 let result = self.client.abort_verification(ctx, request).await;
-                self.send_response(0, result.map(ResponseContent::VerificationEndEvent));
+                self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
+                    .await;
             }
             RequestContent::UserRequest(request) => {
                 let result = self.client.get_user(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::UserResponse));
+                self.send_result(tag, result.map(ResponseContent::UserResponse))
+                    .await;
             }
             RequestContent::UserSearchRequest(request) => {
                 let result = self.client.search_users(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::UserSearchResponse));
+                self.send_result(tag, result.map(ResponseContent::UserSearchResponse))
+                    .await;
             }
+            RequestContent::UserStatusSetOwnRequest(_) => todo!(),
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.get_public_rooms(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::PublicRoomListResponse));
+                self.send_result(tag, result.map(ResponseContent::PublicRoomListResponse))
+                    .await;
             }
             RequestContent::InvitationRequest(request) => {
                 let result = self.client.invite(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
+                    .await;
             }
             RequestContent::InvitedReply(request) => {
                 let result = self.client.invitation_reply(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::RoomListRequest(request) => {
                 let result = self.client.get_rooms(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomListResponse));
+                self.send_result(tag, result.map(ResponseContent::RoomListResponse))
+                    .await;
             }
             RequestContent::RoomCreateGroupRequest(request) => {
                 let result = self.client.create_group_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
+                    .await;
             }
             RequestContent::RoomCreateDirectRequest(request) => {
                 let result = self.client.create_direct_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
+                    .await;
             }
             RequestContent::RoomChangeRequest(request) => {
                 let result = self.client.change_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
+                    .await;
             }
             RequestContent::RoomLeaveRequest(request) => {
                 let result = self.client.leave_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomLeftEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomLeftEvent))
+                    .await;
             }
             RequestContent::RoomJoinRequest(request) => {
                 let result = self.client.join_room(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomCreatedEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
+                    .await;
             }
             RequestContent::RoomKnockRequest(request) => {
                 let result = self.client.knock_room(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::RoomMessagesRequest(request) => {
                 let result = self.client.get_room_messages(&ctx, &request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::RoomMarkAsReadRequest(request) => {
                 let result = self.client.mark_as_read(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::RoomChangeEvent));
+                self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
+                    .await;
             }
             RequestContent::MessageSendRequest(request) => {
                 let result = self.client.send_message(ctx, request).await;
-                self.send_response(tag, result.map(ResponseContent::MessageSendResponse));
+                self.send_result(tag, result.map(ResponseContent::MessageSendResponse))
+                    .await;
             }
             RequestContent::MessageRemoveRequest(request) => {
                 let result = self.client.remove_message(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::MessageChangeRequest(request) => {
                 let result = self.client.change_message(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::CreateReactionRequest(request) => {
                 let result = self.client.create_reaction(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::RemoveReactionRequest(request) => {
                 let result = self.client.remove_reaction(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_response(tag, Err(err));
+                    self.send_result(tag, Err(err)).await;
                 }
             }
             RequestContent::MessageRequest(_) => {
                 // TODO: Implement MessageRequest
-                self.send_response(
+                self.send_result(
                     tag,
                     Err(Error {
                         r#type: ErrorType::NotImplemented.into(),
@@ -223,18 +254,31 @@ impl Executor {
                             "MessageRequest is currently not implemented".to_owned(),
                         ),
                     }),
-                );
+                )
+                .await;
             }
         }
     }
 
-    fn send_response(&self, tag: u64, content: Result<ResponseContent>) {
+    async fn send_result(&mut self, tag: u64, content: Result<ResponseContent>) {
         let content = match content {
             Ok(c) => Some(c),
             Err(err) => Some(ResponseContent::Error(err)),
         };
 
         let container = ResponseContainer { tag, content };
+
+        self.send_response(container).await;
+    }
+
+    async fn send_response(&mut self, container: ResponseContainer) {
+        log::info!("Preparing response: {container:?}");
+
+        log::debug!("Calling response event handler on the client");
+
+        self.client.on_response(&container).await;
+
+        log::debug!("Sending response to output processor");
 
         self.output_sender
             .send(OutputTask::Response(Box::new(container)))
@@ -276,7 +320,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
         let response =
@@ -320,7 +369,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -328,27 +382,15 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run().await.unwrap();
+        executor.run().await.unwrap();
 
         // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        let ctx = client.received_ctx.clone().unwrap();
-
-        // Verify that the client context has received the correct output sender.
-        // Since we cannot directly compare the receivers of the senders, we send
-        // an event and expect it to be received by the correct output receiver.
-        ctx.send_error(Error::default());
-
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(
                 2,
                 ResponseContent::IdentityProvidersResponse(IdentityProvidersResponse::default())
             )
-        );
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(0, ResponseContent::Error(Error::default()))
         );
         assert!(output_rx.is_empty())
     }
@@ -369,7 +411,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -407,7 +454,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -447,7 +499,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -485,7 +542,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -522,7 +584,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -560,7 +627,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -598,7 +670,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -637,7 +714,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -674,7 +756,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -712,7 +799,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -752,7 +844,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -792,7 +889,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -829,7 +931,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -867,7 +974,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -903,7 +1015,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -939,7 +1056,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -973,7 +1095,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1008,7 +1135,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1046,7 +1178,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1084,7 +1221,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1124,7 +1266,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1162,7 +1309,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1212,7 +1364,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1250,7 +1407,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1294,7 +1456,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1332,7 +1499,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1383,7 +1555,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1421,7 +1598,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1455,7 +1637,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1489,7 +1676,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1560,7 +1752,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1598,7 +1795,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1648,7 +1850,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1686,7 +1893,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1736,7 +1948,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1774,7 +1991,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1825,7 +2047,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1863,7 +2090,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1902,7 +2134,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1940,7 +2177,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -1990,7 +2232,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2028,7 +2275,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2062,7 +2314,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2096,7 +2353,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2130,7 +2392,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2164,7 +2431,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2215,7 +2487,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2253,7 +2530,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2290,7 +2572,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2328,7 +2615,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2362,7 +2654,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2396,7 +2693,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2430,7 +2732,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2464,7 +2771,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2498,7 +2810,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2532,7 +2849,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2566,7 +2888,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx
@@ -2600,7 +2927,12 @@ mod tests {
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
 
-        let executor = Executor::new(Box::new(client), executor_rx, output_tx);
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
 
         // Act
         executor_tx

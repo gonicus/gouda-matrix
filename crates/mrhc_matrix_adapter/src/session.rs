@@ -7,20 +7,16 @@ use mrhc_core::{ClientContext, Result};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{CapabilityEvent, VerificationStatusEvent};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
-use crate::{cache, crypto, errors};
+use crate::{crypto, errors, memory_cache};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
     /// The Matrix user session.
     pub user_session: MatrixSession,
-    /// The latest sync token.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_token: Option<String>,
 
     #[serde(skip)]
     file: PathBuf,
@@ -42,7 +38,6 @@ impl Session {
 
         Ok(Self {
             user_session,
-            sync_token: None,
             file,
             passphrase,
         })
@@ -50,18 +45,12 @@ impl Session {
 
     /// Reads the session from the given path.
     pub async fn read_from_file(file: PathBuf, passphrase: String) -> Result<Self> {
-        let mut reader = tokio::fs::File::open(&file)
+        let decrypted = crypto::decrypt_file(&file, &passphrase)
             .await
-            .map_err(|_| errors::create_unknown("Error opening session file"))?;
-
-        let mut salt = [0u8; 16];
-        reader
-            .read_exact(&mut salt)
-            .await
-            .map_err(|_| errors::create_unknown("Error reading salt"))?;
-
-        let key = crypto::derive_key(&passphrase, &salt)?;
-        let decrypted = crypto::decrypt(reader, &key).await?;
+            .map_err(|err| {
+                log::error!("Error loading and decrypting session file: {err}");
+                errors::create_unknown("Error loading and decrypting session file")
+            })?;
 
         let mut session: Session = serde_json::from_slice(&decrypted)
             .map_err(|_| errors::create_unknown("Error deserialing session"))?;
@@ -75,19 +64,15 @@ impl Session {
     pub async fn save(&self) -> Result<()> {
         log::debug!("Persisting session");
 
-        let serialized = serde_json::to_string(&self)
+        let serialized = serde_json::to_vec(&self)
             .map_err(|_| errors::create_unknown("Error serializing session"))?;
 
-        let (salt, key) = crypto::derive_new_key(&self.passphrase)?;
-
-        let mut encrypted = crypto::encrypt(serialized.as_bytes().to_vec(), &key)?;
-
-        let mut result = salt.to_vec();
-        result.append(&mut encrypted);
-
-        tokio::fs::write(&self.file, result)
+        crypto::encrypt_to_file(&self.file, &self.passphrase, serialized)
             .await
-            .map_err(|_| errors::create_unknown("Error writing session to file"))?;
+            .map_err(|err| {
+                log::error!("Error encrypting and writing to session file: {err}");
+                errors::create_unknown("Error writing session to file")
+            })?;
 
         log::debug!("Session persisted in: {}", self.file.to_string_lossy());
 
@@ -103,7 +88,7 @@ impl Session {
         initialized_data: InitializedData,
     ) -> Result<()> {
         self.initial_sync(&mut ctx, &initialized_data).await?;
-        self.start_background_sync(ctx, initialized_data)?;
+        self.start_background_sync(ctx, initialized_data).await?;
         Ok(())
     }
 
@@ -121,8 +106,11 @@ impl Session {
 
         let mut sync_settings = SyncSettings::new();
 
-        if let Some(token) = &self.sync_token {
+        if let Some(token) = &initialized_data.proto_cache.sync_token().await {
+            log::info!("Syncing with cached sync token");
             sync_settings = sync_settings.token(token);
+        } else {
+            log::info!("No sync token was previously cached");
         }
 
         let response = initialized_data
@@ -131,12 +119,15 @@ impl Session {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        self.sync_token = Some(response.next_batch.clone());
+        initialized_data
+            .proto_cache
+            .set_sync_token(response.next_batch.clone())
+            .await;
 
-        cache::cache_sync_response(
-            &initialized_data.cache,
+        memory_cache::cache_sync_response(
+            &initialized_data.memory_cache,
             &response,
-            cache::SyncSource::InitialSync,
+            memory_cache::SyncSource::InitialSync,
         )
         .map_err(errors::create_unknown)?;
 
@@ -145,7 +136,7 @@ impl Session {
 
         self.save().await?;
 
-        send_capabilities_event(ctx);
+        send_capabilities_event(ctx).await;
         send_verification_status_event(ctx, &initialized_data.client).await?;
 
         Ok(())
@@ -153,14 +144,14 @@ impl Session {
 
     /// Starts an indefinite sync loop in a separate tokio task,
     /// making this function non blocking.
-    fn start_background_sync(
+    async fn start_background_sync(
         self,
         ctx: ClientContext,
         initialized_data: InitializedData,
     ) -> Result<JoinHandle<()>> {
         let mut sync_settings = SyncSettings::new();
 
-        if let Some(token) = &self.sync_token {
+        if let Some(token) = &initialized_data.proto_cache.sync_token().await {
             sync_settings = sync_settings.token(token);
         }
 
@@ -172,33 +163,31 @@ impl Session {
         let handle = tokio::spawn(async move {
             let result = client
                 .sync_with_result_callback(sync_settings, |sync_result| {
-                    let mut session = self.clone();
-                    let cache = initialized_data.cache.clone();
+                    let cache = initialized_data.memory_cache.clone();
+                    let proto_cache = initialized_data.proto_cache.clone();
 
                     async move {
                         let response = sync_result?;
-                        session.sync_token = Some(response.next_batch.clone());
+                        proto_cache
+                            .set_sync_token(response.next_batch.clone())
+                            .await;
 
-                        if let Err(err) = cache::cache_sync_response(
+                        if let Err(err) = memory_cache::cache_sync_response(
                             &cache,
                             &response,
-                            cache::SyncSource::ContinuousSync,
+                            memory_cache::SyncSource::ContinuousSync,
                         ) {
                             log::warn!("Failed to cache sync response: {err}");
                         }
 
-                        match session.save().await {
-                            Ok(_) => Ok(LoopCtrl::Continue),
-                            // TODO: Better error type
-                            Err(_) => Err(matrix_sdk::Error::BadCryptoStoreState),
-                        }
+                        Ok(LoopCtrl::Continue)
                     }
                 })
                 .await;
 
             // TODO: Check if it makes sense to restart the sync.
             if let Err(err) = result {
-                ctx.send_error(errors::convert_matrix_sdk_error(err));
+                ctx.send_error(errors::convert_matrix_sdk_error(err)).await;
             }
         });
 
@@ -206,7 +195,7 @@ impl Session {
     }
 }
 
-fn send_capabilities_event(ctx: &mut ClientContext) {
+async fn send_capabilities_event(ctx: &mut ClientContext) {
     let re = CapabilityEvent {
         direct_rooms: false,
         group_rooms: true,
@@ -219,7 +208,7 @@ fn send_capabilities_event(ctx: &mut ClientContext) {
         mime_types: vec!["text/plain".to_owned()],
     };
 
-    ctx.send_event(ResponseContent::CapabilityEvent(re));
+    ctx.send_event(ResponseContent::CapabilityEvent(re)).await;
 }
 
 async fn send_verification_status_event(ctx: &mut ClientContext, client: &Client) -> Result<()> {
@@ -247,7 +236,8 @@ async fn send_verification_status_event(ctx: &mut ClientContext, client: &Client
             is_recovery_key_verification_available: true,
             is_cross_signing_available,
         },
-    ));
+    ))
+    .await;
 
     Ok(())
 }

@@ -104,7 +104,7 @@ impl RoomChangeEventBuilder {
 #[derive(Default, PartialEq, Eq)]
 pub struct UserChangeEventBuilder {
     user_id: String,
-    presence_state: Option<PresenceState>,
+    status: Option<UserStatus>,
     display_name: Option<String>,
     avatar_path: Option<String>,
 }
@@ -117,8 +117,8 @@ impl UserChangeEventBuilder {
         }
     }
 
-    pub fn change_presence_state(mut self, presence_state: PresenceState) -> Self {
-        self.presence_state = Some(presence_state);
+    pub fn change_status(mut self, status: UserStatus) -> Self {
+        self.status = Some(status);
         self
     }
 
@@ -135,7 +135,7 @@ impl UserChangeEventBuilder {
     pub fn to_proto(self) -> UserChangeEvent {
         UserChangeEvent {
             user_id: self.user_id,
-            presence_state: self.presence_state.map(|f| f.into()),
+            status: self.status,
             display_name: self.display_name,
             avatar_path: self.avatar_path,
         }

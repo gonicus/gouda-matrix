@@ -10,7 +10,6 @@ use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
-use matrix_sdk_base::RoomStateFilter;
 use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
@@ -18,22 +17,34 @@ use mrhc_proto::chat::*;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
 
-use crate::cache::Cache;
 use crate::events::EventManager;
 use crate::media::MediaManager;
+use crate::memory_cache::MemoryCache;
+use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::verification::{self, VerificationManager};
-use crate::{cache, errors, messages, rooms, user};
+use crate::{errors, memory_cache, messages, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
-
+const CACHE_DIR: &str = "cache";
 const AUTH_FILE: &str = "auth";
 
-const CRYPTO_DB: &str = "matrix-sdk-crypto.sqlite3";
-const EVENT_CACHE_DB: &str = "matrix-sdk-event-cache.sqlite3";
-const MEDIA_DB: &str = "matrix-sdk-media.sqlite3";
-const STATE_DB: &str = "matrix-sdk-state.sqlite3";
+fn get_session_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(SESSION_DIR)
+}
+
+fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(MEDIA_DIR)
+}
+
+fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(CACHE_DIR)
+}
+
+fn get_auth_file(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    get_session_dir(data_root_dir).join(AUTH_FILE)
+}
 
 #[derive(Clone)]
 pub struct InitializedData {
@@ -46,23 +57,39 @@ pub struct InitializedData {
     pub device_display_name: String,
 
     /// The passphrase used to encrypt the session data.
-    pub session_passphrase: String,
+    pub encryption_passphrase: String,
     /// The passphrase used to encrypt the database.
     pub database_passphrase: String,
 
     /// The absolute path to the root directory where data is stored.
     pub data_root_dir: PathBuf,
-    /// The absolute path to the directory where the session data is stored.
-    pub session_dir: PathBuf,
-    /// The absolute path to the file where the current session auth is stored.
-    pub auth_file: PathBuf,
 
     /// Contains the in memory cache.
-    pub cache: cache::Cache,
+    pub memory_cache: MemoryCache,
+    /// The persistent proto cache storing proto messages for the next application start.
+    pub proto_cache: ProtoCache,
     /// Manages data stored on the file system, like avatars or downloaded chat images.
     pub media_manager: MediaManager,
     /// Manages incoming events.
     pub event_manager: EventManager,
+}
+
+impl InitializedData {
+    pub fn get_session_dir(&self) -> PathBuf {
+        get_session_dir(&self.data_root_dir)
+    }
+
+    pub fn get_media_dir(&self) -> PathBuf {
+        get_media_dir(&self.data_root_dir)
+    }
+
+    pub fn get_cache_dir(&self) -> PathBuf {
+        get_cache_dir(&self.data_root_dir)
+    }
+
+    pub fn get_auth_file(&self) -> PathBuf {
+        get_auth_file(&self.data_root_dir)
+    }
 }
 
 #[derive(Default)]
@@ -177,17 +204,21 @@ impl MatrixClient {
             .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
 
         let data_root_dir = PathBuf::from(request.data_root_path);
-        let session_dir = data_root_dir.join(SESSION_DIR);
-        let session_file = session_dir.join(AUTH_FILE);
 
         let client = build_client(
             &homeserver_url,
-            &session_dir,
+            &get_session_dir(&data_root_dir),
             &request.persistent_storage_secret,
         )
         .await?;
 
-        let cache = Cache::new();
+        let memory_cache = MemoryCache::new();
+
+        let proto_cache = ProtoCache::new(
+            get_cache_dir(&data_root_dir),
+            request.encryption_secret.clone(),
+        )
+        .await;
 
         let media_manager = MediaManager::new(
             client.clone(),
@@ -196,8 +227,12 @@ impl MatrixClient {
         )
         .await;
 
-        let event_manager =
-            EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
+        let event_manager = EventManager::new(
+            client.clone(),
+            ctx,
+            memory_cache.clone(),
+            media_manager.clone(),
+        );
 
         let data = InitializedData {
             client,
@@ -205,14 +240,13 @@ impl MatrixClient {
             homeserver_url,
             device_display_name: request.device_display_name,
 
-            session_passphrase: request.encryption_secret,
+            encryption_passphrase: request.encryption_secret,
             database_passphrase: request.persistent_storage_secret,
 
             data_root_dir,
-            session_dir,
-            auth_file: session_file,
 
-            cache,
+            memory_cache,
+            proto_cache,
             media_manager,
             event_manager,
         };
@@ -223,13 +257,55 @@ impl MatrixClient {
         Ok(self.initialized_data.as_ref().unwrap())
     }
 
+    /// Deletes the persisted session and resets the matrix client.
+    async fn reset_session(&mut self, ctx: ClientContext) -> Result<()> {
+        log::info!("Resetting session");
+
+        let initialized_data = self.get_initialized_data_mut()?;
+
+        remove_session_data(initialized_data)?;
+
+        initialized_data.client = build_client(
+            &initialized_data.homeserver_url,
+            &initialized_data.get_session_dir(),
+            &initialized_data.database_passphrase,
+        )
+        .await?;
+
+        initialized_data.memory_cache = MemoryCache::new();
+
+        initialized_data.media_manager = MediaManager::new(
+            initialized_data.client.clone(),
+            initialized_data.data_root_dir.clone(),
+            PathBuf::from(MEDIA_DIR),
+        )
+        .await;
+
+        initialized_data.event_manager = EventManager::new(
+            initialized_data.client.clone(),
+            ctx,
+            initialized_data.memory_cache.clone(),
+            initialized_data.media_manager.clone(),
+        );
+
+        initialized_data.proto_cache = ProtoCache::new(
+            initialized_data.get_cache_dir(),
+            initialized_data.encryption_passphrase.clone(),
+        )
+        .await;
+
+        log::info!("Successfully reset session");
+
+        Ok(())
+    }
+
     /// Restores the session from the session file.
     async fn restore_session(&self, ctx: ClientContext) -> Result<()> {
         let initialized_data = self.get_initialized_data()?;
 
         let client = &initialized_data.client;
-        let session_file = initialized_data.auth_file.clone();
-        let session_passphrase = initialized_data.session_passphrase.clone();
+        let session_passphrase = initialized_data.encryption_passphrase.clone();
+        let session_file = initialized_data.get_auth_file();
 
         log::debug!("Previous session found in '{session_file:?}'");
 
@@ -248,48 +324,6 @@ impl MatrixClient {
         session.sync(ctx, initialized_data.clone()).await?;
 
         log::info!("Successfully restored session as {:?}", client.user_id());
-
-        Ok(())
-    }
-
-    /// Deletes the persisted session and resets the matrix client.
-    async fn reset_session(&mut self, ctx: ClientContext) -> Result<()> {
-        log::info!("Resetting session");
-
-        let InitializedData {
-            client,
-            homeserver_url,
-            database_passphrase,
-            data_root_dir,
-            session_dir,
-            auth_file: session_file,
-            cache,
-            media_manager,
-            event_manager,
-            ..
-        } = self.get_initialized_data_mut()?;
-
-        remove_session_file(session_file)?;
-        remove_session_file(session_dir.join(CRYPTO_DB))?;
-        remove_session_file(session_dir.join(EVENT_CACHE_DB))?;
-        remove_session_file(session_dir.join(MEDIA_DB))?;
-        remove_session_file(session_dir.join(STATE_DB))?;
-
-        *client = build_client(homeserver_url, session_dir, database_passphrase).await?;
-
-        *cache = Cache::new();
-
-        *media_manager = MediaManager::new(
-            client.clone(),
-            data_root_dir.clone(),
-            PathBuf::from(MEDIA_DIR),
-        )
-        .await;
-
-        *event_manager =
-            EventManager::new(client.clone(), ctx, cache.clone(), media_manager.clone());
-
-        log::info!("Successfully reset session");
 
         Ok(())
     }
@@ -324,6 +358,22 @@ impl MatrixClient {
 
 #[async_trait]
 impl ClientAbstraction for MatrixClient {
+    async fn on_response(&mut self, response: &ResponseContainer) {
+        let Some(content) = &response.content else {
+            log::error!("Received response with no content: {response:?}");
+            return;
+        };
+
+        let Ok(initialized_data) = self.get_initialized_data() else {
+            log::error!("Received response while client is not initialized: {response:?}");
+            return;
+        };
+
+        let InitializedData { proto_cache, .. } = initialized_data;
+
+        proto_cache.cache_response_content(content).await;
+    }
+
     async fn initialize(
         &mut self,
         ctx: ClientContext,
@@ -335,7 +385,7 @@ impl ClientAbstraction for MatrixClient {
 
         let initialized_data = self.initialize_data(ctx.clone(), request).await?;
 
-        if initialized_data.auth_file.exists() {
+        if initialized_data.get_auth_file().exists() {
             match self.restore_session(ctx).await {
                 Ok(()) => {
                     return Ok(StatusUpdate {
@@ -449,8 +499,8 @@ impl ClientAbstraction for MatrixClient {
 
         let session = Session::new(
             &initialized_data.client,
-            initialized_data.auth_file.to_path_buf(),
-            initialized_data.session_passphrase.clone(),
+            initialized_data.get_auth_file(),
+            initialized_data.encryption_passphrase.clone(),
         )?;
 
         session.save().await?;
@@ -493,14 +543,14 @@ impl ClientAbstraction for MatrixClient {
 
         // Clone the data so we can move it into the tokio task
         let initialized_data = initialized_data.clone();
-        let session_passphrase = initialized_data.session_passphrase.clone();
-        let session_file = initialized_data.auth_file.clone();
+        let session_passphrase = initialized_data.encryption_passphrase.clone();
+        let session_file = initialized_data.get_auth_file();
 
         // Spawn a tokio task which waits for the successful login in order to send
         // a status update to the application.
         tokio::spawn(async move {
             if let Err(err) = login_builder.await {
-                ctx.send_error(errors::convert_matrix_sdk_error(err));
+                ctx.send_error(errors::convert_matrix_sdk_error(err)).await;
             }
 
             log::info!(
@@ -511,23 +561,25 @@ impl ClientAbstraction for MatrixClient {
             let Ok(session) =
                 Session::new(&initialized_data.client, session_file, session_passphrase)
             else {
-                ctx.send_error(errors::create_unknown("Error creating session"));
+                ctx.send_error(errors::create_unknown("Error creating session"))
+                    .await;
                 return;
             };
 
             if let Err(err) = session.save().await {
-                ctx.send_error(err);
+                ctx.send_error(err).await;
                 return;
             }
 
             if let Err(err) = session.sync(ctx.clone(), initialized_data.clone()).await {
-                ctx.send_error(err);
+                ctx.send_error(err).await;
                 return;
             }
 
             ctx.send_event(ResponseContent::StatusUpdate(StatusUpdate {
                 code: status_update::StatusCode::LoggedIn as i32,
-            }));
+            }))
+            .await;
         });
 
         // Wait until the asynchronous closure sends the received login URL, so
@@ -860,7 +912,8 @@ impl ClientAbstraction for MatrixClient {
 
         let proto = rooms::convert_to_proto(media_manager, room, user_id).await?;
 
-        ctx.send_event(ResponseContent::RoomCreatedEvent(proto));
+        ctx.send_event(ResponseContent::RoomCreatedEvent(proto))
+            .await;
 
         Ok(())
     }
@@ -872,6 +925,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<RoomListResponse> {
         let InitializedData {
             client,
+            proto_cache,
             media_manager,
             ..
         } = self.get_initialized_data_logged_in().await?;
@@ -880,27 +934,34 @@ impl ClientAbstraction for MatrixClient {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
         };
 
-        let mut filter = RoomStateFilter::empty();
-
-        if request.include_joined {
-            filter |= RoomStateFilter::JOINED;
-        }
-
-        if request.include_unjoined {
-            filter |= RoomStateFilter::INVITED
-                | RoomStateFilter::LEFT
-                | RoomStateFilter::KNOCKED
-                | RoomStateFilter::BANNED;
-        }
+        let room_list = match proto_cache.cached_rooms().await {
+            Some(room_list) => room_list,
+            None => {
+                let room_list = rooms::fetch_all(client, media_manager, user_id).await?;
+                proto_cache.overwrite_rooms(room_list.clone()).await;
+                room_list
+            }
+        };
 
         let mut result = Vec::new();
 
-        for room in client.rooms_filtered(filter) {
-            if room.is_space() {
+        for room in room_list {
+            let joined = room
+                .user_id_list
+                .iter()
+                .find(|p| p.0 == user_id.as_str())
+                .map(|f| *f.1 == UserRoomState::Joined as i32)
+                .unwrap_or(false);
+
+            if request.include_joined && joined {
+                result.push(room);
                 continue;
             }
 
-            result.push(rooms::convert_to_proto(media_manager, room, user_id).await?);
+            if request.include_unjoined && !joined {
+                result.push(room);
+                continue;
+            }
         }
 
         Ok(RoomListResponse { room_list: result })
@@ -950,7 +1011,7 @@ impl ClientAbstraction for MatrixClient {
                 .map_err(|_| errors::create_unknown("Error uploading room avatar"));
 
             if let Err(err) = result {
-                ctx.send_error(err);
+                ctx.send_error(err).await;
             }
         }
 
@@ -990,7 +1051,7 @@ impl ClientAbstraction for MatrixClient {
                 .map_err(|_| errors::create_unknown("Error uploading room avatar"));
 
             if let Err(err) = result {
-                ctx.send_error(err);
+                ctx.send_error(err).await;
             }
         }
 
@@ -1038,7 +1099,7 @@ impl ClientAbstraction for MatrixClient {
                 .map_err(|_| errors::create_unknown("Error uploading room avatar"));
 
             if let Err(err) = result {
-                ctx.send_error(err);
+                ctx.send_error(err).await;
             } else {
                 response = response.change_avatar_path(avatar_path);
             }
@@ -1118,7 +1179,7 @@ impl ClientAbstraction for MatrixClient {
     ) -> Result<()> {
         let InitializedData {
             media_manager,
-            cache,
+            memory_cache,
             ..
         } = self.get_initialized_data()?;
 
@@ -1147,9 +1208,14 @@ impl ClientAbstraction for MatrixClient {
             Some(val) => OwnedEventId::try_from(val)
                 .map_err(|_| errors::create_unknown("invalid event ID"))?,
             None => {
-                let (_, id) =
-                    messages::fetch_messages_from_sdk(cache, order, &room, None, fetch_limit)
-                        .await?;
+                let (_, id) = messages::fetch_messages_from_sdk(
+                    memory_cache,
+                    order,
+                    &room,
+                    None,
+                    fetch_limit,
+                )
+                .await?;
 
                 // reduce limit for subsequent fetches
                 fetch_limit = messages::subsequent_fetch_limit(limit);
@@ -1161,11 +1227,11 @@ impl ClientAbstraction for MatrixClient {
             }
         };
 
-        let cached_room =
-            cache::get_or_create_room(cache, &room_id).map_err(errors::convert_cache_error)?;
+        let cached_room = memory_cache::get_or_create_room(memory_cache, &room_id)
+            .map_err(errors::convert_cache_error)?;
 
         loop {
-            let next_batch = cache::check_cached_enough(
+            let next_batch = memory_cache::check_cached_enough(
                 &cached_room.clone(),
                 from_id.clone(),
                 limit,
@@ -1179,7 +1245,7 @@ impl ClientAbstraction for MatrixClient {
                 Some(val) => {
                     log::debug!("Attempting to fetch further messages from sdk");
                     let (fetched, _) = messages::fetch_messages_from_sdk(
-                        cache,
+                        memory_cache,
                         order,
                         &room,
                         Some(val),
@@ -1197,17 +1263,17 @@ impl ClientAbstraction for MatrixClient {
             }
         }
 
-        let room_client = cache::MatrixRoomClient::new(&room, media_manager.clone());
+        let room_client = memory_cache::MatrixRoomClient::new(&room, media_manager.clone());
 
         // fetch events from sdk and assemble response
-        let seq = cache::send_and_get_sequence_chunk(
+        let seq = memory_cache::send_and_get_sequence_chunk(
             &cached_room.clone(),
             from_id.clone(),
             limit,
             order,
             skip_first,
             &room_client,
-            cache,
+            memory_cache,
             ctx,
         )
         .await
@@ -1223,10 +1289,10 @@ impl ClientAbstraction for MatrixClient {
         let ctx = ctx.clone();
         let room_id = room_id.clone();
         let room_client = room_client.clone();
-        let cache = cache.clone();
+        let cache = memory_cache.clone();
 
         tokio::spawn(async move {
-            let result = cache::retry_decryption(
+            let result = memory_cache::retry_decryption(
                 seq.messages,
                 &room_id,
                 &room_client,
@@ -1237,7 +1303,7 @@ impl ClientAbstraction for MatrixClient {
             .await;
 
             if let Err(err) = result {
-                ctx.send_error(errors::convert_cache_error(err));
+                ctx.send_error(errors::convert_cache_error(err)).await;
             }
         });
 
@@ -1313,6 +1379,12 @@ impl ClientAbstraction for MatrixClient {
             Content::File(content) => {
                 messages::send_file_message(media_manager, room, related_message_id, content).await
             }
+            Content::AudioFile(content) => {
+                messages::send_audio_message(media_manager, room, related_message_id, content).await
+            }
+            Content::VideoFile(content) => {
+                messages::send_video_message(media_manager, room, related_message_id, content).await
+            }
         }
     }
 
@@ -1380,6 +1452,12 @@ impl ClientAbstraction for MatrixClient {
             Content::File(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }
+            Content::AudioFile(_) => {
+                return Err(errors::create_error(ErrorType::NotImplemented));
+            }
+            Content::VideoFile(_) => {
+                return Err(errors::create_error(ErrorType::NotImplemented));
+            }
         };
 
         let event = room
@@ -1424,7 +1502,11 @@ impl ClientAbstraction for MatrixClient {
             user_id,
         } = request;
 
-        let InitializedData { client, cache, .. } = self.get_initialized_data_logged_in().await?;
+        let InitializedData {
+            client,
+            memory_cache,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(&room_id).await?;
 
@@ -1432,7 +1514,7 @@ impl ClientAbstraction for MatrixClient {
             user_id.unwrap_or(client.user_id().map(|f| f.to_string()).unwrap_or_default());
 
         let cached_reaction =
-            cache.untrack_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
+            memory_cache.untrack_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
 
         let Some(cached_reaction) = cached_reaction else {
             return Err(errors::create_error(ErrorType::ReactionNotFound));
@@ -1449,7 +1531,8 @@ impl ClientAbstraction for MatrixClient {
             user_id: Some(user_id),
         };
 
-        ctx.send_event(ResponseContent::ReactionRemovedEvent(proto));
+        ctx.send_event(ResponseContent::ReactionRemovedEvent(proto))
+            .await;
 
         Ok(())
     }
@@ -1484,17 +1567,25 @@ pub async fn build_client(
     Ok(client)
 }
 
-/// Removes the session file at the specified path.
-/// Blocks until the file has been removed.
-fn remove_session_file(path: impl AsRef<Path>) -> Result<()> {
+fn remove_session_data(initialized_data: &InitializedData) -> Result<()> {
+    log::info!("Removing session data");
+
+    remove_directory(initialized_data.get_session_dir())?;
+    remove_directory(initialized_data.get_media_dir())?;
+    remove_directory(initialized_data.get_cache_dir())?;
+
+    Ok(())
+}
+
+fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
 
-    log::info!("Removing session file: {path:?}");
+    log::info!("Removing directory: {path:?}");
 
     // The use of the sync fs methods instead of tokio::fs is intended to block
     // the runtime until all session data has been removed.
 
-    if let Err(err) = std::fs::remove_file(path) {
+    if let Err(err) = std::fs::remove_dir_all(path) {
         if err.kind() == std::io::ErrorKind::NotFound {
             return Ok(());
         }
