@@ -1,3 +1,6 @@
+use std::path::{Path, PathBuf};
+
+use clap::Parser;
 use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::GenericFilePath;
@@ -7,30 +10,36 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use mrhc_core::Runner;
 
-const LOG_FILE: &str = "matrix_client.log";
-
+/// The default log file to use.
+const LOG_FILE_DEFAULT: &str = "matrix_client.log";
 /// The log level for our own crates.
 const LOG_LEVEL_CUSTOM: LevelFilter = LevelFilter::Debug;
 /// The log level for all other crates.
 const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
+#[derive(Debug, Parser)]
+struct Args {
+    #[arg(help = "Path to the socket for receiving requests")]
+    pub request_socket: String,
+
+    #[arg(help = "Path to the socket for sending responses")]
+    pub response_socket: String,
+
+    #[arg(long, default_value = LOG_FILE_DEFAULT, help="The file where logs are written")]
+    pub log_file_path: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_logging();
+    let args = Args::parse();
 
-    let request_socket = std::env::args()
-        .nth(1)
-        .ok_or("Request socket not specified")?;
+    setup_logging(&args.log_file_path);
 
-    let response_socket = std::env::args()
-        .nth(2)
-        .ok_or("Response socket not specified")?;
+    log::info!("Socket for incoming requests: '{}'", args.request_socket);
+    log::info!("Socket for outgoing responses: '{}'", args.response_socket);
 
-    log::info!("Socket for incoming requests: '{request_socket}'");
-    log::info!("Socket for outgoing responses: '{response_socket}'");
-
-    let (recv, _send_unused) = connect_socket(&request_socket).await?;
-    let (_recv_unused, send) = connect_socket(&response_socket).await?;
+    let (recv, _send_unused) = connect_socket(&args.request_socket).await?;
+    let (_recv_unused, send) = connect_socket(&args.response_socket).await?;
 
     let client = mrhc_matrix_adapter::MatrixClient::new();
     let runner = Runner::new(Box::new(client), Box::new(recv), Box::new(send));
@@ -38,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runner.run().await.map(|_| ()).map_err(|err| err.into())
 }
 
-fn setup_logging() {
+fn setup_logging(log_file: &Path) {
     // Setup encoders
     let encoder = PatternEncoder::new("{h({d(%H:%M:%S)} {l} {t} - {m}{n})}");
 
@@ -46,7 +55,7 @@ fn setup_logging() {
     let file = match FileAppender::builder()
         .encoder(Box::new(encoder))
         .append(false)
-        .build(LOG_FILE)
+        .build(log_file)
     {
         Ok(f) => f,
         Err(e) => {
