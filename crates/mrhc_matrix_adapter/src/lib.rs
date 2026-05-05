@@ -1,5 +1,6 @@
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
+#![recursion_limit = "256"]
 
 mod client;
 mod crypto;

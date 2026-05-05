@@ -1,6 +1,6 @@
 ## Pre-fetch
 
-This seems to be required, as `--ofline` fetch fails elseways.
+This seems to be required, as `--offline` fetch fails elseways.
 
 ```bash
 cargo fetch --manifest-path ../../Cargo.toml --verbose
