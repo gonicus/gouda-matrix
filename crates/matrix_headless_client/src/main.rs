@@ -1,5 +1,6 @@
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::GenericFilePath;
@@ -8,8 +9,6 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use mrhc_core::Runner;
-
-use clap::Parser;
 
 /// The default log file to use.
 const LOG_FILE_DEFAULT: &str = "matrix_client.log";
@@ -20,10 +19,10 @@ const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
 #[derive(Debug, Parser)]
 struct Args {
-    #[arg(help="Path to the socket for receiving requests")]
+    #[arg(help = "Path to the socket for receiving requests")]
     pub request_socket: String,
 
-    #[arg(help="Path to the socket for sending responses")]
+    #[arg(help = "Path to the socket for sending responses")]
     pub response_socket: String,
 
     #[arg(long, default_value = LOG_FILE_DEFAULT, help="The file where logs are written")]
