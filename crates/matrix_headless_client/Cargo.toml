@@ -15,6 +15,7 @@ mrhc_matrix_adapter.workspace = true
 tokio.workspace = true
 
 interprocess.workspace = true
+clap.workspace = true
 
 log.workspace = true
 log4rs.workspace = true
