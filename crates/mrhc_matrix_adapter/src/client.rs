@@ -23,7 +23,7 @@ use crate::memory_cache::MemoryCache;
 use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::verification::{self, VerificationManager};
-use crate::{errors, memory_cache, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, memory_cache, messages, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -229,7 +229,7 @@ impl MatrixClient {
 
         let event_manager = EventManager::new(
             client.clone(),
-            ctx,
+            ctx.clone(),
             memory_cache.clone(),
             media_manager.clone(),
         );
@@ -805,6 +805,39 @@ impl ClientAbstraction for MatrixClient {
         }
 
         Ok(UserSearchResponse { user_list: result })
+    }
+
+    async fn set_status(&mut self, _ctx: ClientContext, request: UserStatus) -> Result<()> {
+        use matrix_sdk::ruma::api::client::presence::set_presence::v3::Request;
+
+        let InitializedData {
+            client,
+            proto_cache,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
+
+        let Some(user_id) = client.user_id() else {
+            debug_assert_or_log!(false, "User ID not set");
+            return Err(errors::create_unknown("User ID not set"));
+        };
+
+        let presence_state = user::chat_presence_state_to_matrix(request.state());
+
+        let Some(state) = presence_state else {
+            return Err(errors::create_unknown("Invalid presence state"));
+        };
+
+        let mut matrix_request = Request::new(user_id.to_owned(), state);
+        matrix_request.status_msg = request.status_message.clone();
+
+        client
+            .send(matrix_request)
+            .await
+            .map_err(errors::convert_http_error)?;
+
+        proto_cache.set_user_status(request).await;
+
+        Ok(())
     }
 
     async fn get_public_rooms(

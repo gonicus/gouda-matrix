@@ -50,6 +50,7 @@ pub enum Action {
     AbortVerification(Box<VerificationAbortRequest>),
     User(Box<UserRequest>),
     UserSearch(Box<UserSearchRequest>),
+    SetUserStatus(Box<UserStatus>),
     PublicRoomList(Box<PublicRoomListRequest>),
     Invite(Box<InvitationRequest>),
     InvitationReply(Box<InvitedReply>),
@@ -90,6 +91,7 @@ impl Action {
             Self::AbortVerification(request) => run_abort_verification(tag, sender, *request),
             Self::User(request) => run_user(tag, sender, *request),
             Self::UserSearch(request) => run_user_search(tag, sender, *request),
+            Self::SetUserStatus(request) => run_set_status(tag, sender, *request),
             Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
             Self::Invite(request) => run_invite(tag, sender, *request),
             Self::InvitationReply(request) => run_invitation_reply(tag, sender, *request),
@@ -126,6 +128,7 @@ impl InputUi for Action {
             Self::AbortVerification(request) => request.update(ui),
             Self::User(request) => request.update(ui),
             Self::UserSearch(request) => request.update(ui),
+            Self::SetUserStatus(request) => request.update(ui),
             Self::PublicRoomList(request) => request.update(ui),
             Self::Invite(request) => request.update(ui),
             Self::InvitationReply(request) => request.update(ui),
@@ -194,6 +197,7 @@ impl_run!(
 );
 impl_run!(run_user, UserRequest, UserRequest);
 impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
+impl_run!(run_set_status, UserStatusSetOwnRequest, UserStatus);
 impl_run!(
     run_public_room_list,
     PublicRoomListRequest,

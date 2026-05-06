@@ -174,6 +174,13 @@ impl InputUi for UserSearchRequest {
     }
 }
 
+impl InputUi for UserStatus {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        input_attribute!(self, ui, state);
+        input_attribute!(self, ui, status_message);
+    }
+}
+
 impl InputUi for PublicRoomListRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, limit);

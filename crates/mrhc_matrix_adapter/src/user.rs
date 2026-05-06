@@ -42,12 +42,21 @@ pub fn convert_membership_change(change: &MatrixMembershipChange) -> Option<Memb
     }
 }
 
-pub fn convert_presence_state(state: MatrixPresenceState) -> PresenceState {
+pub fn matrix_presence_state_to_chat(state: MatrixPresenceState) -> PresenceState {
     match state {
         MatrixPresenceState::Offline => PresenceState::Offline,
         MatrixPresenceState::Online => PresenceState::Online,
         MatrixPresenceState::Unavailable => PresenceState::Away,
         _ => PresenceState::Away,
+    }
+}
+
+pub fn chat_presence_state_to_matrix(state: PresenceState) -> Option<MatrixPresenceState> {
+    match state {
+        PresenceState::Away => Some(MatrixPresenceState::Unavailable),
+        PresenceState::Offline => Some(MatrixPresenceState::Offline),
+        PresenceState::Online => Some(MatrixPresenceState::Online),
+        PresenceState::Unknown => None,
     }
 }
 
@@ -113,5 +122,5 @@ pub async fn fetch_presence_state(client: &Client, user_id: &UserId) -> Presence
         }
     };
 
-    convert_presence_state(response.presence)
+    matrix_presence_state_to_chat(response.presence)
 }

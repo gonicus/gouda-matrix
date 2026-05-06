@@ -113,6 +113,11 @@ pub trait Client: Send + Sync {
     }
 
     #[allow(unused_variables)]
+    async fn set_status(&mut self, ctx: ClientContext, request: UserStatus) -> Result<()> {
+        not_implemented_error()
+    }
+
+    #[allow(unused_variables)]
     async fn get_public_rooms(
         &mut self,
         ctx: ClientContext,

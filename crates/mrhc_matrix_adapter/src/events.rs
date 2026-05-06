@@ -849,7 +849,7 @@ impl EventExecutor {
 
     async fn exec_presence_event(&mut self, event: PresenceEvent) {
         let user_id = event.sender.to_string();
-        let presence = user::convert_presence_state(event.content.presence);
+        let presence = user::matrix_presence_state_to_chat(event.content.presence);
 
         let user_status = UserStatus {
             state: presence.into(),
