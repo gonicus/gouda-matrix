@@ -41,6 +41,9 @@ pub struct ClientMock {
     pub search_users_response: Result<UserSearchResponse>,
     pub search_users_call_count: u32,
 
+    pub set_status_response: Result<()>,
+    pub set_status_call_count: u32,
+
     pub get_public_rooms_response: Result<PublicRoomListResponse>,
     pub get_public_rooms_call_count: u32,
 
@@ -131,6 +134,9 @@ impl Default for ClientMock {
 
             search_users_response: Ok(UserSearchResponse::default()),
             search_users_call_count: 0,
+
+            set_status_response: Ok(()),
+            set_status_call_count: 0,
 
             get_public_rooms_response: Ok(PublicRoomListResponse::default()),
             get_public_rooms_call_count: 0,
@@ -239,6 +245,10 @@ impl ClientMock {
 
     pub fn assert_search_users_called_n(&self, n: u32) {
         assert!(self.search_users_call_count == n);
+    }
+
+    pub fn assert_set_status_called_n(&self, n: u32) {
+        assert!(self.set_status_call_count == n)
     }
 
     pub fn assert_get_public_rooms_called_n(&self, n: u32) {
@@ -421,6 +431,12 @@ impl Client for ClientMock {
         self.received_ctx = Some(ctx);
         self.search_users_call_count += 1;
         self.search_users_response.clone()
+    }
+
+    async fn set_status(&mut self, ctx: ClientContext, _request: UserStatus) -> Result<()> {
+        self.received_ctx = Some(ctx);
+        self.set_status_call_count += 1;
+        self.set_status_response.clone()
     }
 
     async fn get_public_rooms(

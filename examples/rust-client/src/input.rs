@@ -114,6 +114,7 @@ impl InputWindow {
                 );
                 ui_action!(self, ui, User, self.config.user.clone());
                 ui_action!(self, ui, UserSearch, self.config.user_search.clone());
+                ui_action!(self, ui, SetUserStatus, self.config.set_user_status.clone());
                 ui_action!(
                     self,
                     ui,

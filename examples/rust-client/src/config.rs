@@ -16,6 +16,7 @@ pub struct Config {
     pub abort_verification: VerificationAbortRequest,
     pub user: UserRequest,
     pub user_search: UserSearchRequest,
+    pub set_user_status: UserStatus,
     pub public_room_list: PublicRoomListRequest,
     pub invite: InvitationRequest,
     pub invitation_reply: InvitedReply,

@@ -84,6 +84,14 @@ impl ProtoCache {
         *self.inner.write().await.sync_token_mut() = Some(sync_token);
     }
 
+    pub async fn user_status(&self) -> Option<UserStatus> {
+        self.inner.read().await.user_status().clone()
+    }
+
+    pub async fn set_user_status(&self, user_status: UserStatus) {
+        *self.inner.write().await.user_status_mut() = Some(user_status)
+    }
+
     /// Caches the specified response content.
     pub async fn cache_response_content(&self, content: &ResponseContent) {
         match content {
@@ -150,6 +158,11 @@ impl ProtoCache {
 struct Info {
     /// The sync token of the cache's current state.
     pub(crate) sync_token: Option<String>,
+    /// The currently set user status including presence state and status message.
+    /// This is persisted on the storage so the status doesn't reset when
+    /// the application restarts. The user status is none if the user did not set any status
+    /// manually or the status was set by another session.
+    pub(crate) user_status: Option<UserStatus>,
 }
 
 #[derive(Default)]
@@ -281,6 +294,14 @@ impl ProtoCacheInner {
 
     pub fn sync_token_mut(&mut self) -> &mut Option<String> {
         &mut self.info.sync_token
+    }
+
+    pub fn user_status(&self) -> &Option<UserStatus> {
+        &self.info.user_status
+    }
+
+    pub fn user_status_mut(&mut self) -> &mut Option<UserStatus> {
+        &mut self.info.user_status
     }
 
     pub fn overwrite_rooms(&mut self, rooms: Vec<Room>) {

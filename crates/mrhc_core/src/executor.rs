@@ -151,7 +151,12 @@ impl Executor {
                 self.send_result(tag, result.map(ResponseContent::UserSearchResponse))
                     .await;
             }
-            RequestContent::UserStatusSetOwnRequest(_) => todo!(),
+            RequestContent::UserStatusSetOwnRequest(request) => {
+                let result = self.client.set_status(ctx, request).await;
+                if let Err(err) = result {
+                    self.send_result(tag, Err(err)).await;
+                }
+            }
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.get_public_rooms(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::PublicRoomListResponse))
@@ -1431,6 +1436,84 @@ mod tests {
             create_output_task(2, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_user_status_set_own_request() {
+        // Arrange
+        let request = RequestContent::UserStatusSetOwnRequest(UserStatus::default());
+
+        let client = ClientMock {
+            set_status_response: Ok(()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_set_status_called_n(1);
+
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_user_status_set_own_request_err() {
+        // Arrange
+        let request = RequestContent::UserStatusSetOwnRequest(UserStatus::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock {
+            set_status_response: Err(response.clone()),
+            ..Default::default()
+        };
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+
+        let executor = Executor::new(
+            Box::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_set_status_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty());
     }
 
     #[tokio::test]
