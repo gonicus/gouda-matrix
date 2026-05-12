@@ -40,6 +40,10 @@
     "query": "test-user",
     "limit": 30
   },
+  "set-user-status": {
+    "state": 0,
+    "status_msg": null
+  },
   "public-room-list": {
     "limit": null,
     "since": null,

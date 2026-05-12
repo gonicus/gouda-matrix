@@ -2,15 +2,15 @@ use std::path::PathBuf;
 
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk::{Client, LoopCtrl};
+use matrix_sdk::Client;
 use mrhc_core::{ClientContext, Result};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
-use mrhc_proto::chat::{CapabilityEvent, VerificationStatusEvent};
+use mrhc_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
-use crate::{crypto, errors, memory_cache};
+use crate::{crypto, errors, memory_cache, user};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,15 +88,44 @@ impl Session {
         initialized_data: InitializedData,
     ) -> Result<()> {
         self.initial_sync(&mut ctx, &initialized_data).await?;
-        self.start_background_sync(ctx, initialized_data).await?;
+
+        self.exec_initial_actions(&ctx, &initialized_data).await;
+
+        initialized_data
+            .event_manager
+            .setup_event_handlers(&initialized_data.client);
+
+        self.start_background_sync(initialized_data).await?;
+
         Ok(())
+    }
+
+    /// Exectues all actions required after the initial sync.
+    async fn exec_initial_actions(&self, ctx: &ClientContext, initialized_data: &InitializedData) {
+        let InitializedData {
+            client,
+            proto_cache,
+            ..
+        } = initialized_data;
+
+        let Some(user_id) = client.user_id() else {
+            log::error!("Unable to retreive user id after initial sync");
+            return;
+        };
+
+        if let Some(status) = proto_cache.user_status().await {
+            let proto = builder::UserChangeEventBuilder::new(user_id.to_string())
+                .change_status(status)
+                .to_proto();
+
+            ctx.send_event(ResponseContent::UserChangeEvent(proto))
+                .await;
+        }
     }
 
     /// Performs a single synchronization on the client, blocking the current thread until
     /// the synchronization is complete.
     /// The session is automatically persisted once a new sync token is received.
-    /// Note that the token specified in `sync_settings` will be overwritten.
-    /// This method should be called every time the client is being logged in.
     async fn initial_sync(
         &mut self,
         ctx: &mut ClientContext,
@@ -104,37 +133,11 @@ impl Session {
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
-        let mut sync_settings = SyncSettings::new();
-
-        if let Some(token) = &initialized_data.proto_cache.sync_token().await {
-            log::info!("Syncing with cached sync token");
-            sync_settings = sync_settings.token(token);
-        } else {
-            log::info!("No sync token was previously cached");
-        }
-
-        let response = initialized_data
-            .client
-            .sync_once(sync_settings)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        initialized_data
-            .proto_cache
-            .set_sync_token(response.next_batch.clone())
-            .await;
-
-        memory_cache::cache_sync_response(
-            &initialized_data.memory_cache,
-            &response,
-            memory_cache::SyncSource::InitialSync,
-        )
-        .map_err(errors::create_unknown)?;
+        self.sync_once(initialized_data, memory_cache::SyncSource::InitialSync)
+            .await?;
 
         log::info!("Initial sync finished");
         log::debug!("Checking verification status");
-
-        self.save().await?;
 
         send_capabilities_event(ctx).await;
         send_verification_status_event(ctx, &initialized_data.client).await?;
@@ -142,56 +145,63 @@ impl Session {
         Ok(())
     }
 
-    /// Starts an indefinite sync loop in a separate tokio task,
-    /// making this function non blocking.
+    /// Starts an endless synchronization loop in a separate tokio task,
+    /// thus making this function non blocking.
     async fn start_background_sync(
         self,
-        ctx: ClientContext,
         initialized_data: InitializedData,
     ) -> Result<JoinHandle<()>> {
+        let handle = tokio::spawn(async move {
+            loop {
+                let result = self
+                    .sync_once(&initialized_data, memory_cache::SyncSource::ContinuousSync)
+                    .await;
+
+                if let Err(err) = result {
+                    log::error!("Error during sync: {err}");
+                }
+            }
+        });
+
+        Ok(handle)
+    }
+
+    async fn sync_once(
+        &self,
+        initialized_data: &InitializedData,
+        sync_source: memory_cache::SyncSource,
+    ) -> Result<()> {
         let mut sync_settings = SyncSettings::new();
 
         if let Some(token) = &initialized_data.proto_cache.sync_token().await {
             sync_settings = sync_settings.token(token);
         }
 
-        let client = initialized_data.client.clone();
-        let event_manager = initialized_data.event_manager.clone();
+        if let Some(user_status) = &initialized_data.proto_cache.user_status().await {
+            let presence = user::chat_presence_state_to_matrix(
+                user_status.state.try_into().unwrap_or_default(),
+            )
+            .unwrap_or(ruma_common::presence::PresenceState::Online);
+            sync_settings = sync_settings.set_presence(presence);
+        }
 
-        event_manager.setup_event_handlers(&client);
+        let response = initialized_data
+            .client
+            .sync_once(sync_settings)
+            .await
+            .map_err(errors::create_unknown)?;
 
-        let handle = tokio::spawn(async move {
-            let result = client
-                .sync_with_result_callback(sync_settings, |sync_result| {
-                    let cache = initialized_data.memory_cache.clone();
-                    let proto_cache = initialized_data.proto_cache.clone();
+        initialized_data
+            .proto_cache
+            .set_sync_token(response.next_batch.clone())
+            .await;
 
-                    async move {
-                        let response = sync_result?;
-                        proto_cache
-                            .set_sync_token(response.next_batch.clone())
-                            .await;
+        memory_cache::cache_sync_response(&initialized_data.memory_cache, &response, sync_source)
+            .map_err(errors::create_unknown)?;
 
-                        if let Err(err) = memory_cache::cache_sync_response(
-                            &cache,
-                            &response,
-                            memory_cache::SyncSource::ContinuousSync,
-                        ) {
-                            log::warn!("Failed to cache sync response: {err}");
-                        }
+        self.save().await?;
 
-                        Ok(LoopCtrl::Continue)
-                    }
-                })
-                .await;
-
-            // TODO: Check if it makes sense to restart the sync.
-            if let Err(err) = result {
-                ctx.send_error(errors::convert_matrix_sdk_error(err)).await;
-            }
-        });
-
-        Ok(handle)
+        Ok(())
     }
 }
 
