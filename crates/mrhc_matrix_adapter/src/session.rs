@@ -100,7 +100,7 @@ impl Session {
         Ok(())
     }
 
-    /// Exectues all actions required after the initial sync.
+    /// Executes all actions required after the initial sync.
     async fn exec_initial_actions(&self, ctx: &ClientContext, initialized_data: &InitializedData) {
         let InitializedData {
             client,
@@ -109,7 +109,7 @@ impl Session {
         } = initialized_data;
 
         let Some(user_id) = client.user_id() else {
-            log::error!("Unable to retreive user id after initial sync");
+            log::error!("Unable to retrieve user id after initial sync");
             return;
         };
 

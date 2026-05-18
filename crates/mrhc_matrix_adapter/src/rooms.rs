@@ -9,33 +9,129 @@ use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::{assign, OwnedUserId};
 use matrix_sdk::{Client, Room as MatrixRoom};
-use mrhc_core::Result;
+use mrhc_core::{ClientContext, Result};
 use mrhc_proto::chat::error::ErrorType;
+use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
+use crate::client::InitializedData;
 use crate::media::MediaManager;
-use crate::{errors, user};
+use crate::proto_cache::ProtoCache;
+use crate::utils::ComparisonResult;
+use crate::{errors, user, utils};
 
-/// Fetches all known rooms the user is in.
-pub async fn fetch_all(
-    client: &Client,
-    media_manager: &MediaManager,
-    user_id: &UserId,
-) -> Result<Vec<Room>> {
-    let mut result = Vec::new();
+#[derive(Clone)]
+pub struct RoomManager {
+    context: ClientContext,
+    client: Client,
+    proto_cache: ProtoCache,
+    media_manager: MediaManager,
+}
 
-    for room in client.rooms() {
-        if room.is_space() {
-            continue;
+impl RoomManager {
+    pub fn from_initialized_data(
+        context: ClientContext,
+        initialized_data: &InitializedData,
+    ) -> Self {
+        Self {
+            context,
+            client: initialized_data.client.clone(),
+            proto_cache: initialized_data.proto_cache.clone(),
+            media_manager: initialized_data.media_manager.clone(),
         }
-
-        result.push(convert_to_proto(media_manager, room, user_id).await?);
     }
 
-    Ok(result)
+    /// Gets and syncs all available rooms.
+    /// If the rooms are already cached, they are retrieved from the cache and
+    /// synced in the background. If the rooms are not yet cached, this method
+    /// retrieves them from the server and blocks once all rooms have been retrieved.
+    pub async fn get_and_sync_rooms(&self) -> Result<Vec<Room>> {
+        match self.proto_cache.cached_rooms().await {
+            Some(room_list) => {
+                self.clone().sync_cached_rooms();
+                Ok(room_list)
+            }
+            None => {
+                let room_list = self.fetch_all_rooms().await?;
+                self.proto_cache.overwrite_rooms(room_list.clone()).await;
+                Ok(room_list)
+            }
+        }
+    }
+
+    /// Fetches all rooms from the matrix server and blocks until
+    /// all rooms have been retrieved and converted to proto objects.
+    async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
+        let Some(user_id) = self.client.user_id() else {
+            return Err(errors::create_error(ErrorType::Authorization));
+        };
+
+        let mut result = Vec::new();
+
+        for room in self.client.rooms() {
+            if room.is_space() {
+                continue;
+            }
+
+            let proto = convert_to_proto(&self.media_manager, room, user_id).await?;
+
+            result.push(proto);
+        }
+
+        Ok(result)
+    }
+
+    /// Syncs the rooms in the background.
+    fn sync_cached_rooms(self) {
+        tokio::spawn(async move {
+            log::info!("Syncing cached rooms in the background");
+
+            let fetched = match self.fetch_all_rooms().await {
+                Ok(fetched) => fetched,
+                Err(err) => {
+                    log::error!("Error syncing cached rooms: {err}");
+                    return;
+                }
+            };
+
+            let cached = self.proto_cache.cached_rooms().await.unwrap_or_default();
+
+            let result = utils::compare_lists(&cached, &fetched, |a, b| a.room_id == b.room_id);
+
+            self.process_comparison_result(result).await
+        });
+    }
+
+    async fn process_comparison_result(&self, result: ComparisonResult<Room>) {
+        log::debug!("Processing room sync changes: {result:?}");
+
+        for new in result.new {
+            self.context
+                .send_event(ResponseContent::RoomCreatedEvent(new))
+                .await;
+        }
+
+        for (old, new) in result.updated {
+            let proto = builder::RoomChangeEventBuilder::compare_rooms(&old, &new).to_proto();
+            self.context
+                .send_event(ResponseContent::RoomChangeEvent(proto))
+                .await;
+        }
+
+        for deleted in result.deleted {
+            let proto = RoomLeftEvent {
+                room_id: deleted.room_id,
+                ..Default::default()
+            };
+
+            self.context
+                .send_event(ResponseContent::RoomLeftEvent(proto))
+                .await;
+        }
+    }
 }
 
 pub async fn convert_to_proto(
