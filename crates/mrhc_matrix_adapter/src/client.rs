@@ -953,28 +953,17 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_rooms(
         &mut self,
-        _ctx: ClientContext,
+        ctx: ClientContext,
         request: RoomListRequest,
     ) -> Result<RoomListResponse> {
-        let InitializedData {
-            client,
-            proto_cache,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let initialized_data = self.get_initialized_data_logged_in().await?;
 
-        let Some(user_id) = client.user_id() else {
+        let Some(user_id) = initialized_data.client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
         };
 
-        let room_list = match proto_cache.cached_rooms().await {
-            Some(room_list) => room_list,
-            None => {
-                let room_list = rooms::fetch_all(client, media_manager, user_id).await?;
-                proto_cache.overwrite_rooms(room_list.clone()).await;
-                room_list
-            }
-        };
+        let room_manager = rooms::RoomManager::from_initialized_data(ctx, initialized_data);
+        let room_list = room_manager.get_and_sync_rooms().await?;
 
         let mut result = Vec::new();
 

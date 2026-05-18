@@ -25,6 +25,44 @@ impl RoomChangeEventBuilder {
         }
     }
 
+    pub fn compare_rooms(old: &Room, new: &Room) -> Self {
+        let mut obj = Self::new(new.room_id.clone());
+
+        if old.display_name != new.display_name {
+            obj = obj.change_display_name(new.display_name.clone().unwrap_or_default());
+        }
+
+        if old.user_id_list != new.user_id_list {
+            obj = obj.change_user_id_list(new.user_id_list.clone());
+        }
+
+        if old.unread_count != new.unread_count {
+            obj = obj.change_unread_count(new.unread_count);
+        }
+
+        if old.is_direct != new.is_direct {
+            obj = obj.change_is_direct(new.is_direct);
+        }
+
+        if old.join_rule != new.join_rule {
+            obj = obj.change_join_rule(new.join_rule.try_into().unwrap_or_default());
+        }
+
+        if old.permissions != new.permissions {
+            obj = obj.change_permissions(new.permissions.clone().unwrap_or_default());
+        }
+
+        if old.avatar_path != new.avatar_path {
+            obj = obj.change_avatar_path(new.avatar_path.clone().unwrap_or_default());
+        }
+
+        if old.is_favorite != new.is_favorite {
+            obj = obj.change_is_favourite(new.is_favorite);
+        }
+
+        obj
+    }
+
     pub fn change_user_id_list(mut self, user_id_list: HashMap<String, i32>) -> Self {
         self.user_id_list = Some(user_id_list);
         self
