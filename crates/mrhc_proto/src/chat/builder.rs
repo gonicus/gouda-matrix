@@ -49,7 +49,7 @@ impl RoomChangeEventBuilder {
         }
 
         if old.permissions != new.permissions {
-            obj = obj.change_permissions(new.permissions.clone().unwrap_or_default());
+            obj = obj.change_permissions(new.permissions.unwrap_or_default());
         }
 
         if old.avatar_path != new.avatar_path {
