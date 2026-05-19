@@ -4,7 +4,7 @@ use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{Error, RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
-use crate::output_processor::OutputTask;
+use crate::output::OutputTask;
 use crate::{Client, ClientContext, Result};
 
 #[derive(Debug, PartialEq)]

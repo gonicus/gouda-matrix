@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
 use crate::executor::ExecutorTask;
-use crate::output_processor::OutputTask;
+use crate::output::OutputTask;
 
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
