@@ -4,7 +4,7 @@ use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::room::edit::EditError;
 use matrix_sdk::ruma::api::client::error::ErrorKind as RumaClientErrorKind;
 use matrix_sdk::ruma::api::client::Error as RumaClientError;
-use matrix_sdk::{ClientBuildError, HttpError, IdParseError, StoreError};
+use matrix_sdk::{ClientBuildError, HttpError, IdParseError, RefreshTokenError, StoreError};
 use matrix_sdk_crypto::CryptoStoreError;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::Error;
@@ -157,8 +157,14 @@ pub fn convert_recovery_error(err: RecoveryError) -> Error {
     }
 }
 
+pub fn convert_refresh_token_error(err: RefreshTokenError) -> Error {
+    log::error!("Received RefreshTokenError: {err:?}");
+    create_error_msg(ErrorType::Authorization, err)
+}
+
 /// Converts a `StoreError` to a new chat error.
 pub fn convert_store_error(err: StoreError) -> Error {
+    log::error!("Received StoreError: {err:?}");
     create_unknown(err)
 }
 
@@ -174,5 +180,6 @@ pub fn convert_cache_error(err: CacheError) -> Error {
 }
 
 pub fn convert_edit_error(err: EditError) -> Error {
+    log::error!("Received EditError: {err:?}");
     create_unknown(err)
 }

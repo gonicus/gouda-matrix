@@ -95,7 +95,7 @@ impl Session {
             .event_manager
             .setup_event_handlers(&initialized_data.client);
 
-        self.start_background_sync(initialized_data).await?;
+        self.start_background_sync(ctx, initialized_data).await?;
 
         Ok(())
     }
@@ -134,7 +134,8 @@ impl Session {
         log::info!("Starting initial sync");
 
         self.sync_once(initialized_data, memory_cache::SyncSource::InitialSync)
-            .await?;
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         log::info!("Initial sync finished");
         log::debug!("Checking verification status");
@@ -148,7 +149,8 @@ impl Session {
     /// Starts an endless synchronization loop in a separate tokio task,
     /// thus making this function non blocking.
     async fn start_background_sync(
-        self,
+        mut self,
+        ctx: ClientContext,
         initialized_data: InitializedData,
     ) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
@@ -157,8 +159,13 @@ impl Session {
                     .sync_once(&initialized_data, memory_cache::SyncSource::ContinuousSync)
                     .await;
 
-                if let Err(err) = result {
-                    log::error!("Error during sync: {err}");
+                if let Err(err) = self.handle_sync_result(result, &initialized_data).await {
+                    log::error!(
+                        "Received an unrecoverable error during sync, stopping background sync"
+                    );
+                    ctx.send_error(err).await;
+
+                    break;
                 }
             }
         });
@@ -170,7 +177,7 @@ impl Session {
         &self,
         initialized_data: &InitializedData,
         sync_source: memory_cache::SyncSource,
-    ) -> Result<()> {
+    ) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
         if let Some(token) = &initialized_data.proto_cache.sync_token().await {
@@ -178,28 +185,80 @@ impl Session {
         }
 
         if let Some(user_status) = &initialized_data.proto_cache.user_status().await {
-            let presence = user::chat_presence_state_to_matrix(
-                user_status.state.try_into().unwrap_or_default(),
-            )
-            .unwrap_or(ruma_common::presence::PresenceState::Online);
-            sync_settings = sync_settings.set_presence(presence);
+            let presence_state = user_status.state.try_into().unwrap_or_default();
+            let matrix_presence = user::chat_presence_state_to_matrix(presence_state)
+                .unwrap_or(ruma_common::presence::PresenceState::Online);
+            sync_settings = sync_settings.set_presence(matrix_presence);
         }
 
-        let response = initialized_data
-            .client
-            .sync_once(sync_settings)
-            .await
-            .map_err(errors::create_unknown)?;
+        let response = initialized_data.client.sync_once(sync_settings).await?;
 
         initialized_data
             .proto_cache
             .set_sync_token(response.next_batch.clone())
             .await;
 
-        memory_cache::cache_sync_response(&initialized_data.memory_cache, &response, sync_source)
-            .map_err(errors::create_unknown)?;
+        let cache_result = memory_cache::cache_sync_response(
+            &initialized_data.memory_cache,
+            &response,
+            sync_source,
+        );
 
-        self.save().await?;
+        if let Err(err) = cache_result {
+            log::error!("Error caching sync response in memory cache: {err}");
+        }
+
+        Ok(())
+    }
+
+    async fn handle_sync_result(
+        &mut self,
+        result: matrix_sdk::Result<()>,
+        initialized_data: &InitializedData,
+    ) -> Result<()> {
+        use matrix_sdk::ruma::api::client::error::ErrorKind;
+
+        let Err(err) = result else {
+            return Ok(());
+        };
+
+        log::warn!("Error during sync: {err}");
+
+        let Some(error_kind) = err.client_api_error_kind() else {
+            return Err(errors::convert_matrix_sdk_error(err));
+        };
+
+        if let ErrorKind::UnknownToken { soft_logout } = error_kind {
+            if !soft_logout {
+                return Err(errors::convert_matrix_sdk_error(err));
+            }
+
+            return self.refresh_access_token(initialized_data).await;
+        }
+
+        Err(errors::convert_matrix_sdk_error(err))
+    }
+
+    async fn refresh_access_token(&mut self, initialized_data: &InitializedData) -> Result<()> {
+        log::info!("Refreshing access token");
+
+        initialized_data
+            .client
+            .refresh_access_token()
+            .await
+            .map_err(errors::convert_refresh_token_error)?;
+
+        self.user_session = initialized_data
+            .client
+            .matrix_auth()
+            .session()
+            .ok_or(errors::create_unknown("msg"))?;
+
+        if let Err(err) = self.save().await {
+            log::error!("Error when saving session: {err}");
+        }
+
+        log::info!("Successfully refreshed access token");
 
         Ok(())
     }

@@ -33,8 +33,8 @@ where
 }
 
 pub fn compare_lists<T>(
-    old: &Vec<T>,
-    new: &Vec<T>,
+    old: &[T],
+    new: &[T],
     matches: impl Fn(&T, &T) -> bool,
 ) -> ComparisonResult<T>
 where
