@@ -11,10 +11,10 @@ eframe = { version = "0.33", default-features = false, features = ["persistence"
 
 interprocess.workspace = true
 prost.workspace = true
-subprocess = "0.2.9"
 strum = "0.27.2"
 strum_macros = "0.27.2"
-uuid = { version = "1.18.1", features = ["v4"] }
 serde = { workspace = true, features = ["derive"]}
 serde_json.workspace = true
-text_io = "0.1.13"
+
+[package.metadata.cargo-machete]
+ignored = ["strum"]
