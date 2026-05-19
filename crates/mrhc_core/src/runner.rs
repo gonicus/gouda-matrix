@@ -2,8 +2,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinError;
 
 use crate::executor::Executor;
-use crate::input_processor::{InputProcessor, Reader};
-use crate::output_processor::{OutputProcessor, Writer};
+use crate::input::{InputProcessor, Reader};
+use crate::output::{OutputProcessor, Writer};
 use crate::Client;
 
 /// Channel capacity for the executor task queue.
