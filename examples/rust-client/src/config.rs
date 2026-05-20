@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use mrhc_proto::chat::*;
+use gouda_proto::chat::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]

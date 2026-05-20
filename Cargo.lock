@@ -1960,6 +1960,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "gouda_core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "env_logger",
+ "gouda_core",
+ "gouda_proto",
+ "interprocess",
+ "log",
+ "prost 0.14.3",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "gouda_matrix"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "async-trait",
+ "clap",
+ "futures-util",
+ "gouda_core",
+ "gouda_proto",
+ "infer",
+ "interprocess",
+ "js_int",
+ "log",
+ "log4rs",
+ "matrix-sdk",
+ "matrix-sdk-base",
+ "matrix-sdk-common",
+ "matrix-sdk-crypto",
+ "mime",
+ "mime_guess",
+ "prost 0.14.3",
+ "ruma-common",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "test-log",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "gouda_proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.14.3",
+ "prost-build",
+ "serde",
+]
+
+[[package]]
 name = "growable-bloom-filter"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3184,19 +3241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix_headless_client"
-version = "0.1.0"
-dependencies = [
- "clap",
- "interprocess",
- "log",
- "log4rs",
- "mrhc_core",
- "mrhc_matrix_adapter",
- "tokio",
-]
-
-[[package]]
 name = "matrix_indexed_db_futures"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3316,61 +3360,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "mrhc_core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "env_logger",
- "interprocess",
- "log",
- "mrhc_core",
- "mrhc_matrix_adapter",
- "mrhc_proto",
- "prost 0.14.3",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "mrhc_matrix_adapter"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "async-trait",
- "futures-util",
- "infer",
- "js_int",
- "log",
- "matrix-sdk",
- "matrix-sdk-base",
- "matrix-sdk-common",
- "matrix-sdk-crypto",
- "mime",
- "mime_guess",
- "mrhc_core",
- "mrhc_proto",
- "prost 0.14.3",
- "ruma-common",
- "serde",
- "serde_json",
- "tempdir",
- "test-log",
- "thiserror 2.0.18",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "mrhc_proto"
-version = "0.1.0"
-dependencies = [
- "prost 0.14.3",
- "prost-build",
- "serde",
 ]
 
 [[package]]
@@ -4830,8 +4819,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "gouda_proto",
  "interprocess",
- "mrhc_proto",
  "prost 0.14.3",
  "serde",
  "serde_json",

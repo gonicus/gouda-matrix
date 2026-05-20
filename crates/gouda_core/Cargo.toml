@@ -1,0 +1,25 @@
+[package]
+name = "gouda_core"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[dependencies]
+gouda_proto.workspace = true
+
+tokio.workspace = true
+async-trait.workspace = true
+
+prost.workspace = true
+
+log.workspace = true
+
+[dev-dependencies]
+gouda_core = { path = ".", features = ["test-util"] }
+
+interprocess.workspace = true
+env_logger.workspace = true
+uuid.workspace = true
+
+[features]
+test-util = []

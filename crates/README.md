@@ -1,13 +1,10 @@
 # Family of crates
 
-## [matrix_headless_client](./matrix_headless_client/)
-Implements a Matrix client that uses local sockets to communicate with another process.
+## [gouda_matrix](./gouda_matrix/)
+Implements a Matrix client that uses local sockets to communicate with a gouda application.
 
-## [mrhc_core](./mrhc_core)
-Implements core functionality, including receiving, sending and executing protocol buffers.
+## [gouda_core](./gouda_core)
+Implements core functionality for gouda clients and provides an abstraction layer over the gouda API.
 
-## [mrhc_matrix_adapter](./mrhc_matrix_adapter/)
-Implements the [mrhc_core](./mrhc_core) client abstraction for the `matrix-rust-sdk`.
-
-## [mrhc_proto](./mrhc_proto/)
-Contains the compiled Protocol Buffers used across other crates.
+## [gouda_proto](./gouda_proto/)
+Contains the compiled protocol buffers of the gouda API.
