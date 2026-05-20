@@ -15,7 +15,7 @@ pub struct RequestContext {
 }
 
 impl RequestContext {
-    /// Creates a new ClientContext objects.
+    /// Creates a new RequestContext object.
     ///
     /// # Arguments
     ///

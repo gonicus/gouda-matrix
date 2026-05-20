@@ -18,11 +18,11 @@ use crate::RequestContext;
 /// # Example
 ///
 /// ```
-/// use gouda_core::{ClientContext, MultipartResponse};
+/// use gouda_core::{RequestContext, MultipartResponse};
 /// use gouda_proto::chat::response_container::Content as ResponseContent;
 /// use gouda_proto::chat::Message;
 ///
-/// fn get_messages(ctx: ClientContext) {
+/// fn get_messages(ctx: RequestContext) {
 ///     let multipart_response = MultipartResponse::new(ctx);
 ///
 ///     let message1 = ResponseContent::MessageReceivedEvent(Message::default());
