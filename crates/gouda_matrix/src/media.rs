@@ -1730,9 +1730,9 @@ mod tests {
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
         #[cfg(not(windows))]
-        assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset.jpeg"));
         #[cfg(windows)]
-        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.jpeg"));
 
         test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
         test_utils::assert_directory(
