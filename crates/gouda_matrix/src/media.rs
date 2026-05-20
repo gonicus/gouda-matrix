@@ -1356,7 +1356,6 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
-
         test_utils::assert_directory(
             dirs.asset_dir_absolute,
             vec!["some_asset_info.json", "some_asset.png"],
