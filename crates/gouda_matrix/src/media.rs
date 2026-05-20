@@ -1351,7 +1351,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(
             dirs.asset_dir_absolute,
@@ -1389,7 +1392,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(
             dirs.asset_dir_absolute,
@@ -1445,7 +1451,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(
             dirs.asset_dir_absolute,
@@ -1506,7 +1515,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.jpeg");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.jpeg"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.jpeg"));
 
         test_utils::assert_directory(
             dirs.asset_dir_absolute,
@@ -1591,7 +1603,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
         test_utils::assert_directory(
@@ -1648,7 +1663,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
         test_utils::assert_directory(
@@ -1710,7 +1728,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.jpeg");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.jpeg"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.jpeg"));
 
         test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
         test_utils::assert_directory(
@@ -1756,7 +1777,10 @@ mod tests {
         let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset.png");
         let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
 
+        #[cfg(not(windows))]
         assert_eq!(result, format!("{ASSET_DIR}/some_asset.png"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset.png"));
 
         test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
         test_utils::assert_directory(

@@ -32,7 +32,7 @@ url = "2.5.7"
 
 js_int = "0.2.2"
 matrix-sdk = { version = "0.16.0", features = [
-  "sso-login", "markdown"
+  "sso-login", "markdown", "bundled-sqlite"
 ] }
 matrix-sdk-base = { version = "0.16.0", default-features = false }
 matrix-sdk-crypto = { version = "0.16.0", default-features = false }
