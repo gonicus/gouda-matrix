@@ -1,3 +1,7 @@
+//! Implements an async abstraction for the gouda-api and provides
+//! a [`Client`] trait for chat implementation.
+#![warn(missing_docs)]
+
 mod client;
 mod context;
 mod executor;
@@ -16,4 +20,5 @@ pub use multipart_response::MultipartResponse;
 pub use output::OutputTask;
 pub use runner::Runner;
 
+/// A chat result.
 pub type Result<T> = std::result::Result<T, mrhc_proto::chat::Error>;

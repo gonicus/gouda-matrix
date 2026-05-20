@@ -7,9 +7,11 @@ use crate::output::{OutputProcessor, Writer};
 use crate::Client;
 
 /// Channel capacity for the executor task queue.
-/// Provides backpressure if the executor cannot keep up with incoming requests.
+/// Provides back pressure if the executor cannot keep up with incoming requests.
 const EXECUTOR_CHANNEL_CAPACITY: usize = 128;
 
+/// The main entry point of the client, implementing the communication with the application
+/// and calls the requested methods on the client.
 pub struct Runner {
     input_processor: InputProcessor,
     executor: Executor,
@@ -17,6 +19,13 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// Creates a new runner.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - The client to use to execute requests from the application
+    /// * `reader` - The reader from where requests are received
+    /// * `writer` - The writer to where responses and events are send
     pub fn new(client: Box<dyn Client>, reader: Box<Reader>, writer: Box<Writer>) -> Self {
         let (executor_tx, executor_rx) = mpsc::channel(EXECUTOR_CHANNEL_CAPACITY);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
@@ -28,6 +37,9 @@ impl Runner {
         }
     }
 
+    /// This method starts the actual processing and execution of incoming requests.
+    /// It blocks until an end-of-file (EOF) is received from the input reader or another
+    /// error occurs. Normally, it blocks for the entire duration of the client's runtime.
     pub async fn run(self) -> Result<(), JoinError> {
         let input_handle = self.input_processor.run();
         let executor_handle = self.executor.run();

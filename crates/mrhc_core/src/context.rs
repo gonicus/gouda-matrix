@@ -5,6 +5,7 @@ use tokio::sync::mpsc::Sender;
 use crate::executor::ExecutorTask;
 use crate::MultipartResponse;
 
+/// The context for each request from the application.
 #[derive(Clone)]
 pub struct ClientContext {
     /// The tag of the request this context belongs to.
@@ -14,6 +15,12 @@ pub struct ClientContext {
 }
 
 impl ClientContext {
+    /// Creates a new ClientContext objects.
+    ///
+    /// # Arguments
+    ///
+    /// * `tag` - The tag of the request the context is for.
+    /// * `executor_sender` - Sender to send tasks to the executor.
     pub fn new(tag: u64, executor_sender: Sender<ExecutorTask>) -> Self {
         Self {
             tag,

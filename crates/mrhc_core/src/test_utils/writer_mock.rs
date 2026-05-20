@@ -4,11 +4,13 @@ use std::task::Poll;
 
 use tokio::io::AsyncWrite;
 
+/// Mocks an AsyncWriter.
 pub struct WriterMock {
     buffer: Arc<Mutex<Cursor<Vec<u8>>>>,
 }
 
 impl WriterMock {
+    /// Creates a new [`WriterMock`] object.
     pub fn new() -> (Self, Arc<Mutex<Cursor<Vec<u8>>>>) {
         let buffer = Arc::new(Mutex::new(Cursor::new(Vec::new())));
         (

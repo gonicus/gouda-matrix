@@ -7,6 +7,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
+/// A task for the output processor.
 #[derive(Debug, PartialEq)]
 pub enum OutputTask {
     /// Exits the output processor, resulting in the `OutputProcessor::run` method being stopped.
