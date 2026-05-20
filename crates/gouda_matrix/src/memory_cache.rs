@@ -555,7 +555,7 @@ impl CachedChronoSequence {
         //   1. before the oldest cached event
         //   2. after the latest cached event
         //   3. in between
-        messages.sort_unstable_by_key(|a, b| a.timestamp);
+        messages.sort_unstable_by_key(|a| a.timestamp);
 
         let earliest_ts = self.get_first_timestamp()?;
         let latest_ts = self.get_last_timestamp()?;
