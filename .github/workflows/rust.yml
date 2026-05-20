@@ -12,7 +12,7 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  ci:
+  rust:
     name: Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -39,11 +39,8 @@ jobs:
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build --all --all-features
-
       - name: Clippy
-        run: cargo clippy --all --all-targets --all-features
+        run: cargo clippy --all --all-targets --all-features -- -D warnings
 
       - name: Rustfmt
         run: cargo fmt --all -- --check
@@ -51,7 +48,7 @@ jobs:
       - name: Test
         run: cargo test --all --all-features
 
-  cargo-machete:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -60,12 +57,5 @@ jobs:
       - name: Machete
         uses: bnjbvr/cargo-machete@main
 
-  typos:
-    name: typos
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Actions Repository
-        uses: actions/checkout@v4
-
-      - name: Check spelling of entire workspace
+      - name: Typos
         uses: crate-ci/typos@master

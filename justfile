@@ -1,9 +1,8 @@
 alias format := fmt
 
 check:
-    cargo check --all --all-features
-    cargo +nightly fmt --all -- --check
     cargo clippy --all --all-targets --all-features
+    cargo +nightly fmt --all -- --check
     cargo test --all --all-features
     # To install: cargo install cargo-machete
     cargo machete
