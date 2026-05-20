@@ -9,7 +9,7 @@ use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::{assign, OwnedUserId};
 use matrix_sdk::{Client, Room as MatrixRoom};
-use mrhc_core::{ClientContext, Result};
+use mrhc_core::{RequestContext, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
@@ -25,7 +25,7 @@ use crate::{errors, user, utils};
 
 #[derive(Clone)]
 pub struct RoomManager {
-    context: ClientContext,
+    context: RequestContext,
     client: Client,
     proto_cache: ProtoCache,
     media_manager: MediaManager,
@@ -33,7 +33,7 @@ pub struct RoomManager {
 
 impl RoomManager {
     pub fn from_initialized_data(
-        context: ClientContext,
+        context: RequestContext,
         initialized_data: &InitializedData,
     ) -> Self {
         Self {

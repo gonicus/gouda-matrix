@@ -22,7 +22,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use mrhc_core::{ClientContext, MultipartResponse};
+use mrhc_core::{MultipartResponse, RequestContext};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{
     builder, message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent,
@@ -1346,7 +1346,7 @@ pub async fn send_and_get_sequence_chunk<T: RoomClient>(
     skip_first: bool,
     room_client: &T,
     cache: &MemoryCache,
-    ctx: &ClientContext,
+    ctx: &RequestContext,
 ) -> Result<SequenceChunkResult> {
     let msg_opt = {
         let room_cache_r = cached_room.read().map_err(|_| CacheError::CachePoisoned)?;
@@ -1949,7 +1949,7 @@ pub async fn retry_decryption<T: RoomClient>(
     room_client: &T,
     cache: &MemoryCache,
     mut key_change_rx: mpsc::Receiver<()>,
-    ctx: &ClientContext,
+    ctx: &RequestContext,
 ) -> Result<()> {
     let Some(mut messages) = messages_opt else {
         return Ok(());
@@ -2015,7 +2015,7 @@ async fn wait_for_keys_and_retry<T: RoomClient>(
     key_rx: &mut mpsc::Receiver<()>,
     room_client: &T,
     room: Arc<RwLock<CachedChronoRoom>>,
-    ctx: &ClientContext,
+    ctx: &RequestContext,
     cache: &MemoryCache,
 ) -> Result<usize> {
     let mut decrypted_count = 0;
@@ -2476,7 +2476,7 @@ mod tests {
         msg_after: UnlinkedMessage,  // after prefilled
         room_client: MockRoomClient,
         _executor_recv: Receiver<ExecutorTask>,
-        ctx: ClientContext,
+        ctx: RequestContext,
         cache: MemoryCache,
     }
 
@@ -2696,7 +2696,7 @@ mod tests {
             msg_after,
             room_client: MockRoomClient::new(),
             _executor_recv: rx,
-            ctx: ClientContext::new(0, tx),
+            ctx: RequestContext::new(0, tx),
             cache: MemoryCache::new(),
         }
     }

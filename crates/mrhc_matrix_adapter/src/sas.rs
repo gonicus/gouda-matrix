@@ -1,7 +1,7 @@
 use matrix_sdk::encryption::verification::SasVerification;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk_crypto::{Emoji, EmojiShortAuthString, SasState};
-use mrhc_core::ClientContext;
+use mrhc_core::RequestContext;
 use mrhc_proto::chat::cross_signing_method_selected_event::VerificationCode;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
@@ -14,7 +14,7 @@ use crate::verification::send_verification_end_event_err;
 /// Actions to be performed (e.g. Cancel, Confirm) can be sent via
 /// the sender of the `action_rx`.
 pub struct SasVerificationManager<'a> {
-    ctx: ClientContext,
+    ctx: RequestContext,
     verification: SasVerification,
     flow_id: String,
     action_rx: &'a mut UnboundedReceiver<VerificationAction>,
@@ -22,7 +22,7 @@ pub struct SasVerificationManager<'a> {
 
 impl<'a> SasVerificationManager<'a> {
     pub fn new(
-        ctx: ClientContext,
+        ctx: RequestContext,
         verification: SasVerification,
         flow_id: String,
         action_rx: &'a mut UnboundedReceiver<VerificationAction>,

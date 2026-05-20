@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::Client;
-use mrhc_core::{ClientContext, Result};
+use mrhc_core::{RequestContext, Result};
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use serde::{Deserialize, Serialize};
@@ -84,7 +84,7 @@ impl Session {
     /// This method blocks until the initial sync is finished.
     pub async fn sync(
         mut self,
-        mut ctx: ClientContext,
+        mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
         self.initial_sync(&mut ctx, &initialized_data).await?;
@@ -101,7 +101,7 @@ impl Session {
     }
 
     /// Executes all actions required after the initial sync.
-    async fn exec_initial_actions(&self, ctx: &ClientContext, initialized_data: &InitializedData) {
+    async fn exec_initial_actions(&self, ctx: &RequestContext, initialized_data: &InitializedData) {
         let InitializedData {
             client,
             proto_cache,
@@ -128,7 +128,7 @@ impl Session {
     /// The session is automatically persisted once a new sync token is received.
     async fn initial_sync(
         &mut self,
-        ctx: &mut ClientContext,
+        ctx: &mut RequestContext,
         initialized_data: &InitializedData,
     ) -> Result<()> {
         log::info!("Starting initial sync");
@@ -150,7 +150,7 @@ impl Session {
     /// thus making this function non blocking.
     async fn start_background_sync(
         mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
@@ -264,7 +264,7 @@ impl Session {
     }
 }
 
-async fn send_capabilities_event(ctx: &mut ClientContext) {
+async fn send_capabilities_event(ctx: &mut RequestContext) {
     let re = CapabilityEvent {
         direct_rooms: false,
         group_rooms: true,
@@ -280,7 +280,7 @@ async fn send_capabilities_event(ctx: &mut ClientContext) {
     ctx.send_event(ResponseContent::CapabilityEvent(re)).await;
 }
 
-async fn send_verification_status_event(ctx: &mut ClientContext, client: &Client) -> Result<()> {
+async fn send_verification_status_event(ctx: &mut RequestContext, client: &Client) -> Result<()> {
     let result = client
         .encryption()
         .get_own_device()

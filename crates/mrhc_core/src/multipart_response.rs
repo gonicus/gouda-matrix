@@ -1,7 +1,7 @@
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::MultipartEnd;
 
-use crate::ClientContext;
+use crate::RequestContext;
 
 /// Represents a multipart response.
 /// Multipart responses consist of several individual objects sent to the application.
@@ -38,12 +38,12 @@ use crate::ClientContext;
 /// }
 /// ```
 pub struct MultipartResponse {
-    ctx: ClientContext,
+    ctx: RequestContext,
 }
 
 impl MultipartResponse {
     /// Creates a new multipart response object.
-    pub fn new(ctx: ClientContext) -> Self {
+    pub fn new(ctx: RequestContext) -> Self {
         Self { ctx }
     }
 

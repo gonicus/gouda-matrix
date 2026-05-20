@@ -5,7 +5,7 @@ use mrhc_proto::chat::{Error, RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
 use crate::output::OutputTask;
-use crate::{Client, ClientContext, Result};
+use crate::{Client, RequestContext, Result};
 
 /// A task for the executor.
 #[derive(Debug, PartialEq)]
@@ -87,7 +87,7 @@ impl Executor {
     }
 
     async fn process_request(&mut self, tag: u64, content: RequestContent) {
-        let ctx = ClientContext::new(tag, self.task_sender.clone());
+        let ctx = RequestContext::new(tag, self.task_sender.clone());
 
         match content {
             RequestContent::InitializationRequest(request) => {
