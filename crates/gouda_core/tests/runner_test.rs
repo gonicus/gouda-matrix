@@ -23,7 +23,10 @@ async fn setup<T: Client + 'static>(test_client: T) -> Result<TestSetup, std::io
     let _ = env_logger::builder().is_test(true).try_init();
 
     let unique_id = Uuid::new_v4();
+    #[cfg(not(windows))]
     let socket = format!("/tmp/test_{}.socket", unique_id);
+    #[cfg(windows)]
+    let socket = format!(r"\\.\pipe\test_{}.socket", unique_id);
     let socket_name = socket
         .clone()
         .to_fs_name::<GenericFilePath>()
