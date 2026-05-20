@@ -3,7 +3,7 @@ use matrix_sdk::encryption::verification::{
 };
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::stream::StreamExt;
-use mrhc_core::ClientContext;
+use mrhc_core::RequestContext;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -31,7 +31,7 @@ pub struct VerificationManager {
 }
 
 impl VerificationManager {
-    pub fn from_verification_request(ctx: ClientContext, request: VerificationRequest) -> Self {
+    pub fn from_verification_request(ctx: RequestContext, request: VerificationRequest) -> Self {
         let flow_id = request.flow_id().to_owned();
 
         let (action_tx, action_rx) = mpsc::unbounded_channel();
@@ -73,7 +73,7 @@ impl VerificationManager {
 /// Actions to be performed (e.g. Cancel, Confirm) can be sent via
 /// the sender of `action_rx`.
 struct VerificationProcessor {
-    ctx: ClientContext,
+    ctx: RequestContext,
     action_rx: UnboundedReceiver<VerificationAction>,
     verification: VerificationRequest,
     flow_id: String,
@@ -81,7 +81,7 @@ struct VerificationProcessor {
 
 impl VerificationProcessor {
     pub fn new(
-        ctx: ClientContext,
+        ctx: RequestContext,
         action_rx: UnboundedReceiver<VerificationAction>,
         request: VerificationRequest,
     ) -> Self {
@@ -318,7 +318,7 @@ pub fn cross_signing_methods_to_matrix(methods: Vec<i32>) -> Vec<VerificationMet
     result
 }
 
-pub async fn send_verification_end_event(ctx: &mut ClientContext, flow_id: String, success: bool) {
+pub async fn send_verification_end_event(ctx: &mut RequestContext, flow_id: String, success: bool) {
     let event = VerificationEndEvent {
         verification_flow_id: Some(flow_id),
         result: Some(verification_end_event::Result::Successful(success)),
@@ -329,7 +329,7 @@ pub async fn send_verification_end_event(ctx: &mut ClientContext, flow_id: Strin
 }
 
 pub async fn send_verification_end_event_err<E: std::fmt::Display>(
-    ctx: &mut ClientContext,
+    ctx: &mut RequestContext,
     flow_id: String,
     error: E,
 ) {

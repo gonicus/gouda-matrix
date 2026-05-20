@@ -23,7 +23,7 @@ use matrix_sdk::ruma::events::{
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
-use mrhc_core::ClientContext;
+use mrhc_core::RequestContext;
 use mrhc_proto::chat::builder::RoomChangeEventBuilder;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::room_left_event::RoomLeaveReason;
@@ -92,7 +92,7 @@ pub struct EventManager {
 impl EventManager {
     pub fn new(
         client: Client,
-        ctx: ClientContext,
+        ctx: RequestContext,
         memory_cache: MemoryCache,
         media_manager: MediaManager,
     ) -> Self {
@@ -312,7 +312,7 @@ impl UserChange {
 
 struct EventExecutor {
     client: Client,
-    ctx: ClientContext,
+    ctx: RequestContext,
     recv: UnboundedReceiver<Action>,
 
     memory_cache: MemoryCache,
@@ -325,7 +325,7 @@ struct EventExecutor {
 impl EventExecutor {
     pub fn new(
         client: Client,
-        ctx: ClientContext,
+        ctx: RequestContext,
         recv: UnboundedReceiver<Action>,
         memory_cache: MemoryCache,
         media_manager: MediaManager,

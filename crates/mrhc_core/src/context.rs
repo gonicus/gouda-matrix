@@ -5,16 +5,16 @@ use tokio::sync::mpsc::Sender;
 use crate::executor::ExecutorTask;
 use crate::MultipartResponse;
 
-/// The context for each request from the application.
+/// The context of a single request received from the application.
 #[derive(Clone)]
-pub struct ClientContext {
+pub struct RequestContext {
     /// The tag of the request this context belongs to.
     tag: u64,
     /// An unbounded sender to send tasks to the output processor.
     executor_sender: Sender<ExecutorTask>,
 }
 
-impl ClientContext {
+impl RequestContext {
     /// Creates a new ClientContext objects.
     ///
     /// # Arguments

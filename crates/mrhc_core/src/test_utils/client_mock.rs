@@ -1,11 +1,11 @@
 use mrhc_proto::chat::*;
 
-use crate::{Client, ClientContext, Result};
+use crate::{Client, RequestContext, Result};
 
 /// Mocks the `Client` trait.
 pub struct ClientMock {
     /// The context received from the latest request.
-    pub received_ctx: Option<ClientContext>,
+    pub received_ctx: Option<RequestContext>,
 
     /// The response [`Self::initialize`] should return.
     pub initialize_response: Result<StatusUpdate>,
@@ -359,7 +359,7 @@ impl ClientMock {
 impl Client for ClientMock {
     async fn initialize(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: InitializationRequest,
     ) -> Result<StatusUpdate> {
         self.received_ctx = Some(ctx);
@@ -367,7 +367,7 @@ impl Client for ClientMock {
         self.initialize_response.clone()
     }
 
-    async fn get_login_flows(&mut self, ctx: ClientContext) -> Result<LoginFlowsResponse> {
+    async fn get_login_flows(&mut self, ctx: RequestContext) -> Result<LoginFlowsResponse> {
         self.received_ctx = Some(ctx);
         self.get_login_flows_call_count += 1;
         self.get_login_flows_response.clone()
@@ -375,7 +375,7 @@ impl Client for ClientMock {
 
     async fn get_identity_providers(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
     ) -> Result<IdentityProvidersResponse> {
         self.received_ctx = Some(ctx);
         self.get_identity_providers_call_count += 1;
@@ -384,7 +384,7 @@ impl Client for ClientMock {
 
     async fn login_username_password(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
         self.received_ctx = Some(ctx);
@@ -394,7 +394,7 @@ impl Client for ClientMock {
 
     async fn login_sso(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
         self.received_ctx = Some(ctx);
@@ -404,7 +404,7 @@ impl Client for ClientMock {
 
     async fn recovery_key_verification(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RecoveryKeyVerificationRequest,
     ) -> Result<VerificationEndEvent> {
         self.received_ctx = Some(ctx);
@@ -414,7 +414,7 @@ impl Client for ClientMock {
 
     async fn cross_signing_start(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
         self.received_ctx = Some(ctx);
@@ -424,7 +424,7 @@ impl Client for ClientMock {
 
     async fn cross_signing_select_method(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
@@ -434,7 +434,7 @@ impl Client for ClientMock {
 
     async fn cross_signing_confirm(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: CrossSigningConfirmRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
@@ -444,7 +444,7 @@ impl Client for ClientMock {
 
     async fn abort_verification(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
         self.received_ctx = Some(ctx);
@@ -452,7 +452,7 @@ impl Client for ClientMock {
         self.abort_verification_response.clone()
     }
 
-    async fn get_user(&mut self, ctx: ClientContext, _request: UserRequest) -> Result<User> {
+    async fn get_user(&mut self, ctx: RequestContext, _request: UserRequest) -> Result<User> {
         self.received_ctx = Some(ctx);
         self.get_user_call_count += 1;
         self.get_user_response.clone()
@@ -460,7 +460,7 @@ impl Client for ClientMock {
 
     async fn search_users(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: UserSearchRequest,
     ) -> Result<UserSearchResponse> {
         self.received_ctx = Some(ctx);
@@ -468,7 +468,7 @@ impl Client for ClientMock {
         self.search_users_response.clone()
     }
 
-    async fn set_status(&mut self, ctx: ClientContext, _request: UserStatus) -> Result<()> {
+    async fn set_status(&mut self, ctx: RequestContext, _request: UserStatus) -> Result<()> {
         self.received_ctx = Some(ctx);
         self.set_status_call_count += 1;
         self.set_status_response.clone()
@@ -476,7 +476,7 @@ impl Client for ClientMock {
 
     async fn get_public_rooms(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: PublicRoomListRequest,
     ) -> Result<PublicRoomListResponse> {
         self.received_ctx = Some(ctx);
@@ -486,7 +486,7 @@ impl Client for ClientMock {
 
     async fn invite(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
         self.received_ctx = Some(ctx);
@@ -494,7 +494,11 @@ impl Client for ClientMock {
         self.invite_response.clone()
     }
 
-    async fn invitation_reply(&mut self, ctx: ClientContext, _request: InvitedReply) -> Result<()> {
+    async fn invitation_reply(
+        &mut self,
+        ctx: RequestContext,
+        _request: InvitedReply,
+    ) -> Result<()> {
         self.received_ctx = Some(ctx);
         self.invitation_reply_call_count += 1;
         self.invitation_reply_response.clone()
@@ -502,7 +506,7 @@ impl Client for ClientMock {
 
     async fn get_rooms(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomListRequest,
     ) -> Result<RoomListResponse> {
         self.received_ctx = Some(ctx);
@@ -512,7 +516,7 @@ impl Client for ClientMock {
 
     async fn create_group_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomCreateGroupRequest,
     ) -> Result<Room> {
         self.received_ctx = Some(ctx);
@@ -522,7 +526,7 @@ impl Client for ClientMock {
 
     async fn create_direct_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomCreateDirectRequest,
     ) -> Result<Room> {
         self.received_ctx = Some(ctx);
@@ -532,7 +536,7 @@ impl Client for ClientMock {
 
     async fn change_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
         self.received_ctx = Some(ctx);
@@ -542,7 +546,7 @@ impl Client for ClientMock {
 
     async fn leave_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
         self.received_ctx = Some(ctx);
@@ -550,13 +554,13 @@ impl Client for ClientMock {
         self.leave_room_response.clone()
     }
 
-    async fn join_room(&mut self, ctx: ClientContext, _request: RoomJoinRequest) -> Result<Room> {
+    async fn join_room(&mut self, ctx: RequestContext, _request: RoomJoinRequest) -> Result<Room> {
         self.received_ctx = Some(ctx);
         self.join_room_call_count += 1;
         self.join_room_response.clone()
     }
 
-    async fn knock_room(&mut self, ctx: ClientContext, _request: RoomKnockRequest) -> Result<()> {
+    async fn knock_room(&mut self, ctx: RequestContext, _request: RoomKnockRequest) -> Result<()> {
         self.received_ctx = Some(ctx);
         self.knock_room_call_count += 1;
         self.knock_room_response.clone()
@@ -564,7 +568,7 @@ impl Client for ClientMock {
 
     async fn get_room_messages(
         &mut self,
-        ctx: &ClientContext,
+        ctx: &RequestContext,
         _request: &RoomMessagesRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx.clone());
@@ -574,7 +578,7 @@ impl Client for ClientMock {
 
     async fn mark_as_read(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: RoomMarkAsReadRequest,
     ) -> Result<RoomChangeEvent> {
         self.received_ctx = Some(ctx);
@@ -584,7 +588,7 @@ impl Client for ClientMock {
 
     async fn send_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
         self.received_ctx = Some(ctx);
@@ -594,7 +598,7 @@ impl Client for ClientMock {
 
     async fn remove_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: MessageRemoveRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
@@ -604,7 +608,7 @@ impl Client for ClientMock {
 
     async fn change_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         _request: MessageChangeRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx);
@@ -612,13 +616,13 @@ impl Client for ClientMock {
         self.change_message_response.clone()
     }
 
-    async fn create_reaction(&mut self, ctx: ClientContext, _request: Reaction) -> Result<()> {
+    async fn create_reaction(&mut self, ctx: RequestContext, _request: Reaction) -> Result<()> {
         self.received_ctx = Some(ctx);
         self.create_reaction_call_count += 1;
         self.create_reaction_response.clone()
     }
 
-    async fn remove_reaction(&mut self, ctx: ClientContext, _request: Reaction) -> Result<()> {
+    async fn remove_reaction(&mut self, ctx: RequestContext, _request: Reaction) -> Result<()> {
         self.received_ctx = Some(ctx);
         self.remove_reaction_call_count += 1;
         self.remove_reaction_response.clone()

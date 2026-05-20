@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::*;
 
-use crate::{ClientContext, Result};
+use crate::{RequestContext, Result};
 
 #[inline]
 fn not_implemented_error<T>() -> Result<T> {
@@ -24,18 +24,18 @@ pub trait Client: Send + Sync {
     /// Initializes the client.
     async fn initialize(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: InitializationRequest,
     ) -> Result<StatusUpdate>;
 
     /// Retrieves the available login flows.
-    async fn get_login_flows(&mut self, ctx: ClientContext) -> Result<LoginFlowsResponse>;
+    async fn get_login_flows(&mut self, ctx: RequestContext) -> Result<LoginFlowsResponse>;
 
     /// Retrieves available identity providers when SSO login is used.
     #[allow(unused_variables)]
     async fn get_identity_providers(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
     ) -> Result<IdentityProvidersResponse> {
         not_implemented_error()
     }
@@ -44,7 +44,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn login_username_password(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
         not_implemented_error()
@@ -55,7 +55,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn login_sso(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
         not_implemented_error()
@@ -65,7 +65,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn recovery_key_verification(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RecoveryKeyVerificationRequest,
     ) -> Result<VerificationEndEvent> {
         not_implemented_error()
@@ -75,7 +75,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn cross_signing_start(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
         not_implemented_error()
@@ -85,7 +85,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn cross_signing_select_method(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
         not_implemented_error()
@@ -95,7 +95,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn cross_signing_confirm(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: CrossSigningConfirmRequest,
     ) -> Result<()> {
         not_implemented_error()
@@ -105,7 +105,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn abort_verification(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
         not_implemented_error()
@@ -113,7 +113,7 @@ pub trait Client: Send + Sync {
 
     /// Gets a single user.
     #[allow(unused_variables)]
-    async fn get_user(&mut self, ctx: ClientContext, request: UserRequest) -> Result<User> {
+    async fn get_user(&mut self, ctx: RequestContext, request: UserRequest) -> Result<User> {
         not_implemented_error()
     }
 
@@ -121,7 +121,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn search_users(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: UserSearchRequest,
     ) -> Result<UserSearchResponse> {
         not_implemented_error()
@@ -129,7 +129,7 @@ pub trait Client: Send + Sync {
 
     /// Sets the status of the current user.
     #[allow(unused_variables)]
-    async fn set_status(&mut self, ctx: ClientContext, request: UserStatus) -> Result<()> {
+    async fn set_status(&mut self, ctx: RequestContext, request: UserStatus) -> Result<()> {
         not_implemented_error()
     }
 
@@ -137,7 +137,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn get_public_rooms(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: PublicRoomListRequest,
     ) -> Result<PublicRoomListResponse> {
         not_implemented_error()
@@ -147,7 +147,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn invite(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
         not_implemented_error()
@@ -155,7 +155,7 @@ pub trait Client: Send + Sync {
 
     /// Reply to an invitation for our own user.
     #[allow(unused_variables)]
-    async fn invitation_reply(&mut self, ctx: ClientContext, request: InvitedReply) -> Result<()> {
+    async fn invitation_reply(&mut self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
         not_implemented_error()
     }
 
@@ -163,7 +163,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn get_rooms(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomListRequest,
     ) -> Result<RoomListResponse> {
         not_implemented_error()
@@ -173,7 +173,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn create_group_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomCreateGroupRequest,
     ) -> Result<Room> {
         not_implemented_error()
@@ -183,7 +183,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn create_direct_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomCreateDirectRequest,
     ) -> Result<Room> {
         not_implemented_error()
@@ -193,7 +193,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn change_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
         not_implemented_error()
@@ -203,7 +203,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn leave_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
         not_implemented_error()
@@ -211,13 +211,13 @@ pub trait Client: Send + Sync {
 
     /// Joins a room.
     #[allow(unused_variables)]
-    async fn join_room(&mut self, ctx: ClientContext, request: RoomJoinRequest) -> Result<Room> {
+    async fn join_room(&mut self, ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
         not_implemented_error()
     }
 
     /// Knocks on a room.
     #[allow(unused_variables)]
-    async fn knock_room(&mut self, ctx: ClientContext, request: RoomKnockRequest) -> Result<()> {
+    async fn knock_room(&mut self, ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
         not_implemented_error()
     }
 
@@ -225,7 +225,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn get_room_messages(
         &mut self,
-        ctx: &ClientContext,
+        ctx: &RequestContext,
         request: &RoomMessagesRequest,
     ) -> Result<()> {
         not_implemented_error()
@@ -235,7 +235,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn mark_as_read(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomMarkAsReadRequest,
     ) -> Result<RoomChangeEvent> {
         not_implemented_error()
@@ -245,7 +245,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn send_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
         not_implemented_error()
@@ -255,7 +255,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn remove_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: MessageRemoveRequest,
     ) -> Result<()> {
         not_implemented_error()
@@ -265,7 +265,7 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn change_message(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: MessageChangeRequest,
     ) -> Result<()> {
         not_implemented_error()
@@ -273,13 +273,13 @@ pub trait Client: Send + Sync {
 
     /// Creates a reaction to a message.
     #[allow(unused_variables)]
-    async fn create_reaction(&mut self, ctx: ClientContext, request: Reaction) -> Result<()> {
+    async fn create_reaction(&mut self, ctx: RequestContext, request: Reaction) -> Result<()> {
         not_implemented_error()
     }
 
     /// Removes a reaction from a message.
     #[allow(unused_variables)]
-    async fn remove_reaction(&mut self, ctx: ClientContext, request: Reaction) -> Result<()> {
+    async fn remove_reaction(&mut self, ctx: RequestContext, request: Reaction) -> Result<()> {
         not_implemented_error()
     }
 

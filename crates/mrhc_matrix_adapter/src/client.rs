@@ -10,7 +10,7 @@ use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
-use mrhc_core::{Client as ClientAbstraction, ClientContext, Result};
+use mrhc_core::{Client as ClientAbstraction, RequestContext, Result};
 use mrhc_proto::chat::error::ErrorType;
 use mrhc_proto::chat::response_container::Content as ResponseContent;
 use mrhc_proto::chat::*;
@@ -197,7 +197,7 @@ impl MatrixClient {
     /// Builds the `self.initialized_data` with the given values.
     async fn initialize_data(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: InitializationRequest,
     ) -> Result<&InitializedData> {
         let homeserver_url = Url::parse(&request.backend_url)
@@ -258,7 +258,7 @@ impl MatrixClient {
     }
 
     /// Deletes the persisted session and resets the matrix client.
-    async fn reset_session(&mut self, ctx: ClientContext) -> Result<()> {
+    async fn reset_session(&mut self, ctx: RequestContext) -> Result<()> {
         log::info!("Resetting session");
 
         let initialized_data = self.get_initialized_data_mut()?;
@@ -300,7 +300,7 @@ impl MatrixClient {
     }
 
     /// Restores the session from the session file.
-    async fn restore_session(&self, ctx: ClientContext) -> Result<()> {
+    async fn restore_session(&self, ctx: RequestContext) -> Result<()> {
         let initialized_data = self.get_initialized_data()?;
 
         let client = &initialized_data.client;
@@ -376,7 +376,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn initialize(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: InitializationRequest,
     ) -> Result<StatusUpdate> {
         if self.initialized_data.is_some() {
@@ -401,7 +401,7 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn get_login_flows(&mut self, _ctx: ClientContext) -> Result<LoginFlowsResponse> {
+    async fn get_login_flows(&mut self, _ctx: RequestContext) -> Result<LoginFlowsResponse> {
         use matrix_sdk::ruma::api::client::session::get_login_types::v3;
         use v3::LoginType as MatrixLoginType;
 
@@ -443,7 +443,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_identity_providers(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
     ) -> Result<IdentityProvidersResponse> {
         // Check if the idps have been retrieved before
         if let Some(idps) = &self.cached_idps {
@@ -473,7 +473,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_username_password(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
         if self.is_logged_in().await? {
@@ -513,7 +513,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn login_sso(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
         if self.is_logged_in().await? {
@@ -593,7 +593,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn recovery_key_verification(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: RecoveryKeyVerificationRequest,
     ) -> Result<VerificationEndEvent> {
         let client = self.get_client_logged_in().await?;
@@ -613,7 +613,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn cross_signing_start(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
         self.cleanup_verifications();
@@ -654,7 +654,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn cross_signing_select_method(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
         let _ = self.get_client_logged_in().await?;
@@ -684,7 +684,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn cross_signing_confirm(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: CrossSigningConfirmRequest,
     ) -> Result<()> {
         let _ = self.get_client_logged_in().await?;
@@ -709,7 +709,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn abort_verification(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
         let _ = self.get_client_logged_in().await?;
@@ -742,7 +742,7 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn get_user(&mut self, _ctx: ClientContext, request: UserRequest) -> Result<User> {
+    async fn get_user(&mut self, _ctx: RequestContext, request: UserRequest) -> Result<User> {
         let InitializedData {
             client,
             media_manager,
@@ -773,7 +773,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn search_users(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: UserSearchRequest,
     ) -> Result<UserSearchResponse> {
         let InitializedData {
@@ -807,7 +807,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(UserSearchResponse { user_list: result })
     }
 
-    async fn set_status(&mut self, _ctx: ClientContext, request: UserStatus) -> Result<()> {
+    async fn set_status(&mut self, _ctx: RequestContext, request: UserStatus) -> Result<()> {
         use matrix_sdk::ruma::api::client::presence::set_presence::v3::Request;
 
         let InitializedData {
@@ -842,7 +842,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_public_rooms(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: PublicRoomListRequest,
     ) -> Result<PublicRoomListResponse> {
         use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
@@ -881,7 +881,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn invite(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
         let room = self.get_matrix_room(&request.room_id).await?;
@@ -909,7 +909,7 @@ impl ClientAbstraction for MatrixClient {
         )
     }
 
-    async fn invitation_reply(&mut self, ctx: ClientContext, request: InvitedReply) -> Result<()> {
+    async fn invitation_reply(&mut self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
         let InitializedData {
             client,
             media_manager,
@@ -953,7 +953,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_rooms(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomListRequest,
     ) -> Result<RoomListResponse> {
         let initialized_data = self.get_initialized_data_logged_in().await?;
@@ -991,7 +991,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn create_group_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomCreateGroupRequest,
     ) -> Result<Room> {
         let InitializedData {
@@ -1042,7 +1042,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn create_direct_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomCreateDirectRequest,
     ) -> Result<Room> {
         let InitializedData {
@@ -1082,7 +1082,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn change_room(
         &mut self,
-        ctx: ClientContext,
+        ctx: RequestContext,
         request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
         let RoomChangeRequest {
@@ -1140,7 +1140,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn leave_room(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
         let room = self.get_matrix_room(&request.room_id).await?;
@@ -1156,7 +1156,7 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn join_room(&mut self, _ctx: ClientContext, request: RoomJoinRequest) -> Result<Room> {
+    async fn join_room(&mut self, _ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
         let InitializedData {
             client,
             media_manager,
@@ -1178,7 +1178,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(rooms::convert_to_proto(media_manager, room, &user_id).await?)
     }
 
-    async fn knock_room(&mut self, _ctx: ClientContext, request: RoomKnockRequest) -> Result<()> {
+    async fn knock_room(&mut self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
         let client = self.get_client_logged_in().await?;
 
         let RoomKnockRequest { room_id, message } = request;
@@ -1196,7 +1196,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_room_messages(
         &mut self,
-        ctx: &ClientContext,
+        ctx: &RequestContext,
         request: &RoomMessagesRequest,
     ) -> Result<()> {
         let InitializedData {
@@ -1334,7 +1334,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn mark_as_read(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: RoomMarkAsReadRequest,
     ) -> Result<RoomChangeEvent> {
         use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
@@ -1370,7 +1370,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn send_message(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
         use message_send_request::Content;
@@ -1412,7 +1412,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn remove_message(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: MessageRemoveRequest,
     ) -> Result<()> {
         let MessageRemoveRequest {
@@ -1434,7 +1434,7 @@ impl ClientAbstraction for MatrixClient {
 
     async fn change_message(
         &mut self,
-        _ctx: ClientContext,
+        _ctx: RequestContext,
         request: MessageChangeRequest,
     ) -> Result<()> {
         use message_change_request::Content;
@@ -1494,7 +1494,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn create_reaction(&mut self, _ctx: ClientContext, request: Reaction) -> Result<()> {
+    async fn create_reaction(&mut self, _ctx: RequestContext, request: Reaction) -> Result<()> {
         let Reaction {
             room_id,
             message_id,
@@ -1516,7 +1516,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn remove_reaction(&mut self, ctx: ClientContext, request: Reaction) -> Result<()> {
+    async fn remove_reaction(&mut self, ctx: RequestContext, request: Reaction) -> Result<()> {
         let Reaction {
             room_id,
             message_id,
