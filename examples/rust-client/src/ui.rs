@@ -1,5 +1,5 @@
 use egui::Widget;
-use mrhc_proto::chat::*;
+use gouda_proto::chat::*;
 
 macro_rules! input_attribute {
     ($self:ident, $ui:ident, $attr:ident) => {

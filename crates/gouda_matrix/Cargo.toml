@@ -1,0 +1,47 @@
+[package]
+name = "gouda_matrix"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[dependencies]
+gouda_core.workspace = true
+gouda_proto.workspace = true
+
+tokio.workspace = true
+
+interprocess.workspace = true
+clap.workspace = true
+
+log.workspace = true
+log4rs.workspace = true
+
+prost.workspace = true
+
+async-trait.workspace = true
+
+js_int.workspace = true
+matrix-sdk.workspace = true
+matrix-sdk-base.workspace = true
+matrix-sdk-common.workspace = true
+matrix-sdk-crypto.workspace = true
+ruma-common.workspace = true
+url.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
+
+aes-gcm.workspace = true
+argon2.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+
+futures-util.workspace = true
+infer.workspace = true
+
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tempdir.workspace = true
+test-log.workspace = true

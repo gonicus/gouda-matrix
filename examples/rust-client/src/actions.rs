@@ -1,8 +1,8 @@
 use std::io::Write;
 
+use gouda_proto::chat::request_container::Content as RequestContent;
+use gouda_proto::chat::*;
 use interprocess::local_socket::SendHalf;
-use mrhc_proto::chat::request_container::Content as RequestContent;
-use mrhc_proto::chat::*;
 use prost::Message;
 use strum_macros::{Display, EnumString};
 

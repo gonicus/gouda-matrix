@@ -4,7 +4,7 @@ edition = "2024"
 version.workspace = true
 
 [dependencies]
-mrhc_proto.workspace = true
+gouda_proto.workspace = true
 
 egui = "0.33"
 eframe = { version = "0.33", default-features = false, features = ["persistence", "glow", "wayland", "x11"] }

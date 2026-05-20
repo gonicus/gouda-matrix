@@ -1,8 +1,8 @@
 use std::io::Read;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use gouda_proto::chat::{RequestContainer, ResponseContainer, response_container};
 use interprocess::local_socket::RecvHalf;
-use mrhc_proto::chat::{RequestContainer, ResponseContainer, response_container};
 use prost::Message;
 
 const LOG_SPACING: f32 = 10.0;
