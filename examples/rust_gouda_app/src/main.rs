@@ -4,8 +4,7 @@ mod config;
 mod input;
 mod ui;
 
-use std::path::PathBuf;
-
+use clap::Parser;
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, RecvHalf, SendHalf};
 
@@ -13,15 +12,30 @@ use crate::communication::OutputWindow;
 use crate::config::Config;
 use crate::input::InputWindow;
 
-const CONFIG_FILE_NAME: &str = "config.json";
+const fn config_default_path() -> &'static str {
+    concat!(env!("CARGO_MANIFEST_DIR"), "/config.json")
+}
+
+#[derive(Debug, Parser)]
+struct Args {
+    #[arg(help = "Path to the socket for sending requests")]
+    pub request_socket: String,
+
+    #[arg(help = "Path to the socket for receiving responses")]
+    pub response_socket: String,
+
+    #[arg(long, default_value = config_default_path(), help="The config file")]
+    pub config_file: String,
+}
 
 fn main() {
+    let args = Args::parse();
     let native_options = eframe::NativeOptions::default();
 
     eframe::run_native(
         "Rust GOuda App",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, &args)))),
     )
     .expect("Error setting up graphics context");
 }
@@ -32,8 +46,8 @@ struct App {
 }
 
 impl App {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let config = Config::read_from_file(get_config_path());
+    fn new(_cc: &eframe::CreationContext<'_>, args: &Args) -> Self {
+        let config = Config::read_from_file(&args.config_file);
 
         let (recv, send) = setup_conn();
 
@@ -101,9 +115,4 @@ fn setup_conn() -> (RecvHalf, SendHalf) {
         .split();
 
     (recv, send)
-}
-
-fn get_config_path() -> PathBuf {
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    crate_dir.join(CONFIG_FILE_NAME)
 }
