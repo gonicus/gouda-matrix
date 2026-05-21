@@ -1,0 +1,21 @@
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+name: Lint
+
+env:
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Typos
+        uses: crate-ci/typos@master
