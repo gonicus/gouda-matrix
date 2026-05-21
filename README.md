@@ -7,9 +7,9 @@ A Matrix client for the GONICUS [GOuda API](https://github.com/gonicus/gouda-pro
 
 ## Architecture
 
-GOuda Matrix acts as a bridge between a GOuda application and the Matrix protocol, implementing
-all Matrix specific operations including authentication, messaging, room management and
-end-to-end encryption.
+GOuda Matrix acts as a bridge between a GOuda application (e.g. [GOnnect](https://github.com/gonicus/gonnect)) and
+the Matrix protocol, implementing all Matrix specific operations including authentication, messaging,
+room management and end-to-end encryption.
 
 GOuda Matrix and the application communicate through two local sockets, one for
 receiving requests from the application and one for sending responses and events back.
@@ -74,15 +74,15 @@ just fmt
 
 ## Usage
 
-### Example: Rust Client
+### Example: Rust GOuda Application
 
-A reference and testing implementation for a GOuda application is provided
-in `examples/rust-client/`, demonstrating how a GOuda application can communicate with
-the GOuda Matrix over local sockets. It uses `egui` and `eframe` for a simple UI to execute
+A reference and testing implementation for a GOuda application is provided in
+[`examples/rust-gouda-app/`](./examples/rust-gouda-app/), demonstrating how a GOuda application can
+communicate with GOuda Clients over local sockets. It uses `egui` and `eframe` for a simple UI to execute
 requests and display received responses.
 
 ```bash
-cargo run --bin rust-client /tmp/gouda-request-socket /tmp/gouda-response-socket
+cargo run --bin rust-gouda-app /tmp/gouda-request-socket /tmp/gouda-response-socket
 ```
 
 ### Running the Matrix Client
