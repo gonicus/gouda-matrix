@@ -4,12 +4,16 @@ mod config;
 mod input;
 mod ui;
 
+use std::path::PathBuf;
+
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, RecvHalf, SendHalf};
 
 use crate::communication::OutputWindow;
 use crate::config::Config;
 use crate::input::InputWindow;
+
+const CONFIG_FILE_NAME: &str = "config.json";
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
@@ -29,7 +33,7 @@ struct App {
 
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let config = Config::read_from_file("config.json");
+        let config = Config::read_from_file(get_config_path());
 
         let (recv, send) = setup_conn();
 
@@ -97,4 +101,9 @@ fn setup_conn() -> (RecvHalf, SendHalf) {
         .split();
 
     (recv, send)
+}
+
+fn get_config_path() -> PathBuf {
+    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    crate_dir.join(CONFIG_FILE_NAME)
 }
