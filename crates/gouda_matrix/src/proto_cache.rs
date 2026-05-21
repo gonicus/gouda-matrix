@@ -5,7 +5,7 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use tokio::sync::RwLock;
 
-use crate::crypto;
+use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
 const SAVE_INTERVAL_SECONDS: u64 = 300;
@@ -200,6 +200,11 @@ impl ProtoCacheInner {
     /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn from_directory(cache_directory: PathBuf, cache_passphrase: String) -> Self {
         Self::initialize_directory(&cache_directory).await;
+
+        debug_assert_or_log!(
+            cache_directory.is_absolute(),
+            "Received a relative cache directory"
+        );
 
         let mut obj = Self {
             passphrase: cache_passphrase,
