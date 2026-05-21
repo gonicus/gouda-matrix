@@ -116,3 +116,13 @@ fn setup_conn() -> (RecvHalf, SendHalf) {
 
     (recv, send)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        Config::read_from_file(config_default_path());
+    }
+}
