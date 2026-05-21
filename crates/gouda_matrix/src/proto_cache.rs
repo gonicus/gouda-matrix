@@ -10,8 +10,8 @@ use crate::crypto;
 /// Save the cache every x seconds.
 const SAVE_INTERVAL_SECONDS: u64 = 300;
 
-const CACHE_INFO_FILE: &str = "info";
-const CACHE_ROOM_FILE: &str = "rooms";
+const CACHED_INFO_FILE: &str = "info";
+const CACHED_ROOMS_FILE: &str = "rooms";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProtoCacheError {
@@ -186,8 +186,8 @@ impl ProtoCacheInner {
 
         let mut obj = Self {
             passphrase: cache_passphrase,
-            info_file: cache_directory.join(CACHE_INFO_FILE),
-            rooms_file: cache_directory.join(CACHE_ROOM_FILE),
+            info_file: cache_directory.join(CACHED_INFO_FILE),
+            rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
 
             info: Info::default(),
             cached_rooms: None,
