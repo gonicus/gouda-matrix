@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "crates/*",
-  "examples/rust-client",
+  "examples/rust-gouda-app",
 ]
 resolver = "2"
 
