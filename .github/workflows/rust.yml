@@ -4,6 +4,13 @@ on:
       - main
 
   pull_request:
+    paths:
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain*'
+      - '.github/workflows/**'
+      - 'protos/**'
 
 name: Rust
 
