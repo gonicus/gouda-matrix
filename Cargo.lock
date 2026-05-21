@@ -4755,9 +4755,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-gouda-app"
+name = "rust_gouda_app"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "eframe",
  "egui",
  "gouda_proto",

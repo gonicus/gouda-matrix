@@ -78,12 +78,12 @@ just fmt
 ### Example: Rust GOuda Application
 
 A reference and testing implementation for a GOuda application is provided in
-[`examples/rust-gouda-app/`](./examples/rust-gouda-app/), demonstrating how a GOuda application can
+[`examples/rust_gouda_app/`](./examples/rust_gouda_app/), demonstrating how a GOuda application can
 communicate with GOuda Clients over local sockets. It uses `egui` and `eframe` for a simple UI to execute
 requests and display received responses.
 
 ```bash
-cargo run --bin rust-gouda-app /tmp/gouda-request-socket /tmp/gouda-response-socket
+cargo run --bin rust_gouda_app /tmp/gouda-request-socket /tmp/gouda-response-socket
 ```
 
 ### Running GOuda Matrix
