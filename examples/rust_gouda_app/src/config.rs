@@ -40,7 +40,7 @@ impl Config {
     pub fn read_from_file(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref();
         println!("Reading config file at {path:?}");
-        let json = std::fs::read_to_string(path).expect(&format!("Error reading {path:?}"));
+        let json = std::fs::read_to_string(path).expect("Error reading config file");
         serde_json::from_str(&json).expect("Error parsing config file")
     }
 }
