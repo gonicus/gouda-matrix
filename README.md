@@ -16,15 +16,16 @@ receiving requests from the application and one for sending responses and events
 For both sockets the application acts as the server, while GOuda Matrix is the client connecting
 to the local socket.
 
-```mermaidjs
+```mermaid
 flowchart LR
-  A["GOuda Application<br/>e.g. GOnnect"]
-  B["GOuda Matrix"]
-  C["Matrix"]
 
-  A -- "Local Socket for Requests" --> B
-  B -- "Local Socket for Responses" --> A
-  B <--> C
+A["GOuda Application<br/>e.g. GOnnect"]
+B["GOuda Matrix"]
+C["Matrix"]
+
+A -- "Local Socket for Requests" --> B
+B -- "Local Socket for Responses" --> A
+B <--> C
 ```
 
 ## Crates
@@ -85,7 +86,9 @@ requests and display received responses.
 cargo run --bin rust-gouda-app /tmp/gouda-request-socket /tmp/gouda-response-socket
 ```
 
-### Running the Matrix Client
+### Running GOuda Matrix
+
+Once both local sockets are available for connection, GOuda Matrix can be started.
 
 ```bash
 cargo run --bin gouda_matrix /tmp/gouda-request-socket /tmp/gouda-response-socket
