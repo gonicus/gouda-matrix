@@ -14,12 +14,10 @@ use crate::input::InputWindow;
 fn main() {
     let native_options = eframe::NativeOptions::default();
 
-    let (recv, send) = setup_conn();
-
     eframe::run_native(
-        "Rust Matrix Client",
+        "Rust GOuda App",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, recv, send)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
     .expect("Error setting up graphics context");
 }
@@ -30,8 +28,10 @@ struct App {
 }
 
 impl App {
-    fn new(_cc: &eframe::CreationContext<'_>, recv: RecvHalf, send: SendHalf) -> Self {
+    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let config = Config::read_from_file("config.json");
+
+        let (recv, send) = setup_conn();
 
         let (output_window, output_sender) = OutputWindow::new(recv);
         let input_window = InputWindow::new(config, send, output_sender);

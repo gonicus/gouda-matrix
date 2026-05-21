@@ -38,7 +38,9 @@ pub struct Config {
 
 impl Config {
     pub fn read_from_file(path: impl AsRef<Path>) -> Self {
-        let contents = std::fs::read_to_string(path).expect("Error reading config file");
+        let path = path.as_ref();
+        let contents =
+            std::fs::read_to_string(path).expect(&format!("Error reading config file {path:?}"));
         serde_json::from_str(&contents).expect("Error parsing config file")
     }
 }
