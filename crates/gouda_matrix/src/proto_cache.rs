@@ -12,6 +12,7 @@ const SAVE_INTERVAL_SECONDS: u64 = 300;
 
 const CACHED_INFO_FILE: &str = "info";
 const CACHED_ROOMS_FILE: &str = "rooms";
+const CACHED_USERS_FILE: &str = "users";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProtoCacheError {
@@ -51,6 +52,12 @@ pub struct ProtoCache {
 }
 
 impl ProtoCache {
+    /// Creates a new [`ProtoCache`] object.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_directory` - The absolute path to the persistent cache directory.
+    /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn new(
         cache_directory: impl Into<PathBuf>,
         cache_passphrase: impl Into<String>,
@@ -173,14 +180,24 @@ struct ProtoCacheInner {
     info_file: PathBuf,
     /// The absolute path to the file where the cached rooms are stored.
     rooms_file: PathBuf,
+    /// The absolute path to the file where the cached users are stored.
+    users_file: PathBuf,
 
     /// The persistent stored data.
     info: Info,
     /// The rooms that have been cached.
     cached_rooms: Option<Vec<Room>>,
+    /// The users that have been cached.
+    cached_users: Option<Vec<User>>,
 }
 
 impl ProtoCacheInner {
+    /// Creates a new [`ProtoCacheInner`] object.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_directory` - The absolute path to the persistent cache directory.
+    /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn from_directory(cache_directory: PathBuf, cache_passphrase: String) -> Self {
         Self::initialize_directory(&cache_directory).await;
 
@@ -188,9 +205,11 @@ impl ProtoCacheInner {
             passphrase: cache_passphrase,
             info_file: cache_directory.join(CACHED_INFO_FILE),
             rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
+            users_file: cache_directory.join(CACHED_USERS_FILE),
 
             info: Info::default(),
             cached_rooms: None,
+            cached_users: None,
         };
 
         obj.read_from_file_system().await;
@@ -211,6 +230,10 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.read_rooms().await {
             log::error!("Error reading cached rooms from the file system: {err}");
+        }
+
+        if let Err(err) = self.read_users().await {
+            log::error!("Error reading cached users from the file system: {err}");
         }
     }
 
@@ -242,6 +265,20 @@ impl ProtoCacheInner {
         Ok(())
     }
 
+    /// Reads the cached users from the file system.
+    async fn read_users(&mut self) -> Result<()> {
+        log::info!("Reading cached users from: {:?}", &self.users_file);
+
+        let encoded = crypto::decrypt_file(&self.users_file, &self.passphrase).await?;
+        let decoded = decode_proto_messages::<User>(&encoded)?;
+
+        log::info!("Successfully read cached users");
+
+        self.cached_users = Some(decoded);
+
+        Ok(())
+    }
+
     /// Saves the cache to the file system.
     pub async fn save(&self) {
         log::info!("Persisting cache");
@@ -255,6 +292,11 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.write_rooms().await {
             log::error!("Error persisting cached rooms: {err}");
+            return;
+        }
+
+        if let Err(err) = self.write_users().await {
+            log::error!("Error persisting cached users: {err}");
             return;
         }
 
@@ -273,6 +315,20 @@ impl ProtoCacheInner {
 
         let encoded = encode_proto_messages(rooms);
         crypto::encrypt_to_file(&self.rooms_file, &self.passphrase, encoded).await?;
+
+        Ok(())
+    }
+
+    async fn write_users(&self) -> Result<()> {
+        log::info!("Persisting cached users");
+
+        let Some(users) = &self.cached_users else {
+            log::info!("No users to cache, nothing to do");
+            return Ok(());
+        };
+
+        let encoded = encode_proto_messages(users);
+        crypto::encrypt_to_file(&self.users_file, &self.passphrase, encoded).await?;
 
         Ok(())
     }
