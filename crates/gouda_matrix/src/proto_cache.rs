@@ -134,6 +134,11 @@ impl ProtoCache {
         Some(rooms.clone())
     }
 
+    /// Gets a cached user.
+    pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
+        self.inner.read().await.get_user(user_id.as_ref()).cloned()
+    }
+
     /// Cache the specified room.
     async fn cache_room(&self, room: Room) {
         log::debug!("Caching room: {room:?}");
@@ -163,20 +168,15 @@ impl ProtoCache {
     }
 
     /// Caches a user.
-    pub async fn cache_user(&self, user: User) {
+    async fn cache_user(&self, user: User) {
         log::debug!("Caching user: {user:?}");
         self.inner.write().await.cache_user(user);
     }
 
     /// Updates an already cached user, if the user exists.
-    pub async fn update_user(&self, event: UserChangeEvent) {
+    async fn update_user(&self, event: UserChangeEvent) {
         log::debug!("Updating user: {event:?}");
         self.inner.write().await.update_user(event);
-    }
-
-    /// Gets a cached user.
-    pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
-        self.inner.read().await.get_user(user_id.as_ref()).cloned()
     }
 }
 
