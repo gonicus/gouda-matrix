@@ -155,6 +155,20 @@ impl UserChangeEventBuilder {
         }
     }
 
+    pub fn compare_users(old: &User, new: &User) -> Self {
+        let mut obj = Self::new(new.user_id.clone());
+
+        if old.display_name != new.display_name {
+            obj = obj.change_display_name(new.display_name.clone().unwrap_or_default());
+        }
+
+        if old.avatar_path != new.avatar_path {
+            obj = obj.change_avatar_path(new.avatar_path.clone().unwrap_or_default());
+        }
+
+        obj
+    }
+
     pub fn change_status(mut self, status: UserStatus) -> Self {
         self.status = Some(status);
         self

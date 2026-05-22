@@ -1,15 +1,111 @@
-use gouda_core::Result;
+use gouda_core::{RequestContext, Result};
+use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::message_content_membership_change::MembershipChange;
 use gouda_proto::chat::*;
-use matrix_sdk::ruma::api::client::profile::ProfileFieldValue;
+use matrix_sdk::ruma::api::client::profile::{DisplayName, ProfileFieldValue};
 use matrix_sdk::ruma::events::room::member::{
     MembershipChange as MatrixMembershipChange, MembershipState,
 };
 use matrix_sdk::Client;
 use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
+use gouda_proto::chat::response_container::Content as ResponseContent;
 
+use crate::client::InitializedData;
+use crate::media::MediaManager;
+use crate::proto_cache::ProtoCache;
 use crate::{errors, unwrap_or_log_return_err};
+
+#[derive(Clone)]
+pub struct UserManager {
+    context: RequestContext,
+    client: Client,
+    proto_cache: ProtoCache,
+    media_manager: MediaManager,
+}
+
+impl UserManager {
+    pub fn from_initialized_data(
+        context: RequestContext,
+        initialized_data: &InitializedData,
+    ) -> Self {
+        Self {
+            context,
+            client: initialized_data.client.clone(),
+            proto_cache: initialized_data.proto_cache.clone(),
+            media_manager: initialized_data.media_manager.clone(),
+        }
+    }
+
+    /// Gets and syncs a user.
+    /// If the user is already stored in the cache, they will be retrieved from the cache and
+    /// synced in the background. If the user has not yet been cached, thismethod
+    /// retrieves the user from the server and blocks once all data has been retrieved.
+    pub async fn get_and_sync_user(&self, user_id: OwnedUserId) -> Result<User> {
+        match self.proto_cache.cached_user(&user_id).await {
+            Some(user) => {
+                self.clone().sync_cached_user(user_id);
+                Ok(user)
+            }
+            None => {
+                let user = self.fetch_user(&user_id).await?;
+                self.proto_cache.cache_user(user.clone()).await;
+                Ok(user)
+            }
+        }
+    }
+
+    /// Fetches a user from the matrix server. Blocks until all
+    /// data is received.
+    async fn fetch_user(&self, user_id: &UserId) -> Result<User> {
+        let profile = self
+            .client
+            .account()
+            .fetch_user_profile_of(&user_id)
+            .await
+            .map_err(|_| errors::create_error(ErrorType::UserNotFound))?;
+
+        let display_name = profile.get_static::<DisplayName>().unwrap_or_default();
+
+        let proto = User {
+            user_id: user_id.to_string(),
+            display_name,
+            presence_state: Some(fetch_presence_state(&self.client, &user_id).await.into()),
+            avatar_path: self.media_manager.get_user_avatar_path(user_id.to_owned()).await,
+        };
+
+        Ok(proto)
+    }
+
+    /// Sync the given user in the background.
+    async fn sync_cached_user(self, user_id: OwnedUserId) {
+        tokio::spawn(async move {
+            log::info!("Syncing cached user {user_id} in the background");
+
+            let fetched = match self.fetch_user(&user_id).await {
+                Ok(fetched) => fetched,
+                Err(err) => {
+                    log::error!("Error syncing cached user: {err}");
+                    return;
+                }
+            };
+
+            let cached = self.proto_cache.cached_user(user_id).await.unwrap_or_default();
+
+            if cached != fetched {
+                log::debug!(
+                    "Cached user is no longer up to date. Old: {cached:?} new: {fetched:?}"
+                );
+
+                let proto = builder::UserChangeEventBuilder::compare_users(&cached, &fetched)
+                    .to_proto();
+                self.context.send_event(ResponseContent::UserChangeEvent(proto)).await;
+
+                self.proto_cache.cache_user(fetched).await;
+            }
+        });
+    }
+}
 
 /// Converts a membership state to a room state.
 pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -> UserRoomState {

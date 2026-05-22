@@ -114,6 +114,12 @@ impl ProtoCache {
             ResponseContent::RoomChangeEvent(event) => {
                 self.update_room(event.clone()).await;
             }
+            ResponseContent::UserResponse(user) => {
+                self.cache_user(user.clone()).await;
+            }
+            ResponseContent::UserChangeEvent(event) => {
+                self.update_user(event.clone()).await;
+            }
             _ => (),
         }
     }
@@ -161,17 +167,17 @@ impl ProtoCache {
     }
 
     /// Caches a user.
-    async fn cache_user(&self, user: User) {
+    pub async fn cache_user(&self, user: User) {
         self.inner.write().await.cache_user(user);
     }
 
     /// Updates an already cached user, if the user exists.
-    async fn update_user(&self, event: UserChangeEvent) {
+    pub async fn update_user(&self, event: UserChangeEvent) {
         self.inner.write().await.update_user(event);
     }
 
     /// Gets a cached user.
-    async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
+    pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
         self.inner.read().await.get_user(user_id.as_ref()).cloned()
     }
 }
