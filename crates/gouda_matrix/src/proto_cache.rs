@@ -126,12 +126,6 @@ impl ProtoCache {
         }
     }
 
-    /// Overwrites all cached rooms with the given rooms.
-    pub async fn overwrite_rooms(&self, rooms: Vec<Room>) {
-        log::debug!("Overwriting all cached rooms with: {rooms:?}");
-        self.inner.write().await.overwrite_rooms(rooms);
-    }
-
     /// Gets all cached rooms.
     /// None is returned if no rooms have been cached previously.
     pub async fn cached_rooms(&self) -> Option<Vec<Room>> {
@@ -388,11 +382,6 @@ impl ProtoCacheInner {
 
     pub fn user_status_mut(&mut self) -> &mut Option<UserStatus> {
         &mut self.info.user_status
-    }
-
-    pub fn overwrite_rooms(&mut self, rooms: Vec<Room>) {
-        let old = self.cached_rooms.get_or_insert_default();
-        *old = rooms;
     }
 
     pub fn cache_room(&mut self, room: Room) {
