@@ -65,6 +65,8 @@ impl RoomManager {
     /// Fetches all rooms from the matrix server and blocks until
     /// all rooms have been retrieved and converted to proto objects.
     async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
+        log::debug!("Fetching all known rooms from matrix server");
+
         let Some(user_id) = self.client.user_id() else {
             return Err(errors::create_error(ErrorType::Authorization));
         };

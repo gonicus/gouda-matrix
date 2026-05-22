@@ -58,6 +58,8 @@ impl UserManager {
     /// Fetches a user from the matrix server. Blocks until all
     /// data is received.
     async fn fetch_user(&self, user_id: &UserId) -> Result<User> {
+        log::debug!("Fetching user {user_id} from matrix server");
+
         let profile = self
             .client
             .account()
@@ -106,11 +108,14 @@ impl UserManager {
 
                 let proto =
                     builder::UserChangeEventBuilder::compare_users(&cached, &fetched).to_proto();
+
                 self.context
                     .send_event(ResponseContent::UserChangeEvent(proto))
                     .await;
 
                 self.proto_cache.cache_user(fetched).await;
+            } else {
+                log::debug!("Cached user is still up to date");
             }
         });
     }

@@ -88,6 +88,7 @@ impl ProtoCache {
     }
 
     pub async fn set_sync_token(&self, sync_token: String) {
+        log::debug!("Updating sync token");
         *self.inner.write().await.sync_token_mut() = Some(sync_token);
     }
 
@@ -96,6 +97,7 @@ impl ProtoCache {
     }
 
     pub async fn set_user_status(&self, user_status: UserStatus) {
+        log::debug!("Caching user status: {user_status:?}");
         *self.inner.write().await.user_status_mut() = Some(user_status)
     }
 
@@ -168,11 +170,13 @@ impl ProtoCache {
 
     /// Caches a user.
     pub async fn cache_user(&self, user: User) {
+        log::debug!("Caching user: {user:?}");
         self.inner.write().await.cache_user(user);
     }
 
     /// Updates an already cached user, if the user exists.
     pub async fn update_user(&self, event: UserChangeEvent) {
+        log::debug!("Updating user: {event:?}");
         self.inner.write().await.update_user(event);
     }
 
