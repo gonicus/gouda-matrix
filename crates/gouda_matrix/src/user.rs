@@ -81,7 +81,7 @@ impl UserManager {
     }
 
     /// Sync the given user in the background.
-    async fn sync_cached_user(self, user_id: OwnedUserId) {
+    fn sync_cached_user(self, user_id: OwnedUserId) {
         tokio::spawn(async move {
             log::info!("Syncing cached user {user_id} in the background");
 
