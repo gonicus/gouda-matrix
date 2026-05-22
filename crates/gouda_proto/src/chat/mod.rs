@@ -111,16 +111,36 @@ impl RoomChangeEvent {
             room.permissions = Some(permissions);
         }
 
-        if let Some(avatar_path) = self.avatar_path.clone() {
+        if let Some(avatar_path) = &self.avatar_path {
             if avatar_path.is_empty() {
                 room.avatar_path = None;
             } else {
-                room.avatar_path = Some(avatar_path);
+                room.avatar_path = Some(avatar_path.clone());
             }
         }
 
         if let Some(is_favorite) = self.is_favorite {
             room.is_favorite = is_favorite;
+        }
+    }
+}
+
+impl UserChangeEvent {
+    pub fn update_user(&self, user: &mut User) {
+        if let Some(display_name) = &self.display_name {
+            if display_name.is_empty() {
+                user.display_name = None;
+            } else {
+                user.display_name = Some(display_name.clone());
+            }
+        }
+
+        if let Some(avatar_path) = &self.avatar_path {
+            if avatar_path.is_empty() {
+                user.avatar_path = None;
+            } else {
+                user.avatar_path = Some(avatar_path.clone());
+            }
         }
     }
 }

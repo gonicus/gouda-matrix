@@ -159,6 +159,21 @@ impl ProtoCache {
         log::debug!("Removing cached room: {room_id:?}");
         self.inner.write().await.remove_room(room_id);
     }
+
+    /// Caches a user.
+    async fn cache_user(&self, user: User) {
+        self.inner.write().await.cache_user(user);
+    }
+
+    /// Updates an already cached user, if the user exists.
+    async fn update_user(&self, event: UserChangeEvent) {
+        self.inner.write().await.update_user(event);
+    }
+
+    /// Gets a cached user.
+    async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
+        self.inner.read().await.get_user(user_id.as_ref()).cloned()
+    }
 }
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
@@ -381,7 +396,7 @@ impl ProtoCacheInner {
     }
 
     pub fn update_room(&mut self, event: RoomChangeEvent) {
-        let Some(room) = self.get_room(&event.room_id) else {
+        let Some(room) = self.get_room_mut(&event.room_id) else {
             log::error!("Unable to update room because it is not known to the cache");
             return;
         };
@@ -399,9 +414,45 @@ impl ProtoCacheInner {
         self.cached_rooms.as_ref()
     }
 
-    fn get_room(&mut self, room_id: &str) -> Option<&mut Room> {
+    fn get_room_mut(&mut self, room_id: &str) -> Option<&mut Room> {
         if let Some(rooms) = &mut self.cached_rooms {
             rooms.iter_mut().find(|p| p.room_id == room_id)
+        } else {
+            None
+        }
+    }
+
+    pub fn cache_user(&mut self, user: User) {
+        let users = self.cached_users.get_or_insert_default();
+
+        if let Some(existing) = users.iter_mut().find(|p| p.user_id == user.user_id) {
+            *existing = user;
+        } else {
+            users.push(user);
+        }
+    }
+
+    pub fn update_user(&mut self, event: UserChangeEvent) {
+        let Some(user) = self.get_user_mut(&event.user_id) else {
+            // We don't log any errors here, as it is expected that we may receive
+            // user change events from users we have not interacted with.
+            return;
+        };
+
+        event.update_user(user);
+    }
+
+    pub fn get_user(&self, user_id: &str) -> Option<&User> {
+        if let Some(users) = &self.cached_users {
+            users.iter().find(|p| p.user_id == user_id)
+        } else {
+            None
+        }
+    }
+
+    fn get_user_mut(&mut self, user_id: &str) -> Option<&mut User> {
+        if let Some(users) = &mut self.cached_users {
+            users.iter_mut().find(|p| p.user_id == user_id)
         } else {
             None
         }
