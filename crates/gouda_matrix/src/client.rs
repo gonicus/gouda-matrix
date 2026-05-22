@@ -8,7 +8,6 @@ use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::api::client::profile::DisplayName;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;

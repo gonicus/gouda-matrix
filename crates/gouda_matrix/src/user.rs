@@ -61,7 +61,7 @@ impl UserManager {
         let profile = self
             .client
             .account()
-            .fetch_user_profile_of(&user_id)
+            .fetch_user_profile_of(user_id)
             .await
             .map_err(|_| errors::create_error(ErrorType::UserNotFound))?;
 
@@ -70,7 +70,7 @@ impl UserManager {
         let proto = User {
             user_id: user_id.to_string(),
             display_name,
-            presence_state: Some(fetch_presence_state(&self.client, &user_id).await.into()),
+            presence_state: Some(fetch_presence_state(&self.client, user_id).await.into()),
             avatar_path: self
                 .media_manager
                 .get_user_avatar_path(user_id.to_owned())
