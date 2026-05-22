@@ -39,7 +39,7 @@ impl UserManager {
 
     /// Gets and syncs a user.
     /// If the user is already stored in the cache, they will be retrieved from the cache and
-    /// synced in the background. If the user has not yet been cached, thismethod
+    /// synced in the background. If the user has not yet been cached, this method
     /// retrieves the user from the server and blocks once all data has been retrieved.
     pub async fn get_and_sync_user(&self, user_id: OwnedUserId) -> Result<User> {
         match self.proto_cache.cached_user(&user_id).await {
@@ -51,7 +51,6 @@ impl UserManager {
             None => {
                 log::debug!("User has not been cached before");
                 let user = self.fetch_user(&user_id).await?;
-                self.proto_cache.cache_user(user.clone()).await;
                 Ok(user)
             }
         }

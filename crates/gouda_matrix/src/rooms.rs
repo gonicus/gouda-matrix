@@ -58,7 +58,6 @@ impl RoomManager {
             None => {
                 log::debug!("Rooms have not been cached before");
                 let room_list = self.fetch_all_rooms().await?;
-                self.proto_cache.overwrite_rooms(room_list.clone()).await;
                 Ok(room_list)
             }
         }
