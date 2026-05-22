@@ -1,6 +1,7 @@
 use gouda_core::{RequestContext, Result};
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::message_content_membership_change::MembershipChange;
+use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::profile::{DisplayName, ProfileFieldValue};
 use matrix_sdk::ruma::events::room::member::{
@@ -9,7 +10,6 @@ use matrix_sdk::ruma::events::room::member::{
 use matrix_sdk::Client;
 use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
-use gouda_proto::chat::response_container::Content as ResponseContent;
 
 use crate::client::InitializedData;
 use crate::media::MediaManager;
@@ -71,7 +71,10 @@ impl UserManager {
             user_id: user_id.to_string(),
             display_name,
             presence_state: Some(fetch_presence_state(&self.client, &user_id).await.into()),
-            avatar_path: self.media_manager.get_user_avatar_path(user_id.to_owned()).await,
+            avatar_path: self
+                .media_manager
+                .get_user_avatar_path(user_id.to_owned())
+                .await,
         };
 
         Ok(proto)
@@ -90,16 +93,22 @@ impl UserManager {
                 }
             };
 
-            let cached = self.proto_cache.cached_user(user_id).await.unwrap_or_default();
+            let cached = self
+                .proto_cache
+                .cached_user(user_id)
+                .await
+                .unwrap_or_default();
 
             if cached != fetched {
                 log::debug!(
                     "Cached user is no longer up to date. Old: {cached:?} new: {fetched:?}"
                 );
 
-                let proto = builder::UserChangeEventBuilder::compare_users(&cached, &fetched)
-                    .to_proto();
-                self.context.send_event(ResponseContent::UserChangeEvent(proto)).await;
+                let proto =
+                    builder::UserChangeEventBuilder::compare_users(&cached, &fetched).to_proto();
+                self.context
+                    .send_event(ResponseContent::UserChangeEvent(proto))
+                    .await;
 
                 self.proto_cache.cache_user(fetched).await;
             }
