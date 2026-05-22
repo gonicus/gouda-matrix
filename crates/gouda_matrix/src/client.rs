@@ -8,7 +8,6 @@ use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::api::client::profile::DisplayName;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
@@ -22,6 +21,7 @@ use crate::media::MediaManager;
 use crate::memory_cache::MemoryCache;
 use crate::proto_cache::ProtoCache;
 use crate::session::Session;
+use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
 use crate::{debug_assert_or_log, errors, memory_cache, messages, rooms, user};
 
@@ -742,33 +742,15 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn get_user(&mut self, _ctx: RequestContext, request: UserRequest) -> Result<User> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+    async fn get_user(&mut self, ctx: RequestContext, request: UserRequest) -> Result<User> {
+        let initialized_data = self.get_initialized_data_logged_in().await?;
 
         let user_id = UserId::parse(request.user_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
             .to_owned();
 
-        let profile = client
-            .account()
-            .fetch_user_profile_of(&user_id)
-            .await
-            .map_err(|_| errors::create_error(ErrorType::UserNotFound))?;
-
-        let display_name = profile.get_static::<DisplayName>().unwrap_or_default();
-
-        let proto = User {
-            user_id: user_id.to_string(),
-            display_name,
-            presence_state: Some(user::fetch_presence_state(client, &user_id).await.into()),
-            avatar_path: media_manager.get_user_avatar_path(user_id.clone()).await,
-        };
-
-        Ok(proto)
+        let user_manager = UserManager::from_initialized_data(ctx, initialized_data);
+        user_manager.get_and_sync_user(user_id).await
     }
 
     async fn search_users(

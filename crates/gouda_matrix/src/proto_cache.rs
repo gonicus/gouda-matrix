@@ -5,13 +5,14 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use tokio::sync::RwLock;
 
-use crate::crypto;
+use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
 const SAVE_INTERVAL_SECONDS: u64 = 300;
 
-const CACHE_INFO_FILE: &str = "info";
-const CACHE_ROOM_FILE: &str = "rooms";
+const CACHED_INFO_FILE: &str = "info";
+const CACHED_ROOMS_FILE: &str = "rooms";
+const CACHED_USERS_FILE: &str = "users";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProtoCacheError {
@@ -51,6 +52,12 @@ pub struct ProtoCache {
 }
 
 impl ProtoCache {
+    /// Creates a new [`ProtoCache`] object.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_directory` - The absolute path to the persistent cache directory.
+    /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn new(
         cache_directory: impl Into<PathBuf>,
         cache_passphrase: impl Into<String>,
@@ -81,6 +88,7 @@ impl ProtoCache {
     }
 
     pub async fn set_sync_token(&self, sync_token: String) {
+        log::debug!("Updating sync token");
         *self.inner.write().await.sync_token_mut() = Some(sync_token);
     }
 
@@ -89,6 +97,7 @@ impl ProtoCache {
     }
 
     pub async fn set_user_status(&self, user_status: UserStatus) {
+        log::debug!("Caching user status: {user_status:?}");
         *self.inner.write().await.user_status_mut() = Some(user_status)
     }
 
@@ -107,14 +116,14 @@ impl ProtoCache {
             ResponseContent::RoomChangeEvent(event) => {
                 self.update_room(event.clone()).await;
             }
+            ResponseContent::UserResponse(user) => {
+                self.cache_user(user.clone()).await;
+            }
+            ResponseContent::UserChangeEvent(event) => {
+                self.update_user(event.clone()).await;
+            }
             _ => (),
         }
-    }
-
-    /// Overwrites all cached rooms with the given rooms.
-    pub async fn overwrite_rooms(&self, rooms: Vec<Room>) {
-        log::debug!("Overwriting all cached rooms with: {rooms:?}");
-        self.inner.write().await.overwrite_rooms(rooms);
     }
 
     /// Gets all cached rooms.
@@ -123,6 +132,11 @@ impl ProtoCache {
         let reader = self.inner.read().await;
         let rooms = reader.room_list()?;
         Some(rooms.clone())
+    }
+
+    /// Gets a cached user.
+    pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
+        self.inner.read().await.get_user(user_id.as_ref()).cloned()
     }
 
     /// Cache the specified room.
@@ -152,6 +166,18 @@ impl ProtoCache {
         log::debug!("Removing cached room: {room_id:?}");
         self.inner.write().await.remove_room(room_id);
     }
+
+    /// Caches a user.
+    async fn cache_user(&self, user: User) {
+        log::debug!("Caching user: {user:?}");
+        self.inner.write().await.cache_user(user);
+    }
+
+    /// Updates an already cached user, if the user exists.
+    async fn update_user(&self, event: UserChangeEvent) {
+        log::debug!("Updating user: {event:?}");
+        self.inner.write().await.update_user(event);
+    }
 }
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
@@ -173,24 +199,41 @@ struct ProtoCacheInner {
     info_file: PathBuf,
     /// The absolute path to the file where the cached rooms are stored.
     rooms_file: PathBuf,
+    /// The absolute path to the file where the cached users are stored.
+    users_file: PathBuf,
 
     /// The persistent stored data.
     info: Info,
     /// The rooms that have been cached.
     cached_rooms: Option<Vec<Room>>,
+    /// The users that have been cached.
+    cached_users: Option<Vec<User>>,
 }
 
 impl ProtoCacheInner {
+    /// Creates a new [`ProtoCacheInner`] object.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_directory` - The absolute path to the persistent cache directory.
+    /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn from_directory(cache_directory: PathBuf, cache_passphrase: String) -> Self {
         Self::initialize_directory(&cache_directory).await;
 
+        debug_assert_or_log!(
+            cache_directory.is_absolute(),
+            "Received a relative cache directory"
+        );
+
         let mut obj = Self {
             passphrase: cache_passphrase,
-            info_file: cache_directory.join(CACHE_INFO_FILE),
-            rooms_file: cache_directory.join(CACHE_ROOM_FILE),
+            info_file: cache_directory.join(CACHED_INFO_FILE),
+            rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
+            users_file: cache_directory.join(CACHED_USERS_FILE),
 
             info: Info::default(),
             cached_rooms: None,
+            cached_users: None,
         };
 
         obj.read_from_file_system().await;
@@ -211,6 +254,10 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.read_rooms().await {
             log::error!("Error reading cached rooms from the file system: {err}");
+        }
+
+        if let Err(err) = self.read_users().await {
+            log::error!("Error reading cached users from the file system: {err}");
         }
     }
 
@@ -242,6 +289,20 @@ impl ProtoCacheInner {
         Ok(())
     }
 
+    /// Reads the cached users from the file system.
+    async fn read_users(&mut self) -> Result<()> {
+        log::info!("Reading cached users from: {:?}", &self.users_file);
+
+        let encoded = crypto::decrypt_file(&self.users_file, &self.passphrase).await?;
+        let decoded = decode_proto_messages::<User>(&encoded)?;
+
+        log::info!("Successfully read cached users");
+
+        self.cached_users = Some(decoded);
+
+        Ok(())
+    }
+
     /// Saves the cache to the file system.
     pub async fn save(&self) {
         log::info!("Persisting cache");
@@ -255,6 +316,11 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.write_rooms().await {
             log::error!("Error persisting cached rooms: {err}");
+            return;
+        }
+
+        if let Err(err) = self.write_users().await {
+            log::error!("Error persisting cached users: {err}");
             return;
         }
 
@@ -273,6 +339,20 @@ impl ProtoCacheInner {
 
         let encoded = encode_proto_messages(rooms);
         crypto::encrypt_to_file(&self.rooms_file, &self.passphrase, encoded).await?;
+
+        Ok(())
+    }
+
+    async fn write_users(&self) -> Result<()> {
+        log::info!("Persisting cached users");
+
+        let Some(users) = &self.cached_users else {
+            log::info!("No users to cache, nothing to do");
+            return Ok(());
+        };
+
+        let encoded = encode_proto_messages(users);
+        crypto::encrypt_to_file(&self.users_file, &self.passphrase, encoded).await?;
 
         Ok(())
     }
@@ -304,11 +384,6 @@ impl ProtoCacheInner {
         &mut self.info.user_status
     }
 
-    pub fn overwrite_rooms(&mut self, rooms: Vec<Room>) {
-        let old = self.cached_rooms.get_or_insert_default();
-        *old = rooms;
-    }
-
     pub fn cache_room(&mut self, room: Room) {
         let rooms = self.cached_rooms.get_or_insert_default();
 
@@ -320,8 +395,8 @@ impl ProtoCacheInner {
     }
 
     pub fn update_room(&mut self, event: RoomChangeEvent) {
-        let Some(room) = self.get_room(&event.room_id) else {
-            log::error!("Unable to update room because it is not known to the cache");
+        let Some(room) = self.get_room_mut(&event.room_id) else {
+            log::debug!("Room has not been cached before, nothing to do");
             return;
         };
 
@@ -338,9 +413,44 @@ impl ProtoCacheInner {
         self.cached_rooms.as_ref()
     }
 
-    fn get_room(&mut self, room_id: &str) -> Option<&mut Room> {
+    fn get_room_mut(&mut self, room_id: &str) -> Option<&mut Room> {
         if let Some(rooms) = &mut self.cached_rooms {
             rooms.iter_mut().find(|p| p.room_id == room_id)
+        } else {
+            None
+        }
+    }
+
+    pub fn cache_user(&mut self, user: User) {
+        let users = self.cached_users.get_or_insert_default();
+
+        if let Some(existing) = users.iter_mut().find(|p| p.user_id == user.user_id) {
+            *existing = user;
+        } else {
+            users.push(user);
+        }
+    }
+
+    pub fn update_user(&mut self, event: UserChangeEvent) {
+        let Some(user) = self.get_user_mut(&event.user_id) else {
+            log::debug!("User has not been cached before, nothing to do");
+            return;
+        };
+
+        event.update_user(user);
+    }
+
+    pub fn get_user(&self, user_id: &str) -> Option<&User> {
+        if let Some(users) = &self.cached_users {
+            users.iter().find(|p| p.user_id == user_id)
+        } else {
+            None
+        }
+    }
+
+    fn get_user_mut(&mut self, user_id: &str) -> Option<&mut User> {
+        if let Some(users) = &mut self.cached_users {
+            users.iter_mut().find(|p| p.user_id == user_id)
         } else {
             None
         }
