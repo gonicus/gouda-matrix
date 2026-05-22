@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
-const SAVE_INTERVAL_SECONDS: u64 = 60;
+const SAVE_INTERVAL_SECONDS: u64 = 300;
 
 const CACHED_INFO_FILE: &str = "info";
 const CACHED_ROOMS_FILE: &str = "rooms";
