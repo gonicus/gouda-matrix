@@ -105,8 +105,8 @@ impl RoomManager {
             self.process_comparison_result(result).await;
 
             // We don't have to manually overwrite the cache here, as the events send to
-            // the application with `process_comparions_result` will trigger
-            // the neccessary cache changes.
+            // the application with `process_comparison_result` will trigger
+            // the necessary cache changes.
         });
     }
 

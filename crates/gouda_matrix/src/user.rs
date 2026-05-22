@@ -115,7 +115,7 @@ impl UserManager {
                     .await;
 
                 // We don't have to manually overwrite the cache here, as the user change event
-                // send to the application will trigger the neccessary cache changes.
+                // send to the application will trigger the necessary cache changes.
             } else {
                 log::debug!("Cached user is still up to date");
             }
