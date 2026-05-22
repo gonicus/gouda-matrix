@@ -44,10 +44,12 @@ impl UserManager {
     pub async fn get_and_sync_user(&self, user_id: OwnedUserId) -> Result<User> {
         match self.proto_cache.cached_user(&user_id).await {
             Some(user) => {
+                log::debug!("User has already been cached before");
                 self.clone().sync_cached_user(user_id);
                 Ok(user)
             }
             None => {
+                log::debug!("User has not been cached before");
                 let user = self.fetch_user(&user_id).await?;
                 self.proto_cache.cache_user(user.clone()).await;
                 Ok(user)
@@ -113,7 +115,8 @@ impl UserManager {
                     .send_event(ResponseContent::UserChangeEvent(proto))
                     .await;
 
-                self.proto_cache.cache_user(fetched).await;
+                // We don't have to manually overwrite the cache here, as the user change event
+                // send to the application will trigger the neccessary cache changes.
             } else {
                 log::debug!("Cached user is still up to date");
             }
