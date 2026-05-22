@@ -98,10 +98,9 @@ impl RoomManager {
             };
 
             let cached = self.proto_cache.cached_rooms().await.unwrap_or_default();
-
             let result = utils::compare_lists(&cached, &fetched, |a, b| a.room_id == b.room_id);
-
-            self.process_comparison_result(result).await
+            self.process_comparison_result(result).await;
+            self.proto_cache.overwrite_rooms(fetched).await;
         });
     }
 
