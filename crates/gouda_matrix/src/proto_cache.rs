@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
-const SAVE_INTERVAL_SECONDS: u64 = 300;
+const SAVE_INTERVAL_SECONDS: u64 = 60;
 
 const CACHED_INFO_FILE: &str = "info";
 const CACHED_ROOMS_FILE: &str = "rooms";
@@ -407,7 +407,7 @@ impl ProtoCacheInner {
 
     pub fn update_room(&mut self, event: RoomChangeEvent) {
         let Some(room) = self.get_room_mut(&event.room_id) else {
-            log::error!("Unable to update room because it is not known to the cache");
+            log::debug!("Room has not been cached before, nothing to do");
             return;
         };
 
@@ -444,8 +444,7 @@ impl ProtoCacheInner {
 
     pub fn update_user(&mut self, event: UserChangeEvent) {
         let Some(user) = self.get_user_mut(&event.user_id) else {
-            // We don't log any errors here, as it is expected that we may receive
-            // user change events from users we have not interacted with.
+            log::debug!("User has not been cached before, nothing to do");
             return;
         };
 
