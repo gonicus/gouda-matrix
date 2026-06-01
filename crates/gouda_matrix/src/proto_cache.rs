@@ -508,6 +508,27 @@ mod tests {
 
     use super::*;
 
+    const TEMPDIR_PREFIX: &str = "gouda_matrix_adapter";
+
+    struct TestData {
+        pub cache: ProtoCache,
+        pub cache_dir: PathBuf,
+        temp_dir: tempdir::TempDir,
+    }
+
+    impl TestData {
+        pub async fn new() -> TestData {
+            let temp_dir = tempdir::TempDir::new(TEMPDIR_PREFIX).unwrap();
+            let cache_dir = temp_dir.path().join("cache");
+
+            Self {
+                cache: ProtoCache::new(cache_dir.clone(), "secret123").await,
+                cache_dir,
+                temp_dir,
+            }
+        }
+    }
+
     #[test]
     fn test_encode_proto_messages() {
         // Arrange
@@ -580,5 +601,19 @@ mod tests {
 
         // Assert
         assert_eq!(decoded, expected);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_sync_token() {
+        let TestData {
+            cache,
+            ..
+        } = TestData::new().await;
+
+        cache.set_sync_token("some-sync-token".to_owned()).await;
+
+        // TODO: Test saving
+
+        assert_eq!(cache.sync_token().await, Some("some-sync-token".to_owned()));
     }
 }
