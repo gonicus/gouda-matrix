@@ -780,10 +780,7 @@ impl ClientAbstraction for MatrixClient {
                 avatar_path: media_manager
                     .get_user_directory_user_avatar_path(&user)
                     .await,
-                status: user::fetch_status(client, &user.user_id)
-                    .await
-                    .map(|s| s.into())
-                    .ok(),
+                status: user::fetch_status(client, &user.user_id).await.ok(),
             });
         }
 

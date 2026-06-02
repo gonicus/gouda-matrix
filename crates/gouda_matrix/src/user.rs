@@ -77,10 +77,7 @@ impl UserManager {
                 .media_manager
                 .get_user_avatar_path(user_id.to_owned())
                 .await,
-            status: fetch_status(&self.client, user_id)
-                .await
-                .map(|s| s.into())
-                .ok(),
+            status: fetch_status(&self.client, user_id).await.ok(),
         };
 
         Ok(proto)
