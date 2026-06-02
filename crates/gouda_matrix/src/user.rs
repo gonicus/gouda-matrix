@@ -73,11 +73,11 @@ impl UserManager {
         let proto = User {
             user_id: user_id.to_string(),
             display_name,
-            presence_state: Some(fetch_presence_state(&self.client, user_id).await.into()),
             avatar_path: self
                 .media_manager
                 .get_user_avatar_path(user_id.to_owned())
                 .await,
+            status: fetch_status(&self.client, user_id).await.ok(),
         };
 
         Ok(proto)
@@ -219,20 +219,20 @@ fn is_profile_field_expected_error(err: &matrix_sdk::Error) -> bool {
         .contains("invalid type: null, expected a string")
 }
 
-pub async fn fetch_presence_state(client: &Client, user_id: &UserId) -> PresenceState {
+pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatus> {
     use matrix_sdk::ruma::api::client::presence::get_presence;
 
     log::debug!("Requesting presence state for user {user_id:?}");
 
     let request = get_presence::v3::Request::new(user_id.to_owned());
 
-    let response = match client.send(request).await {
-        Ok(response) => response,
-        Err(err) => {
-            log::error!("Error retrieving presence state for user {user_id}: {err}");
-            return PresenceState::Unknown;
-        }
-    };
+    let response = client.send(request).await.map_err(|err| {
+        log::error!("Error retrieving presence state for user {user_id}: {err}");
+        errors::convert_http_error(err)
+    })?;
 
-    matrix_presence_state_to_chat(response.presence)
+    Ok(UserStatus {
+        state: matrix_presence_state_to_chat(response.presence).into(),
+        status_message: response.status_msg,
+    })
 }
