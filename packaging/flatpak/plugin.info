@@ -2,5 +2,5 @@
 displayName=Matrix Client
 type=chat-ipc
 beta=true
-version=0.1
+version=0.2
 executable=gouda_matrix
