@@ -1,5 +1,6 @@
 [matrix]
-displayName=Matrix Headless IPC Client (YAMA)
+displayName=Matrix Client
 type=chat-ipc
-version=0.0.1
-executable=matrix-headless-client
+beta=true
+version=0.2
+executable=gouda_matrix
