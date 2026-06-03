@@ -513,7 +513,7 @@ mod tests {
     struct TestData {
         pub cache: ProtoCache,
         pub cache_dir: PathBuf,
-        temp_dir: tempdir::TempDir,
+        _temp_dir: tempdir::TempDir,
     }
 
     impl TestData {
@@ -524,7 +524,7 @@ mod tests {
             Self {
                 cache: ProtoCache::new(cache_dir.clone(), "secret123").await,
                 cache_dir,
-                temp_dir,
+                _temp_dir: temp_dir,
             }
         }
 
