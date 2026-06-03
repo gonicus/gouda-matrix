@@ -12,5 +12,5 @@ check:
 fmt:
     cargo +nightly fmt
 
-test:
-    cargo test --all-features --all-targets
+test TEST="":
+    cargo test --all-features --all-targets {{TEST}}

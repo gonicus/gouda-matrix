@@ -180,7 +180,7 @@ impl ProtoCache {
     }
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Default, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct Info {
     /// The sync token of the cache's current state.
     pub(crate) sync_token: Option<String>,
@@ -604,11 +604,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_proto_cache_inner_save() {
+        // Arrange
+        let TestData { cache_dir, .. } = TestData::new().await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(cache_dir.clone(), "secret-123".to_owned()).await;
+
+        let expected_sync_token = Some("some-sync-token".to_owned());
+        let expected_user_status = Some(UserStatus {
+            state: 1,
+            status_message: Some("Hello World".to_owned()),
+        });
+
+        let expected_room = Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+
+        let expected_user = User {
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+
+        *cache_inner.sync_token_mut() = expected_sync_token.clone();
+        *cache_inner.user_status_mut() = expected_user_status.clone();
+        cache_inner.cache_room(expected_room.clone());
+        cache_inner.cache_user(expected_user.clone());
+
+        // Act
+        cache_inner.save().await;
+
+        // Assert
+        let encoded_info = crypto::decrypt_file(cache_dir.join(CACHED_INFO_FILE), "secret-123")
+            .await
+            .unwrap();
+
+        let encoded_rooms = crypto::decrypt_file(cache_dir.join(CACHED_ROOMS_FILE), "secret-123")
+            .await
+            .unwrap();
+
+        let encoded_users = crypto::decrypt_file(cache_dir.join(CACHED_USERS_FILE), "secret-123")
+            .await
+            .unwrap();
+
+        let info: Info = serde_json::from_slice(&encoded_info).unwrap();
+        let rooms = decode_proto_messages::<Room>(&encoded_rooms).unwrap();
+        let users = decode_proto_messages::<User>(&encoded_users).unwrap();
+
+        assert_eq!(info, Info {sync_token: expected_sync_token, user_status: expected_user_status});
+        assert_eq!(rooms, vec![expected_room]);
+        assert_eq!(users, vec![expected_user]);
+    }
+
+    #[tokio::test]
     async fn test_proto_cache_sync_token() {
-        let TestData {
-            cache,
-            ..
-        } = TestData::new().await;
+        let TestData { cache, .. } = TestData::new().await;
 
         cache.set_sync_token("some-sync-token".to_owned()).await;
 
