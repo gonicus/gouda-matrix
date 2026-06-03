@@ -180,7 +180,7 @@ impl ProtoCache {
     }
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct Info {
     /// The sync token of the cache's current state.
     pub(crate) sync_token: Option<String>,
@@ -508,6 +508,84 @@ mod tests {
 
     use super::*;
 
+    const TEMPDIR_PREFIX: &str = "gouda_matrix_adapter";
+
+    struct TestData {
+        pub cache: ProtoCache,
+        pub cache_dir: PathBuf,
+        _temp_dir: tempdir::TempDir,
+    }
+
+    impl TestData {
+        pub async fn new() -> TestData {
+            let temp_dir = tempdir::TempDir::new(TEMPDIR_PREFIX).unwrap();
+            let cache_dir = temp_dir.path().join("cache");
+
+            Self {
+                cache: ProtoCache::new(cache_dir.clone(), "secret123").await,
+                cache_dir,
+                _temp_dir: temp_dir,
+            }
+        }
+
+        pub async fn read_info(&self, secret: &str) -> Info {
+            let encoded = crypto::decrypt_file(self.info_path(), secret)
+                .await
+                .unwrap();
+
+            serde_json::from_slice(&encoded).unwrap()
+        }
+
+        pub async fn write_info(&self, info: Info, secret: &str) {
+            let encoded = serde_json::to_vec(&info).unwrap();
+            crypto::encrypt_to_file(self.info_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        pub async fn read_rooms(&self, secret: &str) -> Vec<Room> {
+            let encoded = crypto::decrypt_file(self.rooms_path(), secret)
+                .await
+                .unwrap();
+
+            decode_proto_messages::<Room>(&encoded).unwrap()
+        }
+
+        pub async fn write_rooms(&self, rooms: Vec<Room>, secret: &str) {
+            let encoded = encode_proto_messages::<Room>(&rooms);
+            crypto::encrypt_to_file(self.rooms_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        pub async fn read_users(&self, secret: &str) -> Vec<User> {
+            let encoded = crypto::decrypt_file(self.users_path(), secret)
+                .await
+                .unwrap();
+
+            decode_proto_messages::<User>(&encoded).unwrap()
+        }
+
+        pub async fn write_users(&self, users: Vec<User>, secret: &str) {
+            let encoded = encode_proto_messages::<User>(&users);
+            crypto::encrypt_to_file(self.users_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        fn info_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_INFO_FILE)
+        }
+
+        fn rooms_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_ROOMS_FILE)
+        }
+
+        fn users_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_USERS_FILE)
+        }
+    }
+
     #[test]
     fn test_encode_proto_messages() {
         // Arrange
@@ -580,5 +658,276 @@ mod tests {
 
         // Assert
         assert_eq!(decoded, expected);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_inner_save() {
+        // Arrange
+        let test_data = TestData::new().await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
+
+        let expected_sync_token = Some("some-sync-token".to_owned());
+        let expected_user_status = Some(UserStatus {
+            state: 1,
+            status_message: Some("Hello World".to_owned()),
+        });
+
+        let expected_room = Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+
+        let expected_user = User {
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+
+        *cache_inner.sync_token_mut() = expected_sync_token.clone();
+        *cache_inner.user_status_mut() = expected_user_status.clone();
+        cache_inner.cache_room(expected_room.clone());
+        cache_inner.cache_user(expected_user.clone());
+
+        // Act
+        cache_inner.save().await;
+
+        // Assert
+        let info = test_data.read_info("secret-123").await;
+        let rooms = test_data.read_rooms("secret-123").await;
+        let users = test_data.read_users("secret-123").await;
+
+        assert_eq!(
+            info,
+            Info {
+                sync_token: expected_sync_token,
+                user_status: expected_user_status
+            }
+        );
+        assert_eq!(rooms, vec![expected_room]);
+        assert_eq!(users, vec![expected_user]);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_inner_load() {
+        // Arrange
+        let test_data = TestData::new().await;
+
+        let expected_info = Info {
+            sync_token: Some("some-sync-token".to_owned()),
+            user_status: Some(UserStatus {
+                state: 2,
+                status_message: Some("Msg".to_owned()),
+            }),
+        };
+
+        let expected_rooms = vec![Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        }];
+
+        let expected_users = vec![User {
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        }];
+
+        test_data
+            .write_info(expected_info.clone(), "secret-123")
+            .await;
+        test_data
+            .write_rooms(expected_rooms.clone(), "secret-123")
+            .await;
+        test_data
+            .write_users(expected_users.clone(), "secret-123")
+            .await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
+
+        // Act
+        cache_inner.read_from_file_system().await;
+
+        // Assert
+        assert_eq!(cache_inner.info, expected_info);
+        assert_eq!(cache_inner.cached_rooms, Some(expected_rooms));
+        assert_eq!(cache_inner.cached_users, Some(expected_users));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_sync_token() {
+        let TestData { cache, .. } = TestData::new().await;
+        cache.set_sync_token("some-sync-token".to_owned()).await;
+        assert_eq!(cache.sync_token().await, Some("some-sync-token".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_sync_token_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.sync_token().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_user_status() {
+        let TestData { cache, .. } = TestData::new().await;
+        let status = UserStatus {
+            state: 1,
+            status_message: Some("msg".to_owned()),
+        };
+        cache.set_user_status(status.clone()).await;
+        assert_eq!(cache.user_status().await, Some(status));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_user_status_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.user_status().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_rooms() {
+        let TestData { cache, .. } = TestData::new().await;
+        let expected_rooms = vec![
+            Room {
+                display_name: Some("Room 1".to_owned()),
+                ..Default::default()
+            },
+            Room {
+                display_name: Some("Room 2".to_owned()),
+                ..Default::default()
+            },
+        ];
+        cache.inner.write().await.cached_rooms = Some(expected_rooms.clone());
+        assert_eq!(cache.cached_rooms().await, Some(expected_rooms));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_rooms_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_rooms().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_room_list_response() {
+        let TestData { cache, .. } = TestData::new().await;
+        let rooms = vec![
+            Room {
+                room_id: "room-1".to_owned(),
+                display_name: Some("Room 1".to_owned()),
+                ..Default::default()
+            },
+            Room {
+                room_id: "room-2".to_owned(),
+                display_name: Some("Room 2".to_owned()),
+                ..Default::default()
+            },
+        ];
+        let response = ResponseContent::RoomListResponse(RoomListResponse {
+            room_list: rooms.clone(),
+        });
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_rooms().await, Some(rooms));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_room_created_event() {
+        let TestData { cache, .. } = TestData::new().await;
+        let room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+        let response = ResponseContent::RoomCreatedEvent(room.clone());
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_rooms().await, Some(vec![room]));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_room_left_event() {
+        let TestData { cache, .. } = TestData::new().await;
+        let room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+        let response = ResponseContent::RoomLeftEvent(RoomLeftEvent {
+            room_id: "room-1".to_owned(),
+            ..Default::default()
+        });
+        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_rooms().await, Some(vec![]));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_room_change_event() {
+        let TestData { cache, .. } = TestData::new().await;
+        let room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+        let mut updated_room = room.clone();
+        updated_room.display_name = Some("Room 1 New Name".to_owned());
+        let response = ResponseContent::RoomChangeEvent(RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1 New Name".to_owned()),
+            ..Default::default()
+        });
+        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_rooms().await, Some(vec![updated_room]));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_user_response() {
+        let TestData { cache, .. } = TestData::new().await;
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+        let response = ResponseContent::UserResponse(user.clone());
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_user("user-1").await, Some(user));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_user_change_event() {
+        let TestData { cache, .. } = TestData::new().await;
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+        let mut user_updated = user.clone();
+        user_updated.display_name = Some("User 1 New Name".to_owned());
+        let response = ResponseContent::UserChangeEvent(UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1 New Name".to_owned()),
+            ..Default::default()
+        });
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+        cache.cache_response_content(&response).await;
+        assert_eq!(cache.cached_user("user-1").await, Some(user_updated));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user() {
+        let TestData { cache, .. } = TestData::new().await;
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+        assert_eq!(cache.cached_user("user-1").await, Some(user));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_user("user-1").await, None);
     }
 }
