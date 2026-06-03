@@ -774,15 +774,13 @@ impl ClientAbstraction for MatrixClient {
         let mut result = Vec::new();
 
         for user in user_list.results {
-            let presence = user::fetch_presence_state(client, &user.user_id).await;
-
             result.push(User {
                 user_id: user.user_id.to_string(),
                 display_name: user.display_name.clone(),
-                presence_state: Some(presence.into()),
                 avatar_path: media_manager
                     .get_user_directory_user_avatar_path(&user)
                     .await,
+                status: user::fetch_status(client, &user.user_id).await.ok(),
             });
         }
 
