@@ -732,9 +732,15 @@ mod tests {
             ..Default::default()
         }];
 
-        test_data.write_info(expected_info.clone(), "secret-123").await;
-        test_data.write_rooms(expected_rooms.clone(), "secret-123").await;
-        test_data.write_users(expected_users.clone(), "secret-123").await;
+        test_data
+            .write_info(expected_info.clone(), "secret-123")
+            .await;
+        test_data
+            .write_rooms(expected_rooms.clone(), "secret-123")
+            .await;
+        test_data
+            .write_users(expected_users.clone(), "secret-123")
+            .await;
 
         let mut cache_inner =
             ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
