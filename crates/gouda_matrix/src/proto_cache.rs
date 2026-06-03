@@ -180,7 +180,7 @@ impl ProtoCache {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct Info {
     /// The sync token of the cache's current state.
     pub(crate) sync_token: Option<String>,
@@ -527,6 +527,63 @@ mod tests {
                 temp_dir,
             }
         }
+
+        pub async fn read_info(&self, secret: &str) -> Info {
+            let encoded = crypto::decrypt_file(self.info_path(), secret)
+                .await
+                .unwrap();
+
+            serde_json::from_slice(&encoded).unwrap()
+        }
+
+        pub async fn write_info(&self, info: Info, secret: &str) {
+            let encoded = serde_json::to_vec(&info).unwrap();
+            crypto::encrypt_to_file(self.info_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        pub async fn read_rooms(&self, secret: &str) -> Vec<Room> {
+            let encoded = crypto::decrypt_file(self.rooms_path(), secret)
+                .await
+                .unwrap();
+
+            decode_proto_messages::<Room>(&encoded).unwrap()
+        }
+
+        pub async fn write_rooms(&self, rooms: Vec<Room>, secret: &str) {
+            let encoded = encode_proto_messages::<Room>(&rooms);
+            crypto::encrypt_to_file(self.rooms_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        pub async fn read_users(&self, secret: &str) -> Vec<User> {
+            let encoded = crypto::decrypt_file(self.users_path(), secret)
+                .await
+                .unwrap();
+
+            decode_proto_messages::<User>(&encoded).unwrap()
+        }
+
+        pub async fn write_users(&self, users: Vec<User>, secret: &str) {
+            let encoded = encode_proto_messages::<User>(&users);
+            crypto::encrypt_to_file(self.users_path(), secret, encoded)
+                .await
+                .unwrap();
+        }
+
+        fn info_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_INFO_FILE)
+        }
+
+        fn rooms_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_ROOMS_FILE)
+        }
+
+        fn users_path(&self) -> PathBuf {
+            self.cache_dir.join(CACHED_USERS_FILE)
+        }
     }
 
     #[test]
@@ -606,10 +663,11 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_inner_save() {
         // Arrange
-        let TestData { cache_dir, .. } = TestData::new().await;
+        let test_data = TestData::new().await;
 
         let mut cache_inner =
-            ProtoCacheInner::from_directory(cache_dir.clone(), "secret-123".to_owned()).await;
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
 
         let expected_sync_token = Some("some-sync-token".to_owned());
         let expected_user_status = Some(UserStatus {
@@ -636,25 +694,59 @@ mod tests {
         cache_inner.save().await;
 
         // Assert
-        let encoded_info = crypto::decrypt_file(cache_dir.join(CACHED_INFO_FILE), "secret-123")
-            .await
-            .unwrap();
+        let info = test_data.read_info("secret-123").await;
+        let rooms = test_data.read_rooms("secret-123").await;
+        let users = test_data.read_users("secret-123").await;
 
-        let encoded_rooms = crypto::decrypt_file(cache_dir.join(CACHED_ROOMS_FILE), "secret-123")
-            .await
-            .unwrap();
-
-        let encoded_users = crypto::decrypt_file(cache_dir.join(CACHED_USERS_FILE), "secret-123")
-            .await
-            .unwrap();
-
-        let info: Info = serde_json::from_slice(&encoded_info).unwrap();
-        let rooms = decode_proto_messages::<Room>(&encoded_rooms).unwrap();
-        let users = decode_proto_messages::<User>(&encoded_users).unwrap();
-
-        assert_eq!(info, Info {sync_token: expected_sync_token, user_status: expected_user_status});
+        assert_eq!(
+            info,
+            Info {
+                sync_token: expected_sync_token,
+                user_status: expected_user_status
+            }
+        );
         assert_eq!(rooms, vec![expected_room]);
         assert_eq!(users, vec![expected_user]);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_inner_load() {
+        // Arrange
+        let test_data = TestData::new().await;
+
+        let expected_info = Info {
+            sync_token: Some("some-sync-token".to_owned()),
+            user_status: Some(UserStatus {
+                state: 2,
+                status_message: Some("Msg".to_owned()),
+            }),
+        };
+
+        let expected_rooms = vec![Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        }];
+
+        let expected_users = vec![User {
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        }];
+
+        test_data.write_info(expected_info.clone(), "secret-123").await;
+        test_data.write_rooms(expected_rooms.clone(), "secret-123").await;
+        test_data.write_users(expected_users.clone(), "secret-123").await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
+
+        // Act
+        cache_inner.read_from_file_system().await;
+
+        // Assert
+        assert_eq!(cache_inner.info, expected_info);
+        assert_eq!(cache_inner.cached_rooms, Some(expected_rooms));
+        assert_eq!(cache_inner.cached_users, Some(expected_users));
     }
 
     #[tokio::test]
