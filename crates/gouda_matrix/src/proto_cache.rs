@@ -758,11 +758,71 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_sync_token() {
         let TestData { cache, .. } = TestData::new().await;
-
         cache.set_sync_token("some-sync-token".to_owned()).await;
-
-        // TODO: Test saving
-
         assert_eq!(cache.sync_token().await, Some("some-sync-token".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_sync_token_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.sync_token().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_user_status() {
+        let TestData { cache, .. } = TestData::new().await;
+        let status = UserStatus {
+            state: 1,
+            status_message: Some("msg".to_owned()),
+        };
+        cache.set_user_status(status.clone()).await;
+        assert_eq!(cache.user_status().await, Some(status));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_user_status_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.user_status().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_rooms() {
+        let TestData { cache, .. } = TestData::new().await;
+        let expected_rooms = vec![
+            Room {
+                display_name: Some("Room 1".to_owned()),
+                ..Default::default()
+            },
+            Room {
+                display_name: Some("Room 2".to_owned()),
+                ..Default::default()
+            },
+        ];
+        cache.inner.write().await.cached_rooms = Some(expected_rooms.clone());
+        assert_eq!(cache.cached_rooms().await, Some(expected_rooms));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_rooms_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_rooms().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user() {
+        let TestData { cache, .. } = TestData::new().await;
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+        assert_eq!(cache.cached_user("user-1").await, Some(user));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_user("user-1").await, None);
     }
 }
