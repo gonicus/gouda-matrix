@@ -945,11 +945,11 @@ fn get_related_message_id(event: &OriginalSyncRoomMessageEvent) -> Option<String
         return None;
     };
 
-    let Relation::Reply { in_reply_to } = relation else {
+    let Relation::Reply(reply) = relation else {
         return None;
     };
 
-    Some(in_reply_to.event_id.to_string())
+    Some(reply.in_reply_to.event_id.to_string())
 }
 
 impl_room_event_handler!(

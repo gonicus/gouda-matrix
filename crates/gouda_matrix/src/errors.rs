@@ -4,11 +4,11 @@ use matrix_sdk::encryption::identities::RequestVerificationError;
 use matrix_sdk::encryption::recovery::RecoveryError;
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::room::edit::EditError;
-use matrix_sdk::ruma::api::client::error::ErrorKind as RumaClientErrorKind;
-use matrix_sdk::ruma::api::client::Error as RumaClientError;
 use matrix_sdk::{ClientBuildError, HttpError, IdParseError, RefreshTokenError, StoreError};
 use matrix_sdk_crypto::CryptoStoreError;
-use ruma_common::api::error::IntoHttpError;
+use ruma_common::api::error::{
+    Error as RumaClientError, ErrorKind as RumaClientErrorKind, IntoHttpError,
+};
 
 use crate::memory_cache::CacheError;
 
@@ -73,7 +73,7 @@ pub fn convert_client_api_error(err: &RumaClientError) -> Error {
         | RumaClientErrorKind::UnknownToken { .. } => {
             create_error_msg(ErrorType::Authorization, "Authentication required")
         }
-        RumaClientErrorKind::Forbidden { .. } => {
+        RumaClientErrorKind::Forbidden => {
             create_error_msg(ErrorType::NotAllowed, "Insufficient permissions")
         }
         _ => create_error_msg(ErrorType::Network, err),

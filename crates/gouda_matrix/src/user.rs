@@ -3,7 +3,6 @@ use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::message_content_membership_change::MembershipChange;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use matrix_sdk::ruma::api::client::profile::{DisplayName, ProfileFieldValue};
 use matrix_sdk::ruma::events::room::member::{
     MembershipChange as MatrixMembershipChange, MembershipState,
 };
@@ -59,6 +58,8 @@ impl UserManager {
     /// Fetches a user from the matrix server. Blocks until all
     /// data is received.
     async fn fetch_user(&self, user_id: &UserId) -> Result<User> {
+        use matrix_sdk::ruma::api::client::profile::DisplayName;
+
         log::debug!("Fetching user {user_id} from matrix server");
 
         let profile = self
@@ -178,7 +179,7 @@ pub async fn fetch_avatar_uri(
     client: &Client,
     user_id: OwnedUserId,
 ) -> Result<Option<OwnedMxcUri>> {
-    use matrix_sdk::ruma::api::client::profile::ProfileFieldName;
+    use ruma_common::profile::{ProfileFieldName, ProfileFieldValue};
 
     let result = client
         .account()

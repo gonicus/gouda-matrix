@@ -240,7 +240,7 @@ pub async fn send_text_message(
         .map_err(errors::convert_matrix_sdk_error)?;
 
     Ok(MessageSendResponse {
-        message_id: re.event_id.to_string(),
+        message_id: re.response.event_id.to_string(),
     })
 }
 
