@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
+use ruma_common::RoomId;
 use tokio::sync::RwLock;
 
+use crate::crypto::CryptoError;
 use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
@@ -13,6 +16,7 @@ const SAVE_INTERVAL_SECONDS: u64 = 300;
 const CACHED_INFO_FILE: &str = "info";
 const CACHED_ROOMS_FILE: &str = "rooms";
 const CACHED_USERS_FILE: &str = "users";
+const CACHED_MESSAGES_DIR: &str = "messages";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProtoCacheError {
@@ -122,6 +126,15 @@ impl ProtoCache {
             ResponseContent::UserChangeEvent(event) => {
                 self.update_user(event.clone()).await;
             }
+            ResponseContent::MessageReceivedEvent(message) => {
+                self.cache_message(message.clone()).await;
+            }
+            ResponseContent::MessageChangeEvent(event) => {
+                self.update_message(event.clone()).await;
+            }
+            ResponseContent::MessageRemoveEvent(event) => {
+                self.remove_message(&event.room_id, &event.message_id).await;
+            }
             _ => (),
         }
     }
@@ -137,6 +150,11 @@ impl ProtoCache {
     /// Gets a cached user.
     pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
         self.inner.read().await.get_user(user_id.as_ref()).cloned()
+    }
+
+    /// Gets the cached messages of a room
+    pub async fn cached_messages(&self, room: &RoomId) -> Option<Vec<Message>> {
+        todo!()
     }
 
     /// Cache the specified room.
@@ -178,6 +196,21 @@ impl ProtoCache {
         log::debug!("Updating user: {event:?}");
         self.inner.write().await.update_user(event);
     }
+
+    async fn cache_message(&self, event: Message) {
+        log::debug!("Caching message: {event:?}");
+        todo!()
+    }
+
+    async fn update_message(&self, event: MessageChangeEvent) {
+        log::debug!("Updating message: {event:?}");
+        todo!()
+    }
+
+    async fn remove_message(&self, room_id: &str, message_id: &str) {
+        log::debug!("Removing cached message: {message_id}");
+        todo!()
+    }
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -195,12 +228,16 @@ struct Info {
 struct ProtoCacheInner {
     /// The passphrase used to encrypt the cache.
     passphrase: String,
+    /// The absolute path to the directory where the persistent cache is stored.
+    cache_directory: PathBuf,
     /// The absolute path to the info file.
     info_file: PathBuf,
     /// The absolute path to the file where the cached rooms are stored.
     rooms_file: PathBuf,
     /// The absolute path to the file where the cached users are stored.
     users_file: PathBuf,
+    /// The absolute path to the directory where the cached messages are stored.
+    messages_dir: PathBuf,
 
     /// The persistent stored data.
     info: Info,
@@ -208,6 +245,8 @@ struct ProtoCacheInner {
     cached_rooms: Option<Vec<Room>>,
     /// The users that have been cached.
     cached_users: Option<Vec<User>>,
+    /// The room messages that have been cached.
+    cached_messages: HashMap<String, Vec<Message>>,
 }
 
 impl ProtoCacheInner {
@@ -218,8 +257,6 @@ impl ProtoCacheInner {
     /// * `cache_directory` - The absolute path to the persistent cache directory.
     /// * `cache_passphrase` - The passphrase used to encrypt or decrypt the cached data.
     pub async fn from_directory(cache_directory: PathBuf, cache_passphrase: String) -> Self {
-        Self::initialize_directory(&cache_directory).await;
-
         debug_assert_or_log!(
             cache_directory.is_absolute(),
             "Received a relative cache directory"
@@ -227,23 +264,31 @@ impl ProtoCacheInner {
 
         let mut obj = Self {
             passphrase: cache_passphrase,
+            cache_directory: cache_directory.clone(),
             info_file: cache_directory.join(CACHED_INFO_FILE),
             rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
             users_file: cache_directory.join(CACHED_USERS_FILE),
+            messages_dir: cache_directory.join(CACHED_MESSAGES_DIR),
 
             info: Info::default(),
             cached_rooms: None,
             cached_users: None,
+            cached_messages: HashMap::new(),
         };
 
+        obj.initialize_directories().await;
         obj.read_from_file_system().await;
 
         obj
     }
 
-    async fn initialize_directory(cache_directory: &Path) {
-        if let Err(err) = tokio::fs::create_dir_all(cache_directory).await {
+    async fn initialize_directories(&self) {
+        if let Err(err) = tokio::fs::create_dir_all(&self.cache_directory).await {
             log::error!("Error creating cache directory: {err}");
+        }
+
+        if let Err(err) = tokio::fs::create_dir(&self.messages_dir).await {
+            log::error!("Error creating cache messages directory: {err}");
         }
     }
 
@@ -258,6 +303,10 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.read_users().await {
             log::error!("Error reading cached users from the file system: {err}");
+        }
+
+        if let Err(err) = self.read_messages().await {
+            log::error!("Error reading cached messages from the file system: {err}");
         }
     }
 
@@ -303,6 +352,11 @@ impl ProtoCacheInner {
         Ok(())
     }
 
+    /// Reads the cached messages from the file system.
+    async fn read_messages(&mut self) -> Result<Option<Vec<Message>>> {
+        todo!("Read all room messages from the file system");
+    }
+
     /// Saves the cache to the file system.
     pub async fn save(&self) {
         log::info!("Persisting cache");
@@ -321,6 +375,11 @@ impl ProtoCacheInner {
 
         if let Err(err) = self.write_users().await {
             log::error!("Error persisting cached users: {err}");
+            return;
+        }
+
+        if let Err(err) = self.write_messages().await {
+            log::error!("Error persisting cached messages: {err}");
             return;
         }
 
@@ -353,6 +412,23 @@ impl ProtoCacheInner {
 
         let encoded = encode_proto_messages(users);
         crypto::encrypt_to_file(&self.users_file, &self.passphrase, encoded).await?;
+
+        Ok(())
+    }
+
+    async fn write_messages(&self) -> Result<()> {
+        log::info!("Persisting cached messages");
+
+        // TODO: Only save changed rooms
+
+        for (room_id, messages) in &self.cached_messages {
+            log::info!("Persisting cached messages of room {room_id}");
+
+            let file = self.messages_dir.join(&room_id);
+
+            let encoded = encode_proto_messages(messages);
+            crypto::encrypt_to_file(file, &self.passphrase, encoded).await?;
+        }
 
         Ok(())
     }

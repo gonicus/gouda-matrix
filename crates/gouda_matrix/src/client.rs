@@ -1201,7 +1201,9 @@ impl ClientAbstraction for MatrixClient {
             .transpose()?;
 
         let manager = messages::RoomMessagesManager::from_initialized_data(ctx, initialized_data);
-        manager.send_and_sync_messages(&room, order, limit, from_message_id).await
+        manager
+            .send_and_sync_messages(&room, order, limit, from_message_id)
+            .await
     }
 
     async fn mark_as_read(

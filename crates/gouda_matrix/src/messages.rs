@@ -450,7 +450,7 @@ impl RoomMessagesManager {
         limit: u32,
         from_message_id: Option<OwnedEventId>,
     ) -> Result<()> {
-        // TODO: Implement cache
+        // TODO: Implement cache if from_message_id is None.
         self.fetch_and_send_messages(room, order, limit, from_message_id)
             .await
     }
