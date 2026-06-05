@@ -12,7 +12,7 @@ use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UserId};
+use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
 use ruma_common::{EventId, OwnedEventId};
 use url::Url;
@@ -24,7 +24,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, memory_cache, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, messages, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";

@@ -8,7 +8,7 @@ use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::room::message::{ReplyMetadata, RoomMessageEventContent};
 use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::{Client, Room};
-use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId};
+use ruma_common::{EventId, OwnedEventId, OwnedUserId, RoomId, UserId};
 use tokio::sync::mpsc;
 
 use crate::client::InitializedData;
@@ -472,7 +472,7 @@ impl RoomMessagesManager {
             Some(val) => val,
             None => {
                 let (_, id) =
-                    fetch_messages_from_sdk(&self.memory_cache, order, &room, None, fetch_limit)
+                    fetch_messages_from_sdk(&self.memory_cache, order, room, None, fetch_limit)
                         .await?;
 
                 // Reduce limit for subsequent fetches
@@ -505,7 +505,7 @@ impl RoomMessagesManager {
                     let (fetched, _) = fetch_messages_from_sdk(
                         &self.memory_cache,
                         order,
-                        &room,
+                        room,
                         Some(val),
                         fetch_limit,
                     )
@@ -521,7 +521,7 @@ impl RoomMessagesManager {
             }
         }
 
-        let room_client = memory_cache::MatrixRoomClient::new(&room, self.media_manager.clone());
+        let room_client = memory_cache::MatrixRoomClient::new(room, self.media_manager.clone());
 
         // Fetch events from sdk and assemble response
         let seq = memory_cache::send_and_get_sequence_chunk(
