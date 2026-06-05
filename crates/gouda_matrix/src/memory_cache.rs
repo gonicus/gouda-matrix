@@ -28,7 +28,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use ruma_common::EventId;
+use ruma_common::{EventId, RoomId};
 use tokio::sync::mpsc;
 
 use crate::media::MediaManager;
@@ -1075,7 +1075,7 @@ impl Iterator for MessageIterator {
 
 pub fn get_or_create_room(
     cache: &MemoryCache,
-    room_id: &OwnedRoomId,
+    room_id: &RoomId,
 ) -> Result<Arc<RwLock<CachedChronoRoom>>> {
     let mut cache_w = cache.cached_data_write_lock()?;
 
@@ -1090,11 +1090,11 @@ pub fn get_or_create_room(
                 room_id
             );
             cache_w.insert(
-                room_id.clone(),
+                room_id.to_owned(),
                 Arc::new(RwLock::new(CachedChronoRoom::new())),
             );
             cache_w
-                .get(&room_id.clone())
+                .get(&room_id.to_owned())
                 .ok_or(CacheError::UncachedRoomAccess)?
                 .clone()
         }
@@ -1945,7 +1945,7 @@ fn get_relations(
 
 pub async fn retry_decryption<T: RoomClient>(
     messages_opt: Option<Vec<Message>>,
-    room_id: &OwnedRoomId,
+    room_id: &RoomId,
     room_client: &T,
     cache: &MemoryCache,
     mut key_change_rx: mpsc::Receiver<()>,

@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use gouda_core::Result;
+use gouda_core::{RequestContext, Result};
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
@@ -8,11 +8,13 @@ use matrix_sdk::ruma::api::client::filter::RoomEventFilter;
 use matrix_sdk::ruma::events::room::message::{ReplyMetadata, RoomMessageEventContent};
 use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::{Client, Room};
-use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId};
+use ruma_common::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::mpsc;
 
+use crate::client::InitializedData;
 use crate::media::MediaManager;
-use crate::memory_cache::{cache_room_messages_response, MemoryCache};
+use crate::memory_cache::{self, cache_room_messages_response, MemoryCache};
+use crate::proto_cache::ProtoCache;
 use crate::{errors, media};
 
 macro_rules! download_image {
@@ -419,7 +421,155 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
     }
 }
 
-pub async fn fetch_messages_from_sdk(
+pub struct RoomMessagesManager {
+    ctx: RequestContext,
+    client: Client,
+    media_manager: MediaManager,
+    memory_cache: MemoryCache,
+    proto_cache: ProtoCache,
+}
+
+impl RoomMessagesManager {
+    pub fn from_initialized_data(ctx: RequestContext, initialized_data: &InitializedData) -> Self {
+        Self {
+            ctx,
+            client: initialized_data.client.clone(),
+            media_manager: initialized_data.media_manager.clone(),
+            memory_cache: initialized_data.memory_cache.clone(),
+            proto_cache: initialized_data.proto_cache.clone(),
+        }
+    }
+
+    /// Gets the messages of a room and sends them as a multipart response to the application.
+    /// If the messages have been cached before, they are retrieved from the cache and synced
+    /// in the background.
+    pub async fn send_and_sync_messages(
+        &self,
+        room: &Room,
+        order: MessagesOrder,
+        limit: u32,
+        from_message_id: Option<OwnedEventId>,
+    ) -> Result<()> {
+        // TODO: Implement cache
+        self.fetch_and_send_messages(room, order, limit, from_message_id)
+            .await
+    }
+
+    async fn fetch_and_send_messages(
+        &self,
+        room: &Room,
+        order: MessagesOrder,
+        limit: u32,
+        from_message_id: Option<OwnedEventId>,
+    ) -> Result<()> {
+        let key_change_rx = setup_room_key_listener(room.room_id(), &self.client).await?;
+
+        // Set limit of first fetch a little higher than requested limit
+        let mut fetch_limit = initial_fetch_limit(limit);
+
+        let mut skip_first = true;
+        let from_id = match from_message_id {
+            Some(val) => val,
+            None => {
+                let (_, id) =
+                    fetch_messages_from_sdk(&self.memory_cache, order, &room, None, fetch_limit)
+                        .await?;
+
+                // Reduce limit for subsequent fetches
+                fetch_limit = subsequent_fetch_limit(limit);
+
+                // The first message is part of the response when no from_id has been specified
+                skip_first = false;
+
+                id.ok_or(errors::create_unknown("no messages in room"))?
+            }
+        };
+
+        let cached_room = memory_cache::get_or_create_room(&self.memory_cache, room.room_id())
+            .map_err(errors::convert_cache_error)?;
+
+        loop {
+            let next_batch = memory_cache::check_cached_enough(
+                &cached_room.clone(),
+                from_id.clone(),
+                limit,
+                order,
+                skip_first,
+            )
+            .map_err(errors::convert_cache_error)?;
+
+            match next_batch {
+                None => break,
+                Some(val) => {
+                    log::debug!("Attempting to fetch further messages from sdk");
+                    let (fetched, _) = fetch_messages_from_sdk(
+                        &self.memory_cache,
+                        order,
+                        &room,
+                        Some(val),
+                        fetch_limit,
+                    )
+                    .await?;
+
+                    // Reduce limit for subsequent fetches
+                    fetch_limit = subsequent_fetch_limit(limit);
+
+                    if fetched == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let room_client = memory_cache::MatrixRoomClient::new(&room, self.media_manager.clone());
+
+        // Fetch events from sdk and assemble response
+        let seq = memory_cache::send_and_get_sequence_chunk(
+            &cached_room.clone(),
+            from_id.clone(),
+            limit,
+            order,
+            skip_first,
+            &room_client,
+            &self.memory_cache,
+            &self.ctx,
+        )
+        .await
+        .map_err(|err| gouda_proto::chat::Error {
+            r#type: 0,
+            error_string: Some(err.to_string()),
+        })?;
+
+        if seq.is_complete {
+            log::warn!("Sequence chunk was incomplete");
+        }
+
+        let ctx = self.ctx.clone();
+        let room_id = room.room_id().to_owned();
+        let room_client = room_client.clone();
+        let cache = self.memory_cache.clone();
+
+        tokio::spawn(async move {
+            let result = memory_cache::retry_decryption(
+                seq.messages,
+                &room_id,
+                &room_client,
+                &cache,
+                key_change_rx,
+                &ctx,
+            )
+            .await;
+
+            if let Err(err) = result {
+                ctx.send_error(errors::convert_cache_error(err)).await;
+            }
+        });
+
+        Ok(())
+    }
+}
+
+async fn fetch_messages_from_sdk(
     cache: &MemoryCache,
     order: MessagesOrder,
     room: &Room,
@@ -473,10 +623,7 @@ pub async fn fetch_messages_from_sdk(
     }
 }
 
-pub async fn setup_room_key_listener(
-    room_id: &OwnedRoomId,
-    client: &Client,
-) -> Result<mpsc::Receiver<()>> {
+async fn setup_room_key_listener(room_id: &RoomId, client: &Client) -> Result<mpsc::Receiver<()>> {
     log::debug!("setting up key listener for room {room_id}");
 
     let (tx, rx) = mpsc::channel(100);
@@ -517,10 +664,10 @@ pub async fn setup_room_key_listener(
     Ok(rx)
 }
 
-pub fn initial_fetch_limit(limit: u32) -> u32 {
+const fn initial_fetch_limit(limit: u32) -> u32 {
     ((limit as f32) * 1.2).ceil() as u32
 }
 
-pub fn subsequent_fetch_limit(limit: u32) -> u32 {
+const fn subsequent_fetch_limit(limit: u32) -> u32 {
     ((limit as f32) * 0.1).ceil() as u32
 }
