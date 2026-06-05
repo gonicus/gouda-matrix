@@ -1176,8 +1176,8 @@ impl ClientAbstraction for MatrixClient {
 
     async fn get_room_messages(
         &mut self,
-        ctx: &RequestContext,
-        request: &RoomMessagesRequest,
+        ctx: RequestContext,
+        request: RoomMessagesRequest,
     ) -> Result<()> {
         let InitializedData {
             media_manager,
