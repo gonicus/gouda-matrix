@@ -76,6 +76,10 @@ impl Executor {
             // ExecutorTask::Exit is handled by the `Self::run` method
             ExecutorTask::Exit => (),
             ExecutorTask::Request(container) => {
+                // This error is unrecoverable as we received invalid data on the input reader.
+                // As the executor runs in a separate tokio task, this will
+                // result in an error returned from the runner.
+                #[allow(clippy::expect_used)]
                 let content = container
                     .content
                     .expect("Received client container without content");
@@ -286,12 +290,17 @@ impl Executor {
 
         log::debug!("Sending response to output processor");
 
+        // This error is unrecoverable.
+        // As the executor runs in a separate tokio task, this will
+        // result in an error returned from the runner.
+        #[allow(clippy::expect_used)]
         self.output_sender
             .send(OutputTask::Response(Box::new(container)))
             .expect("Error sending message to output processor");
     }
 }
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

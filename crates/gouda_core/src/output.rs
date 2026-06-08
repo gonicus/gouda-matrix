@@ -71,11 +71,19 @@ impl OutputProcessor {
         let serialized = response.encode_to_vec();
         let size = serialized.len().to_le_bytes().to_vec();
 
+        // This error is unrecoverable.
+        // As the output processor runs in a separate tokio task, this will
+        // result in an error returned from the runner.
+        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&size)
             .await
             .expect("Error writing size");
 
+        // This error is unrecoverable.
+        // As the output processor runs in a separate tokio task, this will
+        // result in an error returned from the runner.
+        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&serialized)
             .await
@@ -92,6 +100,7 @@ impl OutputProcessor {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     use gouda_proto::chat::response_container::Content as ResponseContent;
