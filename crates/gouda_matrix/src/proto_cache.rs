@@ -1,13 +1,11 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use ruma_common::RoomId;
 use tokio::sync::RwLock;
 
-use crate::crypto::CryptoError;
 use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
@@ -41,7 +39,7 @@ pub enum ProtoCacheError {
 
 type Result<T> = std::result::Result<T, ProtoCacheError>;
 
-/// Unlike the `Cache`, the `ProtoCache` is a persistent cache that stores
+/// Unlike the `MemoryCache`, the `ProtoCache` is a persistent cache that stores
 /// proto-messages sent to the application. This speeds up application startup
 /// because the old application state can be read from the file system and we don't have
 /// to fetch everything again from the server.
@@ -142,9 +140,7 @@ impl ProtoCache {
     /// Gets all cached rooms.
     /// None is returned if no rooms have been cached previously.
     pub async fn cached_rooms(&self) -> Option<Vec<Room>> {
-        let reader = self.inner.read().await;
-        let rooms = reader.room_list()?;
-        Some(rooms.clone())
+        self.inner.read().await.room_list().cloned()
     }
 
     /// Gets a cached user.
@@ -153,8 +149,8 @@ impl ProtoCache {
     }
 
     /// Gets the cached messages of a room
-    pub async fn cached_messages(&self, room: &RoomId) -> Option<Vec<Message>> {
-        todo!()
+    pub async fn cached_messages(&self, room_id: &str) -> Option<Vec<Message>> {
+        self.inner.read().await.room_messages(room_id).cloned()
     }
 
     /// Cache the specified room.
@@ -197,19 +193,19 @@ impl ProtoCache {
         self.inner.write().await.update_user(event);
     }
 
-    async fn cache_message(&self, event: Message) {
-        log::debug!("Caching message: {event:?}");
-        todo!()
+    async fn cache_message(&self, message: Message) {
+        log::debug!("Caching message: {message:?}");
+        self.inner.write().await.cache_message(message);
     }
 
     async fn update_message(&self, event: MessageChangeEvent) {
         log::debug!("Updating message: {event:?}");
-        todo!()
+        self.inner.write().await.update_message(event);
     }
 
     async fn remove_message(&self, room_id: &str, message_id: &str) {
         log::debug!("Removing cached message: {message_id}");
-        todo!()
+        self.inner.write().await.remove_message(room_id, message_id);
     }
 }
 
@@ -530,6 +526,45 @@ impl ProtoCacheInner {
         } else {
             None
         }
+    }
+
+    pub fn cache_message(&mut self, message: Message) {
+        let messages = self.get_or_create_messages_mut(&message.room_id);
+        messages.push(message);
+
+        // TODO:
+        // - What about duplicates?
+        // - What about order? Should we insert into the correct timestamp?
+        // - Max limit of messages, remove the oldest one if reached
+    }
+
+    pub fn update_message(&mut self, event: MessageChangeEvent) {
+        let messages = self.get_or_create_messages_mut(&event.room_id);
+
+        let Some(message) = messages.iter_mut().find(|p| p.message_id == event.message_id) else {
+            log::debug!("Message has not been cached before, nothing to do");
+            return;
+        };
+
+        event.update_into_message(message);
+    }
+
+    pub fn remove_message(&mut self, room_id: &str, message_id: &str) {
+        let Some(messages) = self.room_messages_mut(room_id) else {
+            log::debug!("No messages are cached for the room, nothing to do");
+            return;
+        };
+
+        messages.retain(|m| m.message_id != message_id);
+    }
+
+
+    pub fn room_messages_mut(&mut self, room_id: &str) -> Option<&mut Vec<Message>> {
+        self.cached_messages.get_mut(room_id)
+    }
+
+    fn get_or_create_messages_mut(&mut self, room_id: &str) -> &mut Vec<Message> {
+        self.cached_messages.entry(room_id.to_owned()).or_default()
     }
 }
 

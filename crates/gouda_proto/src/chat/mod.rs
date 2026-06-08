@@ -144,3 +144,36 @@ impl UserChangeEvent {
         }
     }
 }
+
+impl MessageChangeEvent {
+    pub fn update_into_message(self, message: &mut Message) {
+        if let Some(is_pinned) = self.is_pinned {
+            message.is_pinned = is_pinned;
+        }
+
+        if let Some(is_encrypted) = self.is_encrypted {
+            message.is_encrypted = is_encrypted;
+        }
+
+        if self.has_mentioned_user_ids_changed {
+            message.mentioned_user_ids = self.mentioned_user_ids;
+        }
+
+        if let Some(content) = self.content {
+            message.content = Some(content.into());
+        }
+    }
+}
+
+impl Into<message::Content> for message_change_event::Content {
+    fn into(self) -> message::Content {
+        match self {
+            Self::Text(text) => message::Content::Text(text),
+            Self::Image(image) => message::Content::Image(image),
+            Self::File(file) => message::Content::File(file),
+            Self::MembershipChange(change) => message::Content::MembershipChange(change),
+            Self::AudioFile(audio) => message::Content::AudioFile(audio),
+            Self::VideoFile(video) => message::Content::VideoFile(video),
+        }
+    }
+}
