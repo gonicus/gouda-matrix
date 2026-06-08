@@ -113,6 +113,7 @@ async fn read_request(reader: &mut Reader, len: u64) -> Result<RequestContainer,
         .map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::InvalidData, e))
 }
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;

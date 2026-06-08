@@ -922,7 +922,7 @@ impl UnlinkedMessage {
                         if let Some(rel) = &orig.content.relates_to {
                             match rel {
                                 // for now a reply is not relevant for caching and offline preprocessing
-                                Relation::Reply { in_reply_to: _ } => {}
+                                Relation::Reply(_) => {}
                                 Relation::Replacement(repl) => {
                                     ul_msg.rel_to = Some(repl.event_id.clone());
                                     ul_msg.rel_type = Some(RelationType::Replacement);
@@ -959,7 +959,7 @@ impl UnlinkedMessage {
 
                         if let Some(rel) = &orig.content.relates_to {
                             match rel {
-                                EncryptionRelation::Reply { in_reply_to: _ } => {}
+                                EncryptionRelation::Reply(_) => {}
                                 EncryptionRelation::Replacement(repl) => {
                                     ul_msg.rel_to = Some(repl.event_id.clone());
                                     ul_msg.rel_type = Some(RelationType::Replacement);
@@ -1756,7 +1756,6 @@ fn get_state_content(tl_evt: &TimelineEvent) -> Result<Option<message::Content>>
         StateEventType::PolicyRuleRoom => Ok(None),
         StateEventType::PolicyRuleServer => Ok(None),
         StateEventType::PolicyRuleUser => Ok(None),
-        StateEventType::RoomAliases => Ok(None),
         StateEventType::RoomAvatar => Ok(None),
         StateEventType::RoomCanonicalAlias => Ok(None),
         StateEventType::RoomCreate => Ok(None),
@@ -1833,11 +1832,8 @@ async fn get_replied_to_id(tl_evt: &TimelineEvent) -> Result<Option<OwnedEventId
         return Ok(None);
     };
 
-    if let Some(Relation::Reply {
-        in_reply_to: in_repl,
-    }) = &orig_evt.content.relates_to
-    {
-        return Ok(Some(in_repl.event_id.clone()));
+    if let Some(Relation::Reply(reply)) = &orig_evt.content.relates_to {
+        return Ok(Some(reply.in_reply_to.event_id.clone()));
     }
 
     Ok(None)

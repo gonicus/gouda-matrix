@@ -31,13 +31,13 @@ async-trait = "0.1"
 url = "2.5.7"
 
 js_int = "0.2.2"
-matrix-sdk = { version = "0.16.0", features = [
+matrix-sdk = { version = "0.18.0", features = [
   "sso-login", "markdown", "bundled-sqlite"
 ] }
-matrix-sdk-base = { version = "0.16.0", default-features = false }
-matrix-sdk-crypto = { version = "0.16.0", default-features = false }
-matrix-sdk-common = { version = "0.16.0", default-features = false }
-ruma-common = "0.17"
+matrix-sdk-base = { version = "0.18.0", default-features = false }
+matrix-sdk-crypto = { version = "0.18.0", default-features = false }
+matrix-sdk-common = { version = "0.18.0", default-features = false }
+ruma-common = "0.19"
 
 mime = "0.3"
 mime_guess = "2.0"
@@ -62,8 +62,8 @@ thiserror = "2.0"
 
 uuid = "1.18"
 
-[patch.crates-io]
-matrix-sdk = { git = "https://github.com/gonicus/matrix-rust-sdk", rev = "b0f1c9279df3cb4102b405059bdee7bee9ea94e9" }
-matrix-sdk-base = { git = "https://github.com/gonicus/matrix-rust-sdk", rev = "b0f1c9279df3cb4102b405059bdee7bee9ea94e9" }
-matrix-sdk-crypto = { git = "https://github.com/gonicus/matrix-rust-sdk", rev = "b0f1c9279df3cb4102b405059bdee7bee9ea94e9" }
-matrix-sdk-common = { git = "https://github.com/gonicus/matrix-rust-sdk", rev = "b0f1c9279df3cb4102b405059bdee7bee9ea94e9" }
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

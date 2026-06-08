@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 use std::io;
 
 use gouda_core::test_utils::ClientMock;

@@ -939,6 +939,7 @@ impl RoomAttachmentAsset {
             let reply = Reply {
                 event_id: event_id.clone(),
                 enforce_thread: matrix_sdk::room::reply::EnforceThread::MaybeThreaded,
+                add_mentions: matrix_sdk::ruma::events::room::message::AddMentions::No,
             };
 
             config.reply = Some(reply);

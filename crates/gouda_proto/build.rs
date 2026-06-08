@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 fn main() {
     let proto_dir = "../../protos";
 

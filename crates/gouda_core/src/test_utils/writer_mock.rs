@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use std::io::{Cursor, Write};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;

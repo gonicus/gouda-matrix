@@ -216,7 +216,7 @@ impl Session {
         result: matrix_sdk::Result<()>,
         initialized_data: &InitializedData,
     ) -> Result<()> {
-        use matrix_sdk::ruma::api::client::error::ErrorKind;
+        use ruma_common::api::error::ErrorKind;
 
         let Err(err) = result else {
             return Ok(());
@@ -228,8 +228,8 @@ impl Session {
             return Err(errors::convert_matrix_sdk_error(err));
         };
 
-        if let ErrorKind::UnknownToken { soft_logout } = error_kind {
-            if !soft_logout {
+        if let ErrorKind::UnknownToken(error_data) = error_kind {
+            if !error_data.soft_logout {
                 return Err(errors::convert_matrix_sdk_error(err));
             }
 
