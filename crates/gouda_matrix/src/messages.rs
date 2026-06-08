@@ -540,7 +540,7 @@ impl RoomMessagesManager {
             error_string: Some(err.to_string()),
         })?;
 
-        if seq.is_complete {
+        if !seq.is_complete {
             log::warn!("Sequence chunk was incomplete");
         }
 

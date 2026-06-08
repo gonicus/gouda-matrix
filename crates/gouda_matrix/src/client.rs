@@ -552,6 +552,7 @@ impl ClientAbstraction for MatrixClient {
         tokio::spawn(async move {
             if let Err(err) = login_builder.await {
                 ctx.send_error(errors::convert_matrix_sdk_error(err)).await;
+                return;
             }
 
             log::info!(
