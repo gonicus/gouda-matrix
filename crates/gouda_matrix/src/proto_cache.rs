@@ -623,6 +623,9 @@ impl ProtoCacheInner {
         };
 
         event.update_into_message(message);
+
+        // The timestamp of the message cannot currently change, which is why we don't need
+        // to worry about the vec order after the update.
     }
 
     pub fn remove_message(&mut self, room_id: &str, message_id: &str) {
