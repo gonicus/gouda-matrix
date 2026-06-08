@@ -371,9 +371,9 @@ impl ProtoCacheInner {
                 continue;
             };
 
-            self.cached_messages.insert(room_id, messages);
+            log::info!("Successfully read cached messages of room {room_id:?}");
 
-            log::info!("Successfully read cached messages of room");
+            self.cached_messages.insert(room_id, messages);
         }
 
         Ok(())
