@@ -420,7 +420,7 @@ impl ProtoCacheInner {
         for (room_id, messages) in &self.cached_messages {
             log::info!("Persisting cached messages of room {room_id}");
 
-            let file = self.messages_dir.join(&room_id);
+            let file = self.messages_dir.join(room_id);
 
             let encoded = encode_proto_messages(messages);
             crypto::encrypt_to_file(file, &self.passphrase, encoded).await?;
