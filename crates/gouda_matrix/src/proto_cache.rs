@@ -400,7 +400,7 @@ impl ProtoCacheInner {
             return;
         };
 
-        event.update_room(room);
+        event.update_into_room(room);
     }
 
     pub fn remove_room(&mut self, room_id: &str) {
@@ -437,7 +437,7 @@ impl ProtoCacheInner {
             return;
         };
 
-        event.update_user(user);
+        event.update_into_user(user);
     }
 
     pub fn get_user(&self, user_id: &str) -> Option<&User> {
