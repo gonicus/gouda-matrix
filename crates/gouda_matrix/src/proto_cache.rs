@@ -590,10 +590,14 @@ impl ProtoCacheInner {
 
     pub fn cache_message(&mut self, message: Message) {
         let messages = self.get_or_create_messages_mut(&message.room_id);
-        messages.push(message);
+
+        if let Some(existing) = messages.iter_mut().find(|p| p.message_id == message.message_id) {
+            *existing = message;
+        } else {
+            messages.push(message);
+        }
 
         // TODO:
-        // - What about duplicates?
         // - What about order? Should we insert into the correct timestamp?
         // - Max limit of messages, remove the oldest one if reached
     }
