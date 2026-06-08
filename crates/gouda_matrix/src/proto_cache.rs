@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,7 +6,7 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use tokio::sync::RwLock;
 
-use crate::{crypto, debug_assert_or_log};
+use crate::{crypto, debug_assert_or_log, errors};
 
 /// Save the cache every x seconds.
 const SAVE_INTERVAL_SECONDS: u64 = 300;
@@ -349,8 +349,68 @@ impl ProtoCacheInner {
     }
 
     /// Reads the cached messages from the file system.
-    async fn read_messages(&mut self) -> Result<Option<Vec<Message>>> {
-        todo!("Read all room messages from the file system");
+    async fn read_messages(&mut self) -> Result<()> {
+        log::info!("Reading cached messages from: {:?}", &self.messages_dir);
+
+        let mut entries = tokio::fs::read_dir(&self.messages_dir).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+
+            if path.is_dir() {
+                continue;
+            }
+
+            log::info!("Reading room messages from: {path:?}");
+
+            let Ok(room_id) = self.room_id_from_path(&path) else {
+                continue;
+            };
+
+            let Ok(messages) = self.read_room_messages(&path).await else {
+                continue;
+            };
+
+            self.cached_messages.insert(room_id, messages);
+
+            log::info!("Successfully read cached messages of room");
+        }
+
+        Ok(())
+    }
+
+    fn room_id_from_path(&self, path: &Path) -> Result<String> {
+        let Some(file_name) = path.file_name() else {
+            log::warn!("Skipping file because it has no filename");
+            return Err(ProtoCacheError::Unknown);
+        };
+
+        let Some(room_id) = file_name.to_str() else {
+            log::warn!("Skipping file because the filename is not valid utf-8");
+            return Err(ProtoCacheError::Unknown);
+        };
+
+        Ok(room_id.to_owned())
+    }
+
+    async fn read_room_messages(&self, path: &Path) -> Result<Vec<Message>> {
+        let encoded = match crypto::decrypt_file(path, &self.passphrase).await {
+            Ok(encoded) => encoded,
+            Err(err) => {
+                log::warn!("Error decrypting file: {err}");
+                return Err(ProtoCacheError::Crypto(err));
+            }
+        };
+
+        let decoded = match decode_proto_messages::<Message>(&encoded) {
+            Ok(decoded) => decoded,
+            Err(err) => {
+                log::warn!("Error decoding file: {err}");
+                return Err(ProtoCacheError::DecodeError);
+            }
+        };
+
+        Ok(decoded)
     }
 
     /// Saves the cache to the file system.
