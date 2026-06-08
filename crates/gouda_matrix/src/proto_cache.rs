@@ -559,7 +559,11 @@ impl ProtoCacheInner {
     }
 
 
-    pub fn room_messages_mut(&mut self, room_id: &str) -> Option<&mut Vec<Message>> {
+    pub fn room_messages(&self, room_id: &str) -> Option<&Vec<Message>> {
+        self.cached_messages.get(room_id)
+    }
+
+    fn room_messages_mut(&mut self, room_id: &str) -> Option<&mut Vec<Message>> {
         self.cached_messages.get_mut(room_id)
     }
 
