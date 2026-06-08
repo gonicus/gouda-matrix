@@ -6,10 +6,13 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use tokio::sync::RwLock;
 
-use crate::{crypto, debug_assert_or_log, errors};
+use crate::{crypto, debug_assert_or_log};
 
 /// Save the cache every x seconds.
 const SAVE_INTERVAL_SECONDS: u64 = 300;
+
+/// The maximum number of cached messages per room.
+const MAX_CACHED_MESSAGES: usize = 50;
 
 const CACHED_INFO_FILE: &str = "info";
 const CACHED_ROOMS_FILE: &str = "rooms";
@@ -243,6 +246,9 @@ struct ProtoCacheInner {
     cached_users: Option<Vec<User>>,
     /// The room messages that have been cached.
     cached_messages: HashMap<String, Vec<Message>>,
+
+    // TODO: For cached_rooms, cached_users and cached_messages, a HashMap might be
+    // more performant to prevent duplicates.
 }
 
 impl ProtoCacheInner {
@@ -591,15 +597,21 @@ impl ProtoCacheInner {
     pub fn cache_message(&mut self, message: Message) {
         let messages = self.get_or_create_messages_mut(&message.room_id);
 
-        if let Some(existing) = messages.iter_mut().find(|p| p.message_id == message.message_id) {
-            *existing = message;
-        } else {
-            messages.push(message);
-        }
+        // Remove existing message
+        messages.retain(|m| m.message_id != message.message_id);
 
-        // TODO:
-        // - What about order? Should we insert into the correct timestamp?
-        // - Max limit of messages, remove the oldest one if reached
+        // Insert message at the correct index, sorted by timestamp.
+        // The vector is sorted with the timestamp ascending, which puts
+        // the oldest messages at the first index.
+        let idx = messages.partition_point(|m| m.timestamp <= message.timestamp);
+        messages.insert(idx, message);
+
+        // Remove the oldest message, if it exceeds the maximum number of
+        // cached messages.
+        if messages.len() > MAX_CACHED_MESSAGES {
+            log::debug!("Removing the oldest message because the maximum number of cached messages is reached");
+            messages.remove(0);
+        }
     }
 
     pub fn update_message(&mut self, event: MessageChangeEvent) {
