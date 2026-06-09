@@ -151,7 +151,9 @@ impl ProtoCache {
         self.inner.read().await.get_user(user_id.as_ref()).cloned()
     }
 
-    /// Gets the cached messages of a room
+    /// Gets the cached messages of a room.
+    /// The messages are sorted in ascending order by timestamp, with the
+    /// oldest messages at the first index and the newest at the end of the vector.
     pub async fn cached_messages(&self, room_id: &str) -> Option<Vec<Message>> {
         self.inner.read().await.room_messages(room_id).cloned()
     }
@@ -245,9 +247,9 @@ struct ProtoCacheInner {
     /// The users that have been cached.
     cached_users: Option<Vec<User>>,
     /// The room messages that have been cached.
+    /// The messages are sorted in ascending order by timestamp, with the
+    /// oldest messages at the first index and the newest at the end of the vector.
     cached_messages: HashMap<String, Vec<Message>>,
-    // TODO: For cached_rooms, cached_users and cached_messages, a HashMap might be
-    // more performant to prevent duplicates.
 }
 
 impl ProtoCacheInner {
@@ -601,7 +603,7 @@ impl ProtoCacheInner {
 
         // Insert message at the correct index, sorted by timestamp.
         // The vector is sorted with the timestamp ascending, which puts
-        // the oldest messages at the first index.
+        // the oldest message at the first index.
         let idx = messages.partition_point(|m| m.timestamp <= message.timestamp);
         messages.insert(idx, message);
 

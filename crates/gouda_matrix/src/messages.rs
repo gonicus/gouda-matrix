@@ -471,22 +471,24 @@ impl RoomMessagesManager {
             return result;
         };
 
-        self.send_cached_messages(limit, &messages).await;
-        self.sync_cached_messages(limit, messages).await
+        let messages: Vec<Message> = messages.into_iter().rev().take(limit as usize).collect();
+
+        self.send_cached_messages(&messages).await;
+        self.sync_cached_messages(messages).await
     }
 
     /// Sends the cached message as a multipart response to the application.
-    async fn send_cached_messages(&self, limit: u32, messages: &Vec<Message>) {
+    async fn send_cached_messages(&self, messages: &Vec<Message>) {
         let multipart_response = self.ctx.begin_multipart_response();
 
-        for message in messages.iter().rev().take(limit as usize) {
+        for message in messages {
             let proto = ResponseContent::MessageReceivedEvent(message.clone());
             multipart_response.send_item(proto).await;
         }
     }
 
     /// Syncs the cached messages in the background and sends update events afterwards.
-    async fn sync_cached_messages(&self, limit: u32, messages: Vec<Message>) -> Result<()> {
+    async fn sync_cached_messages(&self, messages: Vec<Message>) -> Result<()> {
         // TODO: Return the cached messages with the requested limit, fetch all other in the background
         //  and compare both lists.
 
