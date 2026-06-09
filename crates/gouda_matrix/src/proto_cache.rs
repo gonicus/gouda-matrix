@@ -959,6 +959,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_proto_cache_cache_response_content_room_created_event_overwrite_existing() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        let room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+
+        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+
+        let room2 = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 2".to_owned()),
+            ..Default::default()
+        };
+
+        let response = ResponseContent::RoomCreatedEvent(room2.clone());
+        cache.cache_response_content(&response).await;
+
+        assert_eq!(cache.cached_rooms().await, Some(vec![room2]));
+    }
+
+    #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_left_event() {
         let TestData { cache, .. } = TestData::new().await;
 
@@ -1020,6 +1044,30 @@ mod tests {
         cache.cache_response_content(&response).await;
 
         assert_eq!(cache.cached_user("user-1").await, Some(user));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_user_response_overwrite_existing() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+
+        let user2 = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 2".to_owned()),
+            ..Default::default()
+        };
+
+        let response = ResponseContent::UserResponse(user2.clone());
+        cache.cache_response_content(&response).await;
+
+        assert_eq!(cache.cached_user("user-1").await, Some(user2));
     }
 
     #[tokio::test]
@@ -1100,6 +1148,102 @@ mod tests {
 
         assert_eq!(cache.cached_messages("room-1").await, Some(vec![message1]));
         assert_eq!(cache.cached_messages("room-2").await, Some(vec![message2]));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_message_received_event_overwrite_existing() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        let message1 = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            is_encrypted: true,
+            ..Default::default()
+        };
+
+        cache
+            .inner
+            .write()
+            .await
+            .cached_messages
+            .insert("room-1".to_owned(), vec![message1.clone()]);
+
+        let message2 = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            is_encrypted: false,
+            ..Default::default()
+        };
+
+        let response = ResponseContent::MessageReceivedEvent(message2.clone());
+        cache.cache_response_content(&response).await;
+
+        assert_eq!(cache.cached_messages("room-1").await, Some(vec![message2]));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_message_received_event_ascending_order() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        let message1 = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            timestamp: 10,
+            ..Default::default()
+        };
+
+        let message2 = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-2".to_owned(),
+            timestamp: 5,
+            ..Default::default()
+        };
+
+        let message3 = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-3".to_owned(),
+            timestamp: 15,
+            ..Default::default()
+        };
+
+        let response = ResponseContent::MessageReceivedEvent(message1.clone());
+        cache.cache_response_content(&response).await;
+
+        let response = ResponseContent::MessageReceivedEvent(message2.clone());
+        cache.cache_response_content(&response).await;
+
+        let response = ResponseContent::MessageReceivedEvent(message3.clone());
+        cache.cache_response_content(&response).await;
+
+        assert_eq!(
+            cache.cached_messages("room-1").await,
+            Some(vec![message2, message1, message3])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cache_response_content_message_received_event_max_cached_messages() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        let num_messages = MAX_CACHED_MESSAGES + 10;
+
+        let messages: Vec<Message> = (0..num_messages)
+            .map(|i| Message {
+                room_id: "room-1".to_owned(),
+                message_id: format!("message-{i}"),
+                timestamp: i as u64,
+                ..Default::default()
+            })
+            .collect();
+
+        for message in &messages {
+            let response = ResponseContent::MessageReceivedEvent(message.clone());
+            cache.cache_response_content(&response).await;
+        }
+
+        let expected = messages[10..].to_vec();
+
+        assert_eq!(cache.cached_messages("room-1").await, Some(expected));
     }
 
     #[tokio::test]
