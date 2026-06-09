@@ -424,16 +424,24 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
 pub struct RoomMessagesManager {
     ctx: RequestContext,
     client: Client,
+    room: Room,
+
     media_manager: MediaManager,
     memory_cache: MemoryCache,
     proto_cache: ProtoCache,
 }
 
 impl RoomMessagesManager {
-    pub fn from_initialized_data(ctx: RequestContext, initialized_data: &InitializedData) -> Self {
+    pub fn from_initialized_data(
+        ctx: RequestContext,
+        initialized_data: &InitializedData,
+        room: Room,
+    ) -> Self {
         Self {
             ctx,
             client: initialized_data.client.clone(),
+            room,
+
             media_manager: initialized_data.media_manager.clone(),
             memory_cache: initialized_data.memory_cache.clone(),
             proto_cache: initialized_data.proto_cache.clone(),
@@ -445,7 +453,6 @@ impl RoomMessagesManager {
     /// in the background.
     pub async fn send_and_sync_messages(
         &self,
-        room: &Room,
         order: MessagesOrder,
         limit: u32,
         from_message_id: Option<OwnedEventId>,
@@ -453,18 +460,16 @@ impl RoomMessagesManager {
         // Caching is currently only implemented if we start from the newest messages in the room.
         if let Some(from_message_id) = from_message_id {
             let result = self
-                .fetch_and_send_messages(room, order, limit, Some(from_message_id))
+                .fetch_and_send_messages(order, limit, Some(from_message_id))
                 .await;
 
             return result;
         };
 
-        let room_id = room.room_id().as_str();
+        let room_id = self.room.room_id().as_str();
 
         let Some(messages) = self.proto_cache.cached_messages(room_id).await else {
-            let result = self
-                .fetch_and_send_messages(room, order, limit, None)
-                .await;
+            let result = self.fetch_and_send_messages(order, limit, None).await;
 
             return result;
         };
@@ -477,12 +482,11 @@ impl RoomMessagesManager {
 
     async fn fetch_and_send_messages(
         &self,
-        room: &Room,
         order: MessagesOrder,
         limit: u32,
         from_message_id: Option<OwnedEventId>,
     ) -> Result<()> {
-        let key_change_rx = setup_room_key_listener(room.room_id(), &self.client).await?;
+        let key_change_rx = setup_room_key_listener(self.room.room_id(), &self.client).await?;
 
         // Set limit of first fetch a little higher than requested limit
         let mut fetch_limit = initial_fetch_limit(limit);
@@ -491,9 +495,14 @@ impl RoomMessagesManager {
         let from_id = match from_message_id {
             Some(val) => val,
             None => {
-                let (_, id) =
-                    fetch_messages_from_sdk(&self.memory_cache, order, room, None, fetch_limit)
-                        .await?;
+                let (_, id) = fetch_messages_from_sdk(
+                    &self.memory_cache,
+                    order,
+                    &self.room,
+                    None,
+                    fetch_limit,
+                )
+                .await?;
 
                 // Reduce limit for subsequent fetches
                 fetch_limit = subsequent_fetch_limit(limit);
@@ -505,7 +514,7 @@ impl RoomMessagesManager {
             }
         };
 
-        let cached_room = memory_cache::get_or_create_room(&self.memory_cache, room.room_id())
+        let cached_room = memory_cache::get_or_create_room(&self.memory_cache, self.room.room_id())
             .map_err(errors::convert_cache_error)?;
 
         loop {
@@ -525,7 +534,7 @@ impl RoomMessagesManager {
                     let (fetched, _) = fetch_messages_from_sdk(
                         &self.memory_cache,
                         order,
-                        room,
+                        &self.room,
                         Some(val),
                         fetch_limit,
                     )
@@ -541,7 +550,8 @@ impl RoomMessagesManager {
             }
         }
 
-        let room_client = memory_cache::MatrixRoomClient::new(room, self.media_manager.clone());
+        let room_client =
+            memory_cache::MatrixRoomClient::new(&self.room, self.media_manager.clone());
 
         // Fetch events from sdk and assemble response
         let seq = memory_cache::send_and_get_sequence_chunk(
@@ -565,7 +575,7 @@ impl RoomMessagesManager {
         }
 
         let ctx = self.ctx.clone();
-        let room_id = room.room_id().to_owned();
+        let room_id = self.room.room_id().to_owned();
         let room_client = room_client.clone();
         let cache = self.memory_cache.clone();
 
