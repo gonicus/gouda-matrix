@@ -788,175 +788,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_encode_proto_messages() {
-        // Arrange
-        let messages = vec![
-            LoginUsernamePasswordRequest {
-                password: "myverygoodsecret".to_owned(),
-                username: "someuser1".to_owned(),
-            },
-            LoginUsernamePasswordRequest {
-                password: "myverygoodsecret2".to_owned(),
-                username: "someuser2".to_owned(),
-            },
-        ];
-
-        #[rustfmt::skip]
-        let data: &[u8] = &[
-            // Size 1
-            0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // Message 1
-            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x31, 0x12, 0x10, 0x6D,
-            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
-            0x74,
-            // Size 2
-            0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // Message 2
-            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x32, 0x12, 0x11, 0x6D,
-            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
-            0x74, 0x32
-        ];
-
-        // Act
-        let encoded = encode_proto_messages(&messages);
-
-        // Assert
-        assert_eq!(encoded, data);
-    }
-
-    #[test]
-    fn test_decode_proto_messages() {
-        // Arrange
-        #[rustfmt::skip]
-        let encoded: &[u8] = &[
-            // Size 1
-            0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // Message 1
-            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x31, 0x12, 0x10, 0x6D,
-            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
-            0x74,
-            // Size 2
-            0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // Message 2
-            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x32, 0x12, 0x11, 0x6D,
-            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
-            0x74, 0x32
-        ];
-
-        let expected = vec![
-            LoginUsernamePasswordRequest {
-                password: "myverygoodsecret".to_owned(),
-                username: "someuser1".to_owned(),
-            },
-            LoginUsernamePasswordRequest {
-                password: "myverygoodsecret2".to_owned(),
-                username: "someuser2".to_owned(),
-            },
-        ];
-
-        // Act
-        let decoded = decode_proto_messages::<LoginUsernamePasswordRequest>(encoded).unwrap();
-
-        // Assert
-        assert_eq!(decoded, expected);
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_inner_save() {
-        // Arrange
-        let test_data = TestData::new().await;
-
-        let mut cache_inner =
-            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
-                .await;
-
-        let expected_sync_token = Some("some-sync-token".to_owned());
-        let expected_user_status = Some(UserStatus {
-            state: 1,
-            status_message: Some("Hello World".to_owned()),
-        });
-
-        let expected_room = Room {
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        };
-
-        let expected_user = User {
-            display_name: Some("User 1".to_owned()),
-            ..Default::default()
-        };
-
-        *cache_inner.sync_token_mut() = expected_sync_token.clone();
-        *cache_inner.user_status_mut() = expected_user_status.clone();
-        cache_inner.cache_room(expected_room.clone());
-        cache_inner.cache_user(expected_user.clone());
-
-        // Act
-        cache_inner.save().await;
-
-        // Assert
-        let info = test_data.read_info("secret-123").await;
-        let rooms = test_data.read_rooms("secret-123").await;
-        let users = test_data.read_users("secret-123").await;
-
-        assert_eq!(
-            info,
-            Info {
-                sync_token: expected_sync_token,
-                user_status: expected_user_status
-            }
-        );
-        assert_eq!(rooms, vec![expected_room]);
-        assert_eq!(users, vec![expected_user]);
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_inner_load() {
-        // Arrange
-        let test_data = TestData::new().await;
-
-        let expected_info = Info {
-            sync_token: Some("some-sync-token".to_owned()),
-            user_status: Some(UserStatus {
-                state: 2,
-                status_message: Some("Msg".to_owned()),
-            }),
-        };
-
-        let expected_rooms = vec![Room {
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        }];
-
-        let expected_users = vec![User {
-            display_name: Some("User 1".to_owned()),
-            ..Default::default()
-        }];
-
-        test_data
-            .write_info(expected_info.clone(), "secret-123")
-            .await;
-        test_data
-            .write_rooms(expected_rooms.clone(), "secret-123")
-            .await;
-        test_data
-            .write_users(expected_users.clone(), "secret-123")
-            .await;
-
-        let mut cache_inner =
-            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
-                .await;
-
-        // Act
-        cache_inner.read_from_file_system().await;
-
-        // Assert
-        assert_eq!(cache_inner.info, expected_info);
-        assert_eq!(cache_inner.cached_rooms, Some(expected_rooms));
-        assert_eq!(cache_inner.cached_users, Some(expected_users));
-    }
-
     #[tokio::test]
     async fn test_proto_cache_sync_token() {
         let TestData { cache, .. } = TestData::new().await;
@@ -1008,6 +839,24 @@ mod tests {
     async fn test_proto_cache_cached_rooms_none() {
         let TestData { cache, .. } = TestData::new().await;
         assert_eq!(cache.cached_rooms().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user() {
+        let TestData { cache, .. } = TestData::new().await;
+        let user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        };
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+        assert_eq!(cache.cached_user("user-1").await, Some(user));
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_user_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_user("user-1").await, None);
     }
 
     #[tokio::test]
@@ -1163,20 +1012,171 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_proto_cache_cached_user() {
-        let TestData { cache, .. } = TestData::new().await;
-        let user = User {
-            user_id: "user-1".to_owned(),
+    async fn test_proto_cache_inner_save() {
+        // Arrange
+        let test_data = TestData::new().await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
+
+        let expected_sync_token = Some("some-sync-token".to_owned());
+        let expected_user_status = Some(UserStatus {
+            state: 1,
+            status_message: Some("Hello World".to_owned()),
+        });
+
+        let expected_room = Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        };
+
+        let expected_user = User {
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
-        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
-        assert_eq!(cache.cached_user("user-1").await, Some(user));
+
+        *cache_inner.sync_token_mut() = expected_sync_token.clone();
+        *cache_inner.user_status_mut() = expected_user_status.clone();
+        cache_inner.cache_room(expected_room.clone());
+        cache_inner.cache_user(expected_user.clone());
+
+        // Act
+        cache_inner.save().await;
+
+        // Assert
+        let info = test_data.read_info("secret-123").await;
+        let rooms = test_data.read_rooms("secret-123").await;
+        let users = test_data.read_users("secret-123").await;
+
+        assert_eq!(
+            info,
+            Info {
+                sync_token: expected_sync_token,
+                user_status: expected_user_status
+            }
+        );
+        assert_eq!(rooms, vec![expected_room]);
+        assert_eq!(users, vec![expected_user]);
     }
 
     #[tokio::test]
-    async fn test_proto_cache_cached_user_none() {
-        let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.cached_user("user-1").await, None);
+    async fn test_proto_cache_inner_load() {
+        // Arrange
+        let test_data = TestData::new().await;
+
+        let expected_info = Info {
+            sync_token: Some("some-sync-token".to_owned()),
+            user_status: Some(UserStatus {
+                state: 2,
+                status_message: Some("Msg".to_owned()),
+            }),
+        };
+
+        let expected_rooms = vec![Room {
+            display_name: Some("Room 1".to_owned()),
+            ..Default::default()
+        }];
+
+        let expected_users = vec![User {
+            display_name: Some("User 1".to_owned()),
+            ..Default::default()
+        }];
+
+        test_data
+            .write_info(expected_info.clone(), "secret-123")
+            .await;
+        test_data
+            .write_rooms(expected_rooms.clone(), "secret-123")
+            .await;
+        test_data
+            .write_users(expected_users.clone(), "secret-123")
+            .await;
+
+        let mut cache_inner =
+            ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
+                .await;
+
+        // Act
+        cache_inner.read_from_file_system().await;
+
+        // Assert
+        assert_eq!(cache_inner.info, expected_info);
+        assert_eq!(cache_inner.cached_rooms, Some(expected_rooms));
+        assert_eq!(cache_inner.cached_users, Some(expected_users));
+    }
+
+    #[test]
+    fn test_encode_proto_messages() {
+        // Arrange
+        let messages = vec![
+            LoginUsernamePasswordRequest {
+                password: "myverygoodsecret".to_owned(),
+                username: "someuser1".to_owned(),
+            },
+            LoginUsernamePasswordRequest {
+                password: "myverygoodsecret2".to_owned(),
+                username: "someuser2".to_owned(),
+            },
+        ];
+
+        #[rustfmt::skip]
+        let data: &[u8] = &[
+            // Size 1
+            0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Message 1
+            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x31, 0x12, 0x10, 0x6D,
+            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
+            0x74,
+            // Size 2
+            0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Message 2
+            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x32, 0x12, 0x11, 0x6D,
+            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
+            0x74, 0x32
+        ];
+
+        // Act
+        let encoded = encode_proto_messages(&messages);
+
+        // Assert
+        assert_eq!(encoded, data);
+    }
+
+    #[test]
+    fn test_decode_proto_messages() {
+        // Arrange
+        #[rustfmt::skip]
+        let encoded: &[u8] = &[
+            // Size 1
+            0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Message 1
+            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x31, 0x12, 0x10, 0x6D,
+            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
+            0x74,
+            // Size 2
+            0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Message 2
+            0x0A, 0x09, 0x73, 0x6F, 0x6D, 0x65, 0x75, 0x73, 0x65, 0x72, 0x32, 0x12, 0x11, 0x6D,
+            0x79, 0x76, 0x65, 0x72, 0x79, 0x67, 0x6F, 0x6F, 0x64, 0x73, 0x65, 0x63, 0x72, 0x65,
+            0x74, 0x32
+        ];
+
+        let expected = vec![
+            LoginUsernamePasswordRequest {
+                password: "myverygoodsecret".to_owned(),
+                username: "someuser1".to_owned(),
+            },
+            LoginUsernamePasswordRequest {
+                password: "myverygoodsecret2".to_owned(),
+                username: "someuser2".to_owned(),
+            },
+        ];
+
+        // Act
+        let decoded = decode_proto_messages::<LoginUsernamePasswordRequest>(encoded).unwrap();
+
+        // Assert
+        assert_eq!(decoded, expected);
     }
 }
