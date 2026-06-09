@@ -804,11 +804,14 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_user_status() {
         let TestData { cache, .. } = TestData::new().await;
+
         let status = UserStatus {
             state: 1,
             status_message: Some("msg".to_owned()),
         };
+
         cache.set_user_status(status.clone()).await;
+
         assert_eq!(cache.user_status().await, Some(status));
     }
 
@@ -821,6 +824,7 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_cached_rooms() {
         let TestData { cache, .. } = TestData::new().await;
+
         let expected_rooms = vec![
             Room {
                 display_name: Some("Room 1".to_owned()),
@@ -831,7 +835,9 @@ mod tests {
                 ..Default::default()
             },
         ];
+
         cache.inner.write().await.cached_rooms = Some(expected_rooms.clone());
+
         assert_eq!(cache.cached_rooms().await, Some(expected_rooms));
     }
 
@@ -844,12 +850,15 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_cached_user() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
+
         cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+
         assert_eq!(cache.cached_user("user-1").await, Some(user));
     }
 
@@ -862,6 +871,7 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_cached_messages() {
         let TestData { cache, .. } = TestData::new().await;
+
         let expected_messages = vec![
             Message {
                 message_id: "message-1".to_owned(),
@@ -909,6 +919,7 @@ mod tests {
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_list_response() {
         let TestData { cache, .. } = TestData::new().await;
+
         let rooms = vec![
             Room {
                 room_id: "room-1".to_owned(),
@@ -921,93 +932,119 @@ mod tests {
                 ..Default::default()
             },
         ];
+
         let response = ResponseContent::RoomListResponse(RoomListResponse {
             room_list: rooms.clone(),
         });
+
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_rooms().await, Some(rooms));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_created_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
         let response = ResponseContent::RoomCreatedEvent(room.clone());
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_rooms().await, Some(vec![room]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_left_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
+        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+
         let response = ResponseContent::RoomLeftEvent(RoomLeftEvent {
             room_id: "room-1".to_owned(),
             ..Default::default()
         });
-        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_rooms().await, Some(vec![]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_change_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
+        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+
         let mut updated_room = room.clone();
         updated_room.display_name = Some("Room 1 New Name".to_owned());
+
         let response = ResponseContent::RoomChangeEvent(RoomChangeEvent {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1 New Name".to_owned()),
             ..Default::default()
         });
-        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
+
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_rooms().await, Some(vec![updated_room]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_user_response() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
+
         let response = ResponseContent::UserResponse(user.clone());
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_user("user-1").await, Some(user));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_user_change_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
+
+        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+
         let mut user_updated = user.clone();
         user_updated.display_name = Some("User 1 New Name".to_owned());
+
         let response = ResponseContent::UserChangeEvent(UserChangeEvent {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1 New Name".to_owned()),
             ..Default::default()
         });
-        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
+
         cache.cache_response_content(&response).await;
+
         assert_eq!(cache.cached_user("user-1").await, Some(user_updated));
     }
 
