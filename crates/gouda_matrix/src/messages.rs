@@ -450,9 +450,29 @@ impl RoomMessagesManager {
         limit: u32,
         from_message_id: Option<OwnedEventId>,
     ) -> Result<()> {
-        // TODO: Implement cache if from_message_id is None.
-        self.fetch_and_send_messages(room, order, limit, from_message_id)
-            .await
+        // Caching is currently only implemented if we start from the newest messages in the room.
+        if let Some(from_message_id) = from_message_id {
+            let result = self
+                .fetch_and_send_messages(room, order, limit, Some(from_message_id))
+                .await;
+
+            return result;
+        };
+
+        let room_id = room.room_id().as_str();
+
+        let Some(messages) = self.proto_cache.cached_messages(room_id).await else {
+            let result = self
+                .fetch_and_send_messages(room, order, limit, None)
+                .await;
+
+            return result;
+        };
+
+        // TODO: Return the cached messages with the requested limit, fetch all other in the background
+        //  and compare both lists.
+
+        todo!()
     }
 
     async fn fetch_and_send_messages(

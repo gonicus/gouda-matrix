@@ -171,7 +171,9 @@ impl From<message_change_event::Content> for message::Content {
             message_change_event::Content::Text(text) => message::Content::Text(text),
             message_change_event::Content::Image(image) => message::Content::Image(image),
             message_change_event::Content::File(file) => message::Content::File(file),
-            message_change_event::Content::MembershipChange(change) => message::Content::MembershipChange(change),
+            message_change_event::Content::MembershipChange(change) => {
+                message::Content::MembershipChange(change)
+            }
             message_change_event::Content::AudioFile(audio) => message::Content::AudioFile(audio),
             message_change_event::Content::VideoFile(video) => message::Content::VideoFile(video),
         }

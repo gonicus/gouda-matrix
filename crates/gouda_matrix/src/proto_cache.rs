@@ -1,5 +1,5 @@
-use std::{collections::HashMap, path::Path};
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
@@ -246,7 +246,6 @@ struct ProtoCacheInner {
     cached_users: Option<Vec<User>>,
     /// The room messages that have been cached.
     cached_messages: HashMap<String, Vec<Message>>,
-
     // TODO: For cached_rooms, cached_users and cached_messages, a HashMap might be
     // more performant to prevent duplicates.
 }
@@ -617,7 +616,10 @@ impl ProtoCacheInner {
     pub fn update_message(&mut self, event: MessageChangeEvent) {
         let messages = self.get_or_create_messages_mut(&event.room_id);
 
-        let Some(message) = messages.iter_mut().find(|p| p.message_id == event.message_id) else {
+        let Some(message) = messages
+            .iter_mut()
+            .find(|p| p.message_id == event.message_id)
+        else {
             log::debug!("Message has not been cached before, nothing to do");
             return;
         };
@@ -636,7 +638,6 @@ impl ProtoCacheInner {
 
         messages.retain(|m| m.message_id != message_id);
     }
-
 
     pub fn room_messages(&self, room_id: &str) -> Option<&Vec<Message>> {
         self.cached_messages.get(room_id)
