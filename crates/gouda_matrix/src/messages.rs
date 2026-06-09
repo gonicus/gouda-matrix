@@ -16,7 +16,7 @@ use crate::client::InitializedData;
 use crate::media::MediaManager;
 use crate::memory_cache::{self, cache_room_messages_response, MemoryCache};
 use crate::proto_cache::ProtoCache;
-use crate::{errors, media};
+use crate::{errors, media, utils};
 
 macro_rules! download_image {
     ($image:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{
@@ -456,11 +456,11 @@ impl RoomMessagesManager {
         &self,
         order: MessagesOrder,
         limit: u32,
-        from_message_id: Option<OwnedEventId>,
+        from_message: Option<OwnedEventId>,
     ) -> Result<()> {
         // Caching is currently only implemented if we start with the most recent
         // message in backward order.
-        if let Some(from) = from_message_id {
+        if let Some(from) = from_message {
             return self.fetch_and_send_messages(order, limit, Some(from)).await;
         };
 
@@ -474,13 +474,16 @@ impl RoomMessagesManager {
             return self.fetch_and_send_messages(order, limit, None).await;
         };
 
+        // Put the newest messages first and limit the result.
         let messages: Vec<Message> = messages.into_iter().rev().take(limit as usize).collect();
 
         self.send_cached_messages(&messages).await;
-        self.sync_cached_messages(messages).await
+        // self.sync_cached_messages(messages, limit).await
+
+        Ok(())
     }
 
-    /// Sends the cached message as a multipart response to the application.
+    /// Sends the cached messages as a multipart response to the application.
     async fn send_cached_messages(&self, messages: &Vec<Message>) {
         let multipart_response = self.ctx.begin_multipart_response();
 
@@ -491,14 +494,50 @@ impl RoomMessagesManager {
     }
 
     /// Syncs the cached messages in the background and sends update events afterwards.
-    async fn sync_cached_messages(&self, messages: Vec<Message>) -> Result<()> {
-        // TODO: Return the cached messages with the requested limit, fetch all other in the background
-        //  and compare both lists.
+    async fn sync_cached_messages(&self, cached: Vec<Message>, limit: u32) -> Result<()> {
+        let fetched = self.fetch_messages(MessagesOrder::Backward, limit, None).await?;
+        let result = utils::compare_lists(&cached, &fetched, |a, b| a.message_id == b.message_id);
+
+        for message in result.new {
+            // self.ctx.send_event(ResponseContent::MessageReceivedEvent(message)).await;
+        }
+
+        for (old, new) in result.updated {
+            // self.ctx.send_event(content)
+        }
+
+        for message in result.deleted {
+            // let proto = MessageRemoveEvent {
+            //     message_id: message.message_id,
+            //     room_id: message.room_id
+            // }
+            // self.ctx.send_event(ResponseContent::MessageRemoveEvent(Mes))
+        }
 
         Ok(())
     }
 
+    /// Fetches and returns the messages from the matrix server.
+    async fn fetch_messages(
+        &self,
+        order: MessagesOrder,
+        limit: u32,
+        from_message: Option<OwnedEventId>,
+    ) -> Result<Vec<Message>> {
+        todo!()
+    }
+
+    /// Fetches the messages from the matrix server and simultaneously sends them to the application.
     async fn fetch_and_send_messages(
+        &self,
+        order: MessagesOrder,
+        limit: u32,
+        from_message: Option<OwnedEventId>,
+    ) -> Result<()> {
+        todo!()
+    }
+
+    async fn fetch_and_send_messages_old(
         &self,
         order: MessagesOrder,
         limit: u32,
