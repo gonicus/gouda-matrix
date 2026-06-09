@@ -528,16 +528,16 @@ impl RoomMessagesManager {
     }
 
     /// Fetches the messages from the matrix server and simultaneously sends them to the application.
-    async fn fetch_and_send_messages(
-        &self,
-        order: MessagesOrder,
-        limit: u32,
-        from_message: Option<OwnedEventId>,
-    ) -> Result<()> {
-        todo!()
-    }
+    // async fn fetch_and_send_messages(
+    //     &self,
+    //     order: MessagesOrder,
+    //     limit: u32,
+    //     from_message: Option<OwnedEventId>,
+    // ) -> Result<()> {
+    //     todo!()
+    // }
 
-    async fn fetch_and_send_messages_old(
+    async fn fetch_and_send_messages(
         &self,
         order: MessagesOrder,
         limit: u32,
