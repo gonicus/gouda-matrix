@@ -458,17 +458,20 @@ impl RoomMessagesManager {
         limit: u32,
         from_message_id: Option<OwnedEventId>,
     ) -> Result<()> {
-        // Caching is currently only implemented if we start from the newest message in the room.
+        // Caching is currently only implemented if we start with the most recent
+        // message in backward order.
         if let Some(from) = from_message_id {
-            let result = self.fetch_and_send_messages(order, limit, Some(from)).await;
-            return result;
+            return self.fetch_and_send_messages(order, limit, Some(from)).await;
         };
+
+        if order == MessagesOrder::Forward {
+            return self.fetch_and_send_messages(order, limit, None).await;
+        }
 
         let room_id = self.room.room_id().as_str();
 
         let Some(messages) = self.proto_cache.cached_messages(room_id).await else {
-            let result = self.fetch_and_send_messages(order, limit, None).await;
-            return result;
+            return self.fetch_and_send_messages(order, limit, None).await;
         };
 
         let messages: Vec<Message> = messages.into_iter().rev().take(limit as usize).collect();
