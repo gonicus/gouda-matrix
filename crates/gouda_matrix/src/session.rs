@@ -178,6 +178,9 @@ impl Session {
     ) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
+        // What should go wrong?
+        sync_settings = sync_settings.full_state(true);
+
         if let Some(token) = &initialized_data.proto_cache.sync_token().await {
             sync_settings = sync_settings.token(token);
         }
