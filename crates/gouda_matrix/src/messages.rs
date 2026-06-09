@@ -495,7 +495,9 @@ impl RoomMessagesManager {
 
     /// Syncs the cached messages in the background and sends update events afterwards.
     async fn sync_cached_messages(&self, cached: Vec<Message>, limit: u32) -> Result<()> {
-        let fetched = self.fetch_messages(MessagesOrder::Backward, limit, None).await?;
+        let fetched = self
+            .fetch_messages(MessagesOrder::Backward, limit, None)
+            .await?;
         let result = utils::compare_lists(&cached, &fetched, |a, b| a.message_id == b.message_id);
 
         for message in result.new {

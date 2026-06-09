@@ -155,7 +155,12 @@ impl ProtoCache {
     /// The messages are sorted in ascending order by timestamp, with the
     /// oldest messages at the first index and the newest at the end of the vector.
     pub async fn cached_messages(&self, room_id: &str) -> Option<Vec<Message>> {
-        self.inner.read().await.room_messages(room_id).cloned()
+        self.inner
+            .read()
+            .await
+            .room_messages(room_id)
+            .filter(|p| !p.is_empty())
+            .cloned()
     }
 
     /// Cache the specified room.
