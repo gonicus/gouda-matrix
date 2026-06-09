@@ -154,11 +154,11 @@ impl ProtoCache {
     /// Gets the cached messages of a room.
     /// The messages are sorted in ascending order by timestamp, with the
     /// oldest messages at the first index and the newest at the end of the vector.
-    pub async fn cached_messages(&self, room_id: &str) -> Option<Vec<Message>> {
+    pub async fn cached_messages(&self, room_id: impl AsRef<str>) -> Option<Vec<Message>> {
         self.inner
             .read()
             .await
-            .room_messages(room_id)
+            .room_messages(room_id.as_ref())
             .filter(|p| !p.is_empty())
             .cloned()
     }
@@ -1008,6 +1008,53 @@ mod tests {
     async fn test_proto_cache_cached_rooms_none() {
         let TestData { cache, .. } = TestData::new().await;
         assert_eq!(cache.cached_rooms().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_messages() {
+        let TestData { cache, .. } = TestData::new().await;
+        let expected_messages = vec![
+            Message {
+                message_id: "message-1".to_owned(),
+                ..Default::default()
+            },
+            Message {
+                message_id: "message-2".to_owned(),
+                ..Default::default()
+            },
+        ];
+
+        cache
+            .inner
+            .write()
+            .await
+            .cached_messages
+            .insert("room-1".to_owned(), expected_messages.clone());
+
+        assert_eq!(
+            cache.cached_messages("room-1").await,
+            Some(expected_messages)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_messages_none() {
+        let TestData { cache, .. } = TestData::new().await;
+        assert_eq!(cache.cached_messages("room-1".to_owned()).await, None);
+    }
+
+    #[tokio::test]
+    async fn test_proto_cache_cached_messages_empty() {
+        let TestData { cache, .. } = TestData::new().await;
+
+        cache
+            .inner
+            .write()
+            .await
+            .cached_messages
+            .insert("room-1".to_owned(), Vec::new());
+
+        assert_eq!(cache.cached_messages("room-1".to_owned()).await, None);
     }
 
     #[tokio::test]
