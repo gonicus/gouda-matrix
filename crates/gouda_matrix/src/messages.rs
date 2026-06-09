@@ -1,6 +1,7 @@
 use futures_util::StreamExt;
 use gouda_core::{RequestContext, Result};
 use gouda_proto::chat::error::ErrorType;
+use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::room::MessagesOptions;
@@ -457,12 +458,9 @@ impl RoomMessagesManager {
         limit: u32,
         from_message_id: Option<OwnedEventId>,
     ) -> Result<()> {
-        // Caching is currently only implemented if we start from the newest messages in the room.
-        if let Some(from_message_id) = from_message_id {
-            let result = self
-                .fetch_and_send_messages(order, limit, Some(from_message_id))
-                .await;
-
+        // Caching is currently only implemented if we start from the newest message in the room.
+        if let Some(from) = from_message_id {
+            let result = self.fetch_and_send_messages(order, limit, Some(from)).await;
             return result;
         };
 
@@ -470,14 +468,29 @@ impl RoomMessagesManager {
 
         let Some(messages) = self.proto_cache.cached_messages(room_id).await else {
             let result = self.fetch_and_send_messages(order, limit, None).await;
-
             return result;
         };
 
+        self.send_cached_messages(limit, &messages).await;
+        self.sync_cached_messages(limit, messages).await
+    }
+
+    /// Sends the cached message as a multipart response to the application.
+    async fn send_cached_messages(&self, limit: u32, messages: &Vec<Message>) {
+        let multipart_response = self.ctx.begin_multipart_response();
+
+        for message in messages.iter().rev().take(limit as usize) {
+            let proto = ResponseContent::MessageReceivedEvent(message.clone());
+            multipart_response.send_item(proto).await;
+        }
+    }
+
+    /// Syncs the cached messages in the background and sends update events afterwards.
+    async fn sync_cached_messages(&self, limit: u32, messages: Vec<Message>) -> Result<()> {
         // TODO: Return the cached messages with the requested limit, fetch all other in the background
         //  and compare both lists.
 
-        todo!()
+        Ok(())
     }
 
     async fn fetch_and_send_messages(
