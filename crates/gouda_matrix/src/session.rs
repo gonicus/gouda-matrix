@@ -87,14 +87,12 @@ impl Session {
         mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
-        self.initial_sync(&mut ctx, &initialized_data).await?;
-
-        self.exec_initial_actions(&ctx, &initialized_data).await;
-
         initialized_data
             .event_manager
             .setup_event_handlers(&initialized_data.client);
 
+        self.initial_sync(&mut ctx, &initialized_data).await?;
+        self.exec_initial_actions(&ctx, &initialized_data).await;
         self.start_background_sync(ctx, initialized_data).await?;
 
         Ok(())
