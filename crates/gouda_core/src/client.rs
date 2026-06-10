@@ -225,8 +225,8 @@ pub trait Client: Send + Sync {
     #[allow(unused_variables)]
     async fn get_room_messages(
         &mut self,
-        ctx: &RequestContext,
-        request: &RoomMessagesRequest,
+        ctx: RequestContext,
+        request: RoomMessagesRequest,
     ) -> Result<()> {
         not_implemented_error()
     }

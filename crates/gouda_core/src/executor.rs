@@ -215,7 +215,7 @@ impl Executor {
                 }
             }
             RequestContent::RoomMessagesRequest(request) => {
-                let result = self.client.get_room_messages(&ctx, &request).await;
+                let result = self.client.get_room_messages(ctx, request).await;
                 if let Err(err) = result {
                     self.send_result(tag, Err(err)).await;
                 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use gouda_proto::chat::{Message, MessagesOrder, Reaction, message};
+use gouda_proto::chat::{message, Message, MessagesOrder, Reaction};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -10,9 +10,14 @@ use matrix_sdk::ruma::events::message::{MessageEvent, MessageEventContentWithout
 use matrix_sdk::ruma::events::reaction::{ReactionEvent, ReactionEventContent};
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
-use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContentWithoutRelation};
+use matrix_sdk::ruma::events::room::message::{
+    RoomMessageEvent, RoomMessageEventContentWithoutRelation,
+};
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
-use matrix_sdk::ruma::events::{AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations};
+use matrix_sdk::ruma::events::{
+    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    BundledMessageLikeRelations,
+};
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{OwnedEventId, OwnedRoomId};
@@ -300,7 +305,9 @@ impl MessageFetcher {
 
     async fn process_any_timeline_event(&mut self, event: AnyTimelineEvent) -> Result<()> {
         match event {
-            AnyTimelineEvent::MessageLike(event) => self.process_any_message_like_event(event).await,
+            AnyTimelineEvent::MessageLike(event) => {
+                self.process_any_message_like_event(event).await
+            }
             AnyTimelineEvent::State(event) => self.process_any_state_event(event).await,
         }
     }
@@ -310,7 +317,7 @@ impl MessageFetcher {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
             AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -319,7 +326,7 @@ impl MessageFetcher {
 
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to care about that.
-            return Ok(())
+            return Ok(());
         };
 
         // Replacement events are stashed until we reach the original event.
@@ -345,7 +352,7 @@ impl MessageFetcher {
     fn process_reaction_event(&mut self, event: ReactionEvent) -> Result<()> {
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to care about that.
-            return Ok(())
+            return Ok(());
         };
 
         let reaction = ReactionRelation {
@@ -363,7 +370,7 @@ impl MessageFetcher {
     async fn process_any_state_event(&self, event: AnyStateEvent) -> Result<()> {
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event).await,
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -406,9 +413,7 @@ impl MessageFetcher {
     }
 }
 
-struct MessageBuilder {
-
-}
+struct MessageBuilder {}
 
 impl MessageBuilder {
     /// Builds a message from a single RoomMessageEvent.
