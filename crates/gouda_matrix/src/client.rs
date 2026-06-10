@@ -1211,9 +1211,14 @@ impl ClientAbstraction for MatrixClient {
         let bridge = message_bridge::MatrixMessageBridge::from_matrix_room(room);
         let mut stream = bridge.fetch_messages(query_options);
 
+        let multipart_response = ctx.begin_multipart_response();
+
         while let Some(result) = stream.next().await {
             match result {
-                Ok(message) => println!("RECEIVED_MESSAGE: {message:?}"),
+                Ok(message) => {
+                    println!("RECEIVED_MESSAGE: {message:?}");
+                    multipart_response.send_item(ResponseContent::MessageReceivedEvent(message)).await;
+                },
                 Err(err) => eprintln!("RECEIVED_STREAM_ERROR: {err}"),
             }
         }
