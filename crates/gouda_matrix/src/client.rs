@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use async_trait::async_trait;
 use gouda_core::{Client as ClientAbstraction, RequestContext, Result};
@@ -14,6 +15,7 @@ use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelat
 use matrix_sdk::ruma::{assign, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
 use ruma_common::{EventId, OwnedEventId};
+use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::events::EventManager;
@@ -23,7 +25,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, memory_cache, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, memory_cache, message_bridge, messages, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -1180,135 +1182,50 @@ impl ClientAbstraction for MatrixClient {
         ctx: &RequestContext,
         request: &RoomMessagesRequest,
     ) -> Result<()> {
-        let InitializedData {
-            media_manager,
-            memory_cache,
-            ..
-        } = self.get_initialized_data()?;
+        let initialized_data = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
-        let room_id = OwnedRoomId::try_from(request.room_id.as_str())
-            .map_err(|_| errors::create_unknown("invalid room id"))?;
 
-        let key_change_rx =
-            messages::setup_room_key_listener(&room_id, self.get_client_logged_in().await?).await?;
-
-        let request_clone = request.clone();
-
-        // use default backward sorting on any error or missing option
         let order = request
             .order
             .and_then(|v| MessagesOrder::try_from(v).ok())
             .unwrap_or(MessagesOrder::Backward);
 
-        let limit = request_clone.limit.unwrap_or(10);
+        let limit = request.limit.unwrap_or(10);
 
-        // set limit of first fetch a little higher than requested limit
-        let mut fetch_limit = messages::initial_fetch_limit(limit);
+        let from_message_id = request
+            .from_message_id
+            .as_ref()
+            .map(|v| {
+                OwnedEventId::from_str(v)
+                    .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))
+            })
+            .transpose()?;
 
-        let mut skip_first = true;
-        let from_id = match request_clone.from_message_id {
-            Some(val) => OwnedEventId::try_from(val)
-                .map_err(|_| errors::create_unknown("invalid event ID"))?,
-            None => {
-                let (_, id) = messages::fetch_messages_from_sdk(
-                    memory_cache,
-                    order,
-                    &room,
-                    None,
-                    fetch_limit,
-                )
-                .await?;
-
-                // reduce limit for subsequent fetches
-                fetch_limit = messages::subsequent_fetch_limit(limit);
-
-                // The first message is part of the response when no from_id has been specified
-                skip_first = false;
-
-                id.ok_or(errors::create_unknown("no messages in room"))?
-            }
-        };
-
-        let cached_room = memory_cache::get_or_create_room(memory_cache, &room_id)
-            .map_err(errors::convert_cache_error)?;
-
-        loop {
-            let next_batch = memory_cache::check_cached_enough(
-                &cached_room.clone(),
-                from_id.clone(),
-                limit,
-                order,
-                skip_first,
-            )
-            .map_err(errors::convert_cache_error)?;
-
-            match next_batch {
-                None => break,
-                Some(val) => {
-                    log::debug!("Attempting to fetch further messages from sdk");
-                    let (fetched, _) = messages::fetch_messages_from_sdk(
-                        memory_cache,
-                        order,
-                        &room,
-                        Some(val),
-                        fetch_limit,
-                    )
-                    .await?;
-
-                    // reduce limit for subsequent fetches
-                    fetch_limit = messages::subsequent_fetch_limit(limit);
-
-                    if fetched == 0 {
-                        break;
-                    }
-                }
-            }
-        }
-
-        let room_client = memory_cache::MatrixRoomClient::new(&room, media_manager.clone());
-
-        // fetch events from sdk and assemble response
-        let seq = memory_cache::send_and_get_sequence_chunk(
-            &cached_room.clone(),
-            from_id.clone(),
+        let query_options = message_bridge::QueryOptions {
+            from_message_id,
             limit,
             order,
-            skip_first,
-            &room_client,
-            memory_cache,
-            ctx,
-        )
-        .await
-        .map_err(|err| gouda_proto::chat::Error {
-            r#type: 0,
-            error_string: Some(err.to_string()),
-        })?;
+        };
 
-        if !seq.is_complete {
-            log::warn!("Sequence chunk was incomplete");
+        let bridge = message_bridge::MatrixMessageBridge::from_matrix_room(room);
+        let mut stream = bridge.fetch_messages(query_options);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(message) => println!("RECEIVED_MESSAGE: {message:?}"),
+                Err(err) => eprintln!("RECEIVED_STREAM_ERROR: {err}"),
+            }
         }
 
-        let ctx = ctx.clone();
-        let room_id = room_id.clone();
-        let room_client = room_client.clone();
-        let cache = memory_cache.clone();
+        println!("FINISHED_RETRIEVING_MESSAGES");
 
-        tokio::spawn(async move {
-            let result = memory_cache::retry_decryption(
-                seq.messages,
-                &room_id,
-                &room_client,
-                &cache,
-                key_change_rx,
-                &ctx,
-            )
-            .await;
+        // let manager =
+        //     messages::RoomMessagesManager::from_initialized_data(ctx, initialized_data, room);
 
-            if let Err(err) = result {
-                ctx.send_error(errors::convert_cache_error(err)).await;
-            }
-        });
+        // manager
+        //     .send_and_sync_messages(order, limit, from_message_id)
+        //     .await
 
         Ok(())
     }

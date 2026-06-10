@@ -9,6 +9,7 @@ gouda_core.workspace = true
 gouda_proto.workspace = true
 
 tokio.workspace = true
+tokio-stream.workspace = true
 
 interprocess.workspace = true
 clap.workspace = true
