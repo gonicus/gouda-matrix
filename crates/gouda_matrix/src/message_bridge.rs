@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gouda_proto::chat::{message, Message, MessagesOrder, Reaction};
+use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -24,6 +25,7 @@ use ruma_common::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::media::MediaManager;
 use crate::messages;
 
 const MESSAGES_CHANNEL_CAPACITY: usize = 32;
@@ -53,13 +55,15 @@ pub struct QueryOptions {
 /// This struct does not handle caching and acts as a low level bridge
 /// between matrix and our own API.
 pub struct MatrixMessageBridge {
-    room: Arc<dyn RoomAbstraction>,
+    media_manager: MediaManager,
+    room: Room,
 }
 
 impl MatrixMessageBridge {
-    pub fn from_matrix_room(room: matrix_sdk::Room) -> Self {
+    pub fn from_matrix_room(media_manager: MediaManager, room: matrix_sdk::Room) -> Self {
         Self {
-            room: Arc::new(room),
+            media_manager,
+            room: room,
         }
     }
 
@@ -67,6 +71,7 @@ impl MatrixMessageBridge {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         let room = self.room.clone();
+        let media_manager = self.media_manager.clone();
 
         if options.from_message_id.is_some() {
             todo!("Implement retrieval of the correct pagination token");
@@ -83,36 +88,11 @@ impl MatrixMessageBridge {
         }
 
         tokio::spawn(async move {
-            let fetcher = MessageFetcher::new(room, tx, options.limit, None, direction);
+            let fetcher = MessageFetcher::new(media_manager, room, tx, options.limit, None, direction);
             fetcher.fetch_messages().await;
         });
 
         ReceiverStream::new(rx)
-    }
-}
-
-#[async_trait]
-trait RoomAbstraction: Send + Sync {
-    fn get_room_id(&self) -> &RoomId;
-
-    async fn fetch_events(
-        &self,
-        options: matrix_sdk::room::MessagesOptions,
-    ) -> matrix_sdk::Result<matrix_sdk::room::Messages>;
-}
-
-#[async_trait]
-impl RoomAbstraction for matrix_sdk::Room {
-    fn get_room_id(&self) -> &RoomId {
-        self.room_id()
-    }
-
-    async fn fetch_events(
-        &self,
-        options: matrix_sdk::room::MessagesOptions,
-    ) -> matrix_sdk::Result<matrix_sdk::room::Messages> {
-        log::debug!("Fetching events from matrix server with: {options:?}");
-        self.messages(options).await
     }
 }
 
@@ -124,8 +104,7 @@ enum MessageRelation {
 
 #[derive(Debug)]
 struct ReplacementRelation {
-    /// TODO: This is just for testing and should be the correct generated content of the message.
-    pub new_content: String,
+    pub new_content: message::Content,
 }
 
 #[derive(Debug)]
@@ -137,8 +116,10 @@ struct ReactionRelation {
 }
 
 struct MessageFetcher {
+    media_manager: MediaManager,
+
     /// From where to fetch events.
-    room: Arc<dyn RoomAbstraction>,
+    room: Room,
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
     /// How many messages should be fetched.
@@ -161,13 +142,15 @@ struct MessageFetcher {
 
 impl MessageFetcher {
     pub fn new(
-        room: Arc<dyn RoomAbstraction>,
+        media_manager: MediaManager,
+        room: Room,
         sender: Sender<Result<Message>>,
         limit: u32,
         from_token: Option<String>,
         direction: Direction,
     ) -> Self {
         Self {
+            media_manager,
             room,
             sender,
             message_limit: limit,
@@ -204,7 +187,7 @@ impl MessageFetcher {
             let options = self.build_messages_options();
 
             let matrix_sdk::room::Messages { end, chunk, .. } =
-                self.room.fetch_events(options).await?;
+                self.room.messages(options).await?;
 
             log::debug!("Processing chunk");
 
@@ -294,7 +277,7 @@ impl MessageFetcher {
         // TODO: Add the decryption failure to some vector for retrying decryption later.
 
         let message = Message {
-            room_id: self.room.get_room_id().to_string(),
+            room_id: self.room.room_id().to_string(),
             message_id: deserialized.event_id().to_string(),
             timestamp: deserialized.origin_server_ts().0.into(),
             sender_id: deserialized.sender().to_string(),
@@ -317,7 +300,7 @@ impl MessageFetcher {
             }
         };
 
-        let full_event = deserialized.into_full_event(self.room.get_room_id().to_owned());
+        let full_event = deserialized.into_full_event(self.room.room_id().to_owned());
 
         self.process_any_timeline_event(full_event).await
     }
@@ -349,9 +332,17 @@ impl MessageFetcher {
         };
 
         // Replacement events are stashed until we reach the original event.
-        if let Some(Relation::Replacement(relation)) = &original.content.relates_to {
+        if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
+            let new_content = messages::generate_message_content!(
+                self.media_manager,
+                self.room,
+                relation.event_id,
+                relation.new_content.msgtype,
+                message
+            ).unwrap();
+
             let replacement = ReplacementRelation {
-                new_content: String::from("New content!"),
+                new_content,
             };
 
             self.stash_replacement(relation.event_id.to_string(), replacement);
@@ -411,10 +402,12 @@ impl MessageFetcher {
     async fn build_and_send_message(&mut self, event: RoomMessageEvent) -> Result<()> {
         let message_id = event.event_id().to_string();
 
+        let message_builder = MessageBuilder::new(&self.room, &self.media_manager);
+
         let message = if let Some(related) = self.event_stash.remove(&message_id) {
-            MessageBuilder::relations(event, related)
+            message_builder.with_relations(event, related).await
         } else {
-            MessageBuilder::single(event)
+            message_builder.single(event).await
         };
 
         self.send_finished_message(message).await
@@ -432,21 +425,86 @@ impl MessageFetcher {
     }
 }
 
-struct MessageBuilder {}
+struct MessageBuilder<'a> {
+    room: &'a Room,
+    media_manager: &'a MediaManager,
+    message: Message,
+}
 
-impl MessageBuilder {
+impl<'a> MessageBuilder<'a> {
+    pub fn new(room: &'a Room, media_manager: &'a MediaManager) -> Self {
+        Self {
+            room,
+            media_manager,
+            message: Message::default(),
+        }
+    }
+
     /// Builds a message from a single RoomMessageEvent.
-    pub fn single(event: RoomMessageEvent) -> Message {
+    pub async fn single(mut self, event: RoomMessageEvent) -> Message {
         println!("BUILDING_SINGLE_MESSAGE: {event:?}");
-        // TODO
-        Message::default()
+        self.apply_original(event).await;
+        self.message
     }
 
     /// Builds a message from the original RoomMessageEvent and
     /// all of its related events.
-    pub fn relations(original: RoomMessageEvent, related: Vec<MessageRelation>) -> Message {
+    pub async fn with_relations(mut self, original: RoomMessageEvent, related: Vec<MessageRelation>) -> Message {
         println!("BUILDING_MESSAGE_WITH_RELATIONS: {original:?}, RELATED: {related:?}");
-        // TODO
-        Message::default()
+
+        // TODO: Sort the related events by timestamp
+
+        self.apply_original(original).await;
+        self.apply_relations(related);
+        self.message
+    }
+
+    async fn apply_original(&mut self, event: RoomMessageEvent) {
+        let original = event.as_original().unwrap().clone();
+
+        let content = messages::generate_message_content!(
+            self.media_manager,
+            self.room,
+            event.event_id(),
+            original.content.msgtype,
+            message
+        );
+
+        // TODO: mentioned_user_ids, is_encrypted, related_message_id, is_pinned
+
+        self.message = Message {
+            room_id: event.room_id().to_string(),
+            message_id: event.event_id().to_string(),
+            sender_id: event.sender().to_string(),
+            is_encrypted: false,
+            is_pinned: false,
+            mentioned_user_ids: Vec::new(),
+            timestamp: event.origin_server_ts().0.into(),
+            reactions: Vec::new(),
+            related_message_id: None,
+            content,
+        };
+    }
+
+    fn apply_relations(&mut self, related: Vec<MessageRelation>) {
+        for relation in related {
+            match relation {
+                MessageRelation::Reaction(r) => self.apply_reaction(r),
+                MessageRelation::Replacement(r) => self.apply_replacement(r),
+            }
+        }
+    }
+
+    fn apply_reaction(&mut self, reaction: ReactionRelation) {
+        self.message.reactions.push(Reaction {
+            room_id: self.message.room_id.clone(),
+            message_id: self.message.message_id.clone(),
+            reaction: reaction.key,
+            user_id: Some(reaction.user),
+        });
+    }
+
+    fn apply_replacement(&mut self, replacement: ReplacementRelation) {
+        self.message.content = Some(replacement.new_content);
     }
 }

@@ -1182,7 +1182,10 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let initialized_data = self.get_initialized_data_logged_in().await?;
+        let InitializedData {
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
 
@@ -1208,7 +1211,7 @@ impl ClientAbstraction for MatrixClient {
             order,
         };
 
-        let bridge = message_bridge::MatrixMessageBridge::from_matrix_room(room);
+        let bridge = message_bridge::MatrixMessageBridge::from_matrix_room(media_manager.clone(), room);
         let mut stream = bridge.fetch_messages(query_options);
 
         let multipart_response = ctx.begin_multipart_response();
