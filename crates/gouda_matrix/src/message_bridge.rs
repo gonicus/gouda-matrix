@@ -1,27 +1,20 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use async_trait::async_trait;
 use gouda_proto::chat::{message, Message, MessagesOrder, Reaction};
 use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
-use matrix_sdk::ruma::events::message::{MessageEvent, MessageEventContentWithoutRelation};
-use matrix_sdk::ruma::events::reaction::{ReactionEvent, ReactionEventContent};
-use matrix_sdk::ruma::events::relation::Annotation;
+use matrix_sdk::ruma::events::reaction::ReactionEvent;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
-use matrix_sdk::ruma::events::room::message::{
-    RoomMessageEvent, RoomMessageEventContentWithoutRelation,
-};
+use matrix_sdk::ruma::events::room::message::RoomMessageEvent;
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
 use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-    BundledMessageLikeRelations,
 };
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma_common::OwnedEventId;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -33,9 +26,6 @@ const ROOM_EVENTS_CHUNK_SIZE: u32 = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MatrixMessageBridgeError {
-    #[error("decryption error")]
-    UnableToDecrypt(UnableToDecryptInfo),
-
     #[error("receiver of the messages dropped")]
     ReceiverDropped,
 
