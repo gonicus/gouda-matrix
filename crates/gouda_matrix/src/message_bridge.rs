@@ -28,7 +28,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::media::MediaManager;
 use crate::messages;
 
-const MESSAGES_CHANNEL_CAPACITY: usize = 32;
+const MESSAGES_CHANNEL_CAPACITY: usize = 1;
 const ROOM_EVENTS_CHUNK_SIZE: u32 = 10;
 
 #[derive(Debug, thiserror::Error)]
