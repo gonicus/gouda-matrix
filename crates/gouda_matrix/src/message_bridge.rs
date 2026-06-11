@@ -96,12 +96,9 @@ impl MessageCacheInner {
         tokio::spawn(async move {
             let mut room = room.lock().await;
 
-            MessageFetcher::new(
-                media_manager.clone(),
-                &mut room,
-                tx,
-                options,
-            ).run().await;
+            MessageFetcher::new(media_manager.clone(), &mut room, tx, options)
+                .run()
+                .await;
         });
 
         ReceiverStream::new(rx)
@@ -199,7 +196,6 @@ impl CachedMessage {
     }
 }
 
-
 struct MessageFetcher<'a> {
     /// The media manager to use to download message attachements.
     media_manager: MediaManager,
@@ -263,7 +259,8 @@ impl<'a> MessageFetcher<'a> {
 
             let options = self.build_messages_options();
 
-            let matrix_sdk::room::Messages { end, chunk, .. } = self.cache.room.messages(options).await?;
+            let matrix_sdk::room::Messages { end, chunk, .. } =
+                self.cache.room.messages(options).await?;
 
             log::debug!("Processing chunk");
 
