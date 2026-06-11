@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gouda_proto::chat::{message, Message, MessagesOrder, Reaction};
+use gouda_proto::chat::{message, Message, Reaction};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -22,7 +22,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::media::MediaManager;
 use crate::messages;
 
+/// The capacity of the channel for receiving retreived and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
+/// How many events are fetched with each room.messages request.
 const ROOM_EVENTS_CHUNK_SIZE: u32 = 10;
 
 #[derive(Debug, thiserror::Error)]
@@ -37,9 +39,10 @@ pub enum MatrixMessageBridgeError {
 pub type Result<T> = std::result::Result<T, MatrixMessageBridgeError>;
 
 pub struct QueryOptions {
+    /// How many assembled messages should be returned.
     pub limit: u32,
+    /// The ID of the message from where to begin fetching messages.
     pub from_message_id: Option<OwnedEventId>,
-    pub order: MessagesOrder,
 }
 
 /// Fetches and builds messages from the matrix server.
@@ -68,15 +71,7 @@ impl MatrixMessageBridge {
             todo!("Implement retrieval of the correct pagination token");
         }
 
-        let direction = match options.order {
-            MessagesOrder::Backward => Direction::Backward,
-            MessagesOrder::Forward => Direction::Forward,
-        };
-
-        if direction == Direction::Forward {
-            // This requires more work in the MessageFetcher....
-            todo!("Forward direction is currently not implemented");
-        }
+        let direction = Direction::Backward;
 
         tokio::spawn(async move {
             let fetcher =

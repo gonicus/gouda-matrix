@@ -1205,7 +1205,6 @@ impl ClientAbstraction for MatrixClient {
         let query_options = message_bridge::QueryOptions {
             from_message_id,
             limit,
-            order,
         };
 
         let bridge =
