@@ -10,6 +10,8 @@ use ruma_common::api::error::{
     Error as RumaClientError, ErrorKind as RumaClientErrorKind, IntoHttpError,
 };
 
+use crate::message_bridge::MessageCacheError;
+
 /// Creates a new chat error given an error type as well as an error message.
 pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {
     Error {
@@ -171,6 +173,14 @@ pub fn convert_id_parse_error(err: IdParseError) -> Error {
     create_error_msg(ErrorType::InvalidUserId, err.to_string())
 }
 
+pub fn convert_message_cache_error(err: MessageCacheError) -> Error {
+    match err {
+        MessageCacheError::MatrixError(err) => convert_matrix_sdk_error(err),
+        err => create_unknown(err),
+    }
+}
+
+/// Converts a `EditError` to a new chat error.
 pub fn convert_edit_error(err: EditError) -> Error {
     log::error!("Received EditError: {err:?}");
     create_unknown(err)

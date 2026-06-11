@@ -1195,11 +1195,7 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let InitializedData {
-            message_cache,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let InitializedData { message_cache, .. } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
 
@@ -1225,33 +1221,20 @@ impl ClientAbstraction for MatrixClient {
             limit,
         };
 
-        // let bridge =
-        //     message_bridge::MatrixMessageBridge::from_matrix_room(media_manager.clone(), room);
-        // let mut stream = bridge.fetch_messages(query_options);
+        let mut stream = message_cache
+            .fetch_messages(room, query_options)
+            .await
+            .map_err(errors::convert_message_cache_error)?;
 
-        let mut stream = message_cache.fetch_messages(room, query_options).await;
         let multipart_response = ctx.begin_multipart_response();
 
         while let Some(result) = stream.next().await {
-            match result {
-                Ok(message) => {
-                    println!("RECEIVED_MESSAGE: {message:?}");
-                    multipart_response
-                        .send_item(ResponseContent::MessageReceivedEvent(message))
-                        .await;
-                }
-                Err(err) => eprintln!("RECEIVED_STREAM_ERROR: {err}"),
-            }
+            let message = result.map_err(errors::convert_message_cache_error)?;
+
+            multipart_response
+                .send_item(ResponseContent::MessageReceivedEvent(message))
+                .await;
         }
-
-        println!("FINISHED_RETRIEVING_MESSAGES");
-
-        // let manager =
-        //     messages::RoomMessagesManager::from_initialized_data(ctx, initialized_data, room);
-
-        // manager
-        //     .send_and_sync_messages(order, limit, from_message_id)
-        //     .await
 
         Ok(())
     }

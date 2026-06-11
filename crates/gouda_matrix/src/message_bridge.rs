@@ -17,7 +17,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::Room;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::OwnedEventId;
+use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
@@ -70,7 +70,7 @@ impl MessageCache {
         &self,
         room: Room,
         options: QueryOptions,
-    ) -> ReceiverStream<Result<Message>> {
+    ) -> Result<ReceiverStream<Result<Message>>> {
         self.inner.lock().await.fetch_messages(room, options).await
     }
 }
@@ -92,7 +92,13 @@ impl MessageCacheInner {
         &mut self,
         room: Room,
         options: QueryOptions,
-    ) -> ReceiverStream<Result<Message>> {
+    ) -> Result<ReceiverStream<Result<Message>>> {
+        let from_token = if let Some(message_id) = options.from_message_id {
+            resolve_event_for_pagination(&room, &message_id).await?
+        } else {
+            None
+        };
+
         let room = self.get_or_create_room(room).await;
         let media_manager = self.media_manager.clone();
 
@@ -101,12 +107,18 @@ impl MessageCacheInner {
         tokio::spawn(async move {
             let mut room = room.lock().await;
 
-            MessageFetcher::new(media_manager.clone(), &mut room, tx, options)
-                .run()
-                .await;
+            MessageFetcher::new(
+                media_manager.clone(),
+                &mut room,
+                tx,
+                options.limit,
+                from_token,
+            )
+            .run()
+            .await;
         });
 
-        ReceiverStream::new(rx)
+        Ok(ReceiverStream::new(rx))
     }
 
     async fn get_or_create_room(&mut self, room: Room) -> Arc<Mutex<CachedRoom>> {
@@ -226,16 +238,17 @@ impl<'a> MessageFetcher<'a> {
         media_manager: MediaManager,
         cache: &'a mut CachedRoom,
         sender: Sender<Result<Message>>,
-        options: QueryOptions,
+        limit: u32,
+        from_token: Option<String>,
     ) -> Self {
         Self {
             media_manager,
             cache,
 
             sender,
-            message_limit: options.limit,
+            message_limit: limit,
 
-            from_token: options.from_message_id.map(|f| f.to_string()),
+            from_token,
             chunk_size: ROOM_EVENTS_CHUNK_SIZE.into(),
 
             retrieved_messages: 0,
@@ -474,11 +487,13 @@ impl<'a> MessageFetcher<'a> {
 
     fn stash_replacement(&mut self, original_message_id: String, replacement: CachedReplacement) {
         let message = self.cache.messages.entry(original_message_id).or_default();
+        // TODO: Do not cache duplicates
         message.replacements.push(replacement);
     }
 
     fn stash_reaction(&mut self, original_message_id: String, reaction: CachedReaction) {
         let message = self.cache.messages.entry(original_message_id).or_default();
+        // TODO: Do not cache duplicates
         message.reactions.push(reaction);
     }
 
@@ -533,4 +548,12 @@ impl<'a> MessageFetcher<'a> {
 
         Ok(())
     }
+}
+
+async fn resolve_event_for_pagination(room: &Room, event_id: &EventId) -> Result<Option<String>> {
+    let response = room
+        .event_with_context(event_id, true, js_int::uint!(0), None)
+        .await?;
+
+    Ok(response.prev_batch_token)
 }
