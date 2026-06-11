@@ -309,10 +309,7 @@ impl<'a> MessageFetcher<'a> {
     }
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
-        println!("PROCESSING_CHUNK: {chunk:?}");
-
         for event in chunk {
-            println!("PROCESSING_EVENT: {event:?}");
             match event.kind {
                 TimelineEventKind::Decrypted(event) => self.process_decrypted_event(event).await?,
                 TimelineEventKind::UnableToDecrypt { event, utd_info } => {
@@ -328,7 +325,6 @@ impl<'a> MessageFetcher<'a> {
                 log::debug!("Reached the number of requested messages, aborting chunk processing");
                 break;
             }
-            println!("");
         }
 
         Ok(())
@@ -415,8 +411,6 @@ impl<'a> MessageFetcher<'a> {
     async fn process_room_message(&mut self, event: RoomMessageEvent) -> Result<()> {
         use matrix_sdk::ruma::events::room::message::Relation;
 
-        println!("PROCESSING_ROOM_MESSAGE_EVENT: {event:?}");
-
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to care about that.
             return Ok(());
@@ -424,8 +418,6 @@ impl<'a> MessageFetcher<'a> {
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
-            println!("DETECTED_REPLACEMENT: {relation:?}");
-
             let new_content = messages::generate_message_content!(
                 self.media_manager,
                 &self.cache.room,
