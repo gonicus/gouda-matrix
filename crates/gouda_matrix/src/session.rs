@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
-use crate::{crypto, errors, memory_cache, user};
+use crate::{crypto, errors, user};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -133,7 +133,7 @@ impl Session {
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
-        self.sync_once(initialized_data, memory_cache::SyncSource::InitialSync)
+        self.sync_once(initialized_data)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
@@ -155,9 +155,7 @@ impl Session {
     ) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
             loop {
-                let result = self
-                    .sync_once(&initialized_data, memory_cache::SyncSource::ContinuousSync)
-                    .await;
+                let result = self.sync_once(&initialized_data).await;
 
                 if let Err(err) = self.handle_sync_result(result, &initialized_data).await {
                     log::error!(
@@ -173,11 +171,7 @@ impl Session {
         Ok(handle)
     }
 
-    async fn sync_once(
-        &self,
-        initialized_data: &InitializedData,
-        sync_source: memory_cache::SyncSource,
-    ) -> matrix_sdk::Result<()> {
+    async fn sync_once(&self, initialized_data: &InitializedData) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
         if let Some(token) = &initialized_data.proto_cache.sync_token().await {
@@ -197,16 +191,6 @@ impl Session {
             .proto_cache
             .set_sync_token(response.next_batch.clone())
             .await;
-
-        let cache_result = memory_cache::cache_sync_response(
-            &initialized_data.memory_cache,
-            &response,
-            sync_source,
-        );
-
-        if let Err(err) = cache_result {
-            log::error!("Error caching sync response in memory cache: {err}");
-        }
 
         Ok(())
     }
