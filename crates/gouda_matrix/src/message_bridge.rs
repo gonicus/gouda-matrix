@@ -229,12 +229,6 @@ impl MessageFetcher {
     }
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
-        // TODO:
-        // - Add the retrieved events to some hash map and group them by parent event
-        // - Check if we have retrieved a parent event, if so assemble the final message
-        //   with all child events
-        // - Set the token for the next chunk
-
         println!("PROCESSING_CHUNK: {chunk:?}");
 
         for event in chunk {
@@ -302,7 +296,7 @@ impl MessageFetcher {
 
         self.send_finished_message(message).await?;
 
-        Err(MatrixMessageBridgeError::UnableToDecrypt(utd_info))
+        Ok(())
     }
 
     async fn process_plain_text_event(&mut self, event: Raw<AnySyncTimelineEvent>) -> Result<()> {
