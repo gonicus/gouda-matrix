@@ -89,11 +89,19 @@ impl MessageCacheInner {
         options: QueryOptions,
     ) -> ReceiverStream<Result<Message>> {
         let room = self.get_or_create_room(room).await;
+        let media_manager = self.media_manager.clone();
 
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            room.lock().await.fetch_messages(tx, options).await;
+            let mut room = room.lock().await;
+
+            MessageFetcher::new(
+                media_manager.clone(),
+                &mut room,
+                tx,
+                options,
+            ).run().await;
         });
 
         ReceiverStream::new(rx)
@@ -111,29 +119,66 @@ impl MessageCacheInner {
     }
 
     fn create_new_room(&self, room: Room) -> Arc<Mutex<CachedRoom>> {
-        Arc::new(Mutex::new(CachedRoom::new(
-            self.media_manager.clone(),
-            room,
-        )))
+        Arc::new(Mutex::new(CachedRoom::new(room)))
     }
 }
 
 struct CachedRoom {
-    pub media_manager: MediaManager,
     pub room: Room,
     pub messages: HashMap<String, CachedMessage>,
 }
 
 impl CachedRoom {
-    pub fn new(media_manager: MediaManager, room: Room) -> Self {
+    pub fn new(room: Room) -> Self {
         Self {
-            media_manager,
             room,
             messages: HashMap::new(),
         }
     }
+}
 
-    pub async fn fetch_messages(&mut self, sender: Sender<Result<Message>>, options: QueryOptions) {
+struct MessageFetcher<'a> {
+    /// The media manager to use to download message attachements.
+    media_manager: MediaManager,
+    /// The room to use to fetch messages.
+    room: &'a mut CachedRoom,
+
+    /// Where to send finished messages.
+    sender: Sender<Result<Message>>,
+    /// How many messages should be fetched.
+    message_limit: u32,
+
+    /// The pagination token for the next chunk.
+    from_token: Option<String>,
+    /// How many events are fetched with each request.
+    chunk_size: js_int::UInt,
+
+    /// The number of chat messages we have build and send to the message receiver.
+    retrieved_messages: u32,
+}
+
+impl<'a> MessageFetcher<'a> {
+    pub fn new(
+        media_manager: MediaManager,
+        room: &'a mut CachedRoom,
+        sender: Sender<Result<Message>>,
+        options: QueryOptions,
+    ) -> Self {
+        Self {
+            media_manager,
+            room,
+
+            sender,
+            message_limit: options.limit,
+
+            from_token: options.from_message_id.map(|f| f.to_string()),
+            chunk_size: ROOM_EVENTS_CHUNK_SIZE.into(),
+
+            retrieved_messages: 0,
+        }
+    }
+
+    pub async fn run(mut self) {
         todo!()
     }
 }
@@ -168,7 +213,7 @@ impl MatrixMessageBridge {
 
         tokio::spawn(async move {
             let fetcher =
-                MessageFetcher::new(media_manager, room, tx, options.limit, None, direction);
+                MessageFetcherOld::new(media_manager, room, tx, options.limit, None, direction);
             fetcher.fetch_messages().await;
         });
 
@@ -176,7 +221,7 @@ impl MatrixMessageBridge {
     }
 }
 
-struct MessageFetcher {
+struct MessageFetcherOld {
     media_manager: MediaManager,
 
     /// From where to fetch events.
@@ -201,7 +246,7 @@ struct MessageFetcher {
     retrieved_messages: u32,
 }
 
-impl MessageFetcher {
+impl MessageFetcherOld {
     pub fn new(
         media_manager: MediaManager,
         room: Room,
