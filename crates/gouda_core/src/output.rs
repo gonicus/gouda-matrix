@@ -145,8 +145,14 @@ mod tests {
         ];
 
         // Act
-        output_tx.send(create_output_task(5, response_1)).await.unwrap();
-        output_tx.send(create_output_task(6, response_2)).await.unwrap();
+        output_tx
+            .send(create_output_task(5, response_1))
+            .await
+            .unwrap();
+        output_tx
+            .send(create_output_task(6, response_2))
+            .await
+            .unwrap();
         output_tx.send(OutputTask::Exit).await.unwrap();
 
         output_processor.run().await.unwrap();

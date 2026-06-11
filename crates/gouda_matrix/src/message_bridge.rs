@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use gouda_proto::chat::{message, Message, MessagesOrder, Reaction};
-use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -10,8 +9,10 @@ use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
 use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContent};
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
 use matrix_sdk::ruma::events::{
-    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, OriginalMessageLikeEvent,
+    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    OriginalMessageLikeEvent,
 };
+use matrix_sdk::Room;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::OwnedEventId;
@@ -78,7 +79,8 @@ impl MatrixMessageBridge {
         }
 
         tokio::spawn(async move {
-            let fetcher = MessageFetcher::new(media_manager, room, tx, options.limit, None, direction);
+            let fetcher =
+                MessageFetcher::new(media_manager, room, tx, options.limit, None, direction);
             fetcher.fetch_messages().await;
         });
 
@@ -157,8 +159,7 @@ impl MessageFetcher {
 
             let options = self.build_messages_options();
 
-            let matrix_sdk::room::Messages { end, chunk, .. } =
-                self.room.messages(options).await?;
+            let matrix_sdk::room::Messages { end, chunk, .. } = self.room.messages(options).await?;
 
             log::debug!("Processing chunk");
 
@@ -312,7 +313,8 @@ impl MessageFetcher {
                 relation.event_id,
                 relation.new_content.msgtype,
                 message
-            ).unwrap();
+            )
+            .unwrap();
 
             let replacement = CachedReplacement {
                 timestamp: event.origin_server_ts().0.into(),
@@ -374,7 +376,10 @@ impl MessageFetcher {
         message.reactions.push(reaction);
     }
 
-    async fn build_original_message(&self, event: &OriginalMessageLikeEvent<RoomMessageEventContent>) -> Message {
+    async fn build_original_message(
+        &self,
+        event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Message {
         let content = messages::generate_message_content!(
             self.media_manager,
             self.room,
@@ -399,7 +404,10 @@ impl MessageFetcher {
         }
     }
 
-    async fn build_and_send_message(&mut self, event: &OriginalMessageLikeEvent<RoomMessageEventContent>) -> Result<()> {
+    async fn build_and_send_message(
+        &mut self,
+        event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Result<()> {
         let original = self.build_original_message(event).await;
         let message_id = original.message_id.clone();
 
