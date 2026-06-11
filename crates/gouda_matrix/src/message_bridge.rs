@@ -137,11 +137,74 @@ impl CachedRoom {
     }
 }
 
+#[derive(Debug)]
+struct CachedReplacement {
+    /// The timestamp when the replacement event was created.
+    pub timestamp: u64,
+    /// The new content replacing the original or any other related
+    /// replacement event.
+    pub new_content: message::Content,
+}
+
+#[derive(Debug)]
+struct CachedReaction {
+    /// The ID of the reaction event.
+    pub id: String,
+    /// The ID of the user who reacted.
+    pub user: String,
+    /// The emoji the user reacted with.
+    pub emoji: String,
+}
+
+#[derive(Debug, Default)]
+struct CachedMessage {
+    /// The parent aka original event of the message.
+    /// If none, we have not yet reached the original message event.
+    pub original: Option<Message>,
+    /// The reactions to this message.
+    pub reactions: Vec<CachedReaction>,
+    /// The replacement events to this message.
+    pub replacements: Vec<CachedReplacement>,
+}
+
+impl CachedMessage {
+    pub fn build_from_original(&mut self, mut original: Message) -> Message {
+        self.original = Some(original.clone());
+
+        self.apply_reactions(&mut original);
+        self.apply_replacements(&mut original);
+
+        original
+    }
+
+    fn apply_reactions(&self, msg: &mut Message) {
+        for reaction in &self.reactions {
+            let reaction = Reaction {
+                message_id: msg.message_id.clone(),
+                room_id: msg.room_id.clone(),
+                reaction: reaction.emoji.clone(),
+                user_id: Some(reaction.user.clone()),
+            };
+
+            msg.reactions.push(reaction);
+        }
+    }
+
+    fn apply_replacements(&mut self, msg: &mut Message) {
+        self.replacements.sort_by_key(|f| f.timestamp);
+
+        if let Some(replacement) = self.replacements.last() {
+            msg.content = Some(replacement.new_content.clone());
+        }
+    }
+}
+
+
 struct MessageFetcher<'a> {
     /// The media manager to use to download message attachements.
     media_manager: MediaManager,
     /// The room to use to fetch messages.
-    room: &'a mut CachedRoom,
+    cache: &'a mut CachedRoom,
 
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
@@ -160,13 +223,13 @@ struct MessageFetcher<'a> {
 impl<'a> MessageFetcher<'a> {
     pub fn new(
         media_manager: MediaManager,
-        room: &'a mut CachedRoom,
+        cache: &'a mut CachedRoom,
         sender: Sender<Result<Message>>,
         options: QueryOptions,
     ) -> Self {
         Self {
             media_manager,
-            room,
+            cache,
 
             sender,
             message_limit: options.limit,
@@ -179,98 +242,6 @@ impl<'a> MessageFetcher<'a> {
     }
 
     pub async fn run(mut self) {
-        todo!()
-    }
-}
-
-/// Fetches and builds messages from the matrix server.
-/// This struct does not handle caching and acts as a low level bridge
-/// between matrix and our own API.
-pub struct MatrixMessageBridge {
-    media_manager: MediaManager,
-    room: Room,
-}
-
-impl MatrixMessageBridge {
-    pub fn from_matrix_room(media_manager: MediaManager, room: matrix_sdk::Room) -> Self {
-        Self {
-            media_manager,
-            room: room,
-        }
-    }
-
-    pub fn fetch_messages(&self, options: QueryOptions) -> ReceiverStream<Result<Message>> {
-        let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
-
-        let room = self.room.clone();
-        let media_manager = self.media_manager.clone();
-
-        if options.from_message_id.is_some() {
-            todo!("Implement retrieval of the correct pagination token");
-        }
-
-        let direction = Direction::Backward;
-
-        tokio::spawn(async move {
-            let fetcher =
-                MessageFetcherOld::new(media_manager, room, tx, options.limit, None, direction);
-            fetcher.fetch_messages().await;
-        });
-
-        ReceiverStream::new(rx)
-    }
-}
-
-struct MessageFetcherOld {
-    media_manager: MediaManager,
-
-    /// From where to fetch events.
-    room: Room,
-    /// Where to send finished messages.
-    sender: Sender<Result<Message>>,
-    /// How many messages should be fetched.
-    message_limit: u32,
-
-    /// The pagination token for the next chunk.
-    from_token: Option<String>,
-    /// The direction for every request.
-    direction: Direction,
-    /// How many events are fetched with each request.
-    chunk_size: js_int::UInt,
-
-    /// Stashed child events that have not yet been assembled into a complete message.
-    /// The events are grouped by the parent event they are referencing.
-    /// The order of the events is indeterminate.
-    event_stash: HashMap<String, CachedMessage>,
-    /// The number of chat messages we have build and send to the message receiver.
-    retrieved_messages: u32,
-}
-
-impl MessageFetcherOld {
-    pub fn new(
-        media_manager: MediaManager,
-        room: Room,
-        sender: Sender<Result<Message>>,
-        limit: u32,
-        from_token: Option<String>,
-        direction: Direction,
-    ) -> Self {
-        Self {
-            media_manager,
-            room,
-            sender,
-            message_limit: limit,
-
-            from_token,
-            direction,
-            chunk_size: ROOM_EVENTS_CHUNK_SIZE.into(),
-
-            event_stash: HashMap::new(),
-            retrieved_messages: 0,
-        }
-    }
-
-    pub async fn fetch_messages(mut self) {
         if self.message_limit == 0 {
             return;
         }
@@ -292,7 +263,7 @@ impl MessageFetcherOld {
 
             let options = self.build_messages_options();
 
-            let matrix_sdk::room::Messages { end, chunk, .. } = self.room.messages(options).await?;
+            let matrix_sdk::room::Messages { end, chunk, .. } = self.cache.room.messages(options).await?;
 
             log::debug!("Processing chunk");
 
@@ -316,7 +287,7 @@ impl MessageFetcherOld {
     }
 
     fn build_messages_options(&self) -> matrix_sdk::room::MessagesOptions {
-        let mut options = matrix_sdk::room::MessagesOptions::new(self.direction);
+        let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
         options.from = self.from_token.clone();
         options.limit = self.chunk_size;
         options
@@ -380,7 +351,7 @@ impl MessageFetcherOld {
         // TODO: Add the decryption failure to some vector for retrying decryption later.
 
         let message = Message {
-            room_id: self.room.room_id().to_string(),
+            room_id: self.cache.room.room_id().to_string(),
             message_id: deserialized.event_id().to_string(),
             timestamp: deserialized.origin_server_ts().0.into(),
             sender_id: deserialized.sender().to_string(),
@@ -403,7 +374,7 @@ impl MessageFetcherOld {
             }
         };
 
-        let full_event = deserialized.into_full_event(self.room.room_id().to_owned());
+        let full_event = deserialized.into_full_event(self.cache.room.room_id().to_owned());
 
         self.process_any_timeline_event(full_event).await
     }
@@ -442,7 +413,7 @@ impl MessageFetcherOld {
 
             let new_content = messages::generate_message_content!(
                 self.media_manager,
-                self.room,
+                &self.cache.room,
                 relation.event_id,
                 relation.new_content.msgtype,
                 message
@@ -500,12 +471,12 @@ impl MessageFetcherOld {
     }
 
     fn stash_replacement(&mut self, original_message_id: String, replacement: CachedReplacement) {
-        let message = self.event_stash.entry(original_message_id).or_default();
+        let message = self.cache.messages.entry(original_message_id).or_default();
         message.replacements.push(replacement);
     }
 
     fn stash_reaction(&mut self, original_message_id: String, reaction: CachedReaction) {
-        let message = self.event_stash.entry(original_message_id).or_default();
+        let message = self.cache.messages.entry(original_message_id).or_default();
         message.reactions.push(reaction);
     }
 
@@ -515,7 +486,7 @@ impl MessageFetcherOld {
     ) -> Message {
         let content = messages::generate_message_content!(
             self.media_manager,
-            self.room,
+            &self.cache.room,
             event.event_id,
             event.content.msgtype.clone(),
             message
@@ -544,7 +515,7 @@ impl MessageFetcherOld {
         let original = self.build_original_message(event).await;
         let message_id = original.message_id.clone();
 
-        let cached_message = self.event_stash.entry(message_id).or_default();
+        let cached_message = self.cache.messages.entry(message_id).or_default();
         let assembled_message = cached_message.build_from_original(original);
 
         self.send_finished_message(assembled_message).await
@@ -559,67 +530,5 @@ impl MessageFetcherOld {
         self.retrieved_messages += 1;
 
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct CachedReplacement {
-    /// The timestamp when the replacement event was created.
-    pub timestamp: u64,
-    /// The new content replacing the original or any other related
-    /// replacement event.
-    pub new_content: message::Content,
-}
-
-#[derive(Debug)]
-struct CachedReaction {
-    /// The ID of the reaction event.
-    pub id: String,
-    /// The ID of the user who reacted.
-    pub user: String,
-    /// The emoji the user reacted with.
-    pub emoji: String,
-}
-
-#[derive(Debug, Default)]
-struct CachedMessage {
-    /// The parent aka original event of the message.
-    /// If none, we have not yet reached the original message event.
-    pub original: Option<Message>,
-    /// The reactions to this message.
-    pub reactions: Vec<CachedReaction>,
-    /// The replacement events to this message.
-    pub replacements: Vec<CachedReplacement>,
-}
-
-impl CachedMessage {
-    pub fn build_from_original(&mut self, mut original: Message) -> Message {
-        self.original = Some(original.clone());
-
-        self.apply_reactions(&mut original);
-        self.apply_replacements(&mut original);
-
-        original
-    }
-
-    fn apply_reactions(&self, msg: &mut Message) {
-        for reaction in &self.reactions {
-            let reaction = Reaction {
-                message_id: msg.message_id.clone(),
-                room_id: msg.room_id.clone(),
-                reaction: reaction.emoji.clone(),
-                user_id: Some(reaction.user.clone()),
-            };
-
-            msg.reactions.push(reaction);
-        }
-    }
-
-    fn apply_replacements(&mut self, msg: &mut Message) {
-        self.replacements.sort_by_key(|f| f.timestamp);
-
-        if let Some(replacement) = self.replacements.last() {
-            msg.content = Some(replacement.new_content.clone());
-        }
     }
 }
