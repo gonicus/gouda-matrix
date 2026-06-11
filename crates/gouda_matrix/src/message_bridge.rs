@@ -20,7 +20,7 @@ use matrix_sdk::ruma::events::{
 };
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{OwnedEventId, OwnedRoomId};
+use ruma_common::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -93,7 +93,7 @@ impl MatrixMessageBridge {
 
 #[async_trait]
 trait RoomAbstraction: Send + Sync {
-    fn get_room_id(&self) -> OwnedRoomId;
+    fn get_room_id(&self) -> &RoomId;
 
     async fn fetch_events(
         &self,
@@ -103,8 +103,8 @@ trait RoomAbstraction: Send + Sync {
 
 #[async_trait]
 impl RoomAbstraction for matrix_sdk::Room {
-    fn get_room_id(&self) -> OwnedRoomId {
-        self.room_id().to_owned()
+    fn get_room_id(&self) -> &RoomId {
+        self.room_id()
     }
 
     async fn fetch_events(
@@ -276,14 +276,33 @@ impl MessageFetcher {
     }
 
     async fn process_unable_to_decrypt_event(
-        &self,
+        &mut self,
         event: Raw<AnySyncTimelineEvent>,
         utd_info: UnableToDecryptInfo,
     ) -> Result<()> {
         log::error!("Unable to decrypt event {event:?}: {utd_info:?}");
 
-        // TODO: Send the message to the application as an encrypted message.
+        let deserialized = match event.deserialize() {
+            Ok(event) => event,
+            Err(err) => {
+                log::error!("Unable to deserialize decrypted event {event:?}: {err}");
+                // We return ok so we don't abord the fetching process
+                return Ok(());
+            }
+        };
+
         // TODO: Add the decryption failure to some vector for retrying decryption later.
+
+        let message = Message {
+            room_id: self.room.get_room_id().to_string(),
+            message_id: deserialized.event_id().to_string(),
+            timestamp: deserialized.origin_server_ts().0.into(),
+            sender_id: deserialized.sender().to_string(),
+            is_encrypted: true,
+            ..Default::default()
+        };
+
+        self.send_finished_message(message).await?;
 
         Err(MatrixMessageBridgeError::UnableToDecrypt(utd_info))
     }
@@ -298,7 +317,7 @@ impl MessageFetcher {
             }
         };
 
-        let full_event = deserialized.into_full_event(self.room.get_room_id());
+        let full_event = deserialized.into_full_event(self.room.get_room_id().to_owned());
 
         self.process_any_timeline_event(full_event).await
     }
