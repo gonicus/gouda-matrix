@@ -102,13 +102,24 @@ enum MessageRelation {
     Reaction(ReactionRelation),
 }
 
+impl MessageRelation {
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Self::Replacement(r) => r.timestamp,
+            Self::Reaction(r) => r.timestamp,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ReplacementRelation {
+    pub timestamp: u64,
     pub new_content: message::Content,
 }
 
 #[derive(Debug)]
 struct ReactionRelation {
+    pub timestamp: u64,
     /// The user that reacted.
     pub user: String,
     /// The emoji the user reacted with.
@@ -224,7 +235,10 @@ impl MessageFetcher {
         //   with all child events
         // - Set the token for the next chunk
 
+        println!("PROCESSING_CHUNK: {chunk:?}");
+
         for event in chunk {
+            println!("PROCESSING_EVENT: {event:?}");
             match event.kind {
                 TimelineEventKind::Decrypted(event) => self.process_decrypted_event(event).await?,
                 TimelineEventKind::UnableToDecrypt { event, utd_info } => {
@@ -240,6 +254,7 @@ impl MessageFetcher {
                 log::debug!("Reached the number of requested messages, aborting chunk processing");
                 break;
             }
+            println!("");
         }
 
         Ok(())
@@ -326,6 +341,8 @@ impl MessageFetcher {
     async fn process_room_message(&mut self, event: RoomMessageEvent) -> Result<()> {
         use matrix_sdk::ruma::events::room::message::Relation;
 
+        println!("PROCESSING_ROOM_MESSAGE_EVENT: {event:?}");
+
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to care about that.
             return Ok(());
@@ -333,6 +350,8 @@ impl MessageFetcher {
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
+            println!("DETECTED_REPLACEMENT: {relation:?}");
+
             let new_content = messages::generate_message_content!(
                 self.media_manager,
                 self.room,
@@ -342,6 +361,7 @@ impl MessageFetcher {
             ).unwrap();
 
             let replacement = ReplacementRelation {
+                timestamp: event.origin_server_ts().0.into(),
                 new_content,
             };
 
@@ -366,6 +386,7 @@ impl MessageFetcher {
         };
 
         let reaction = ReactionRelation {
+            timestamp: event.origin_server_ts().0.into(),
             key: original.content.relates_to.key.clone(),
             user: original.sender.to_string(),
         };
@@ -449,10 +470,10 @@ impl<'a> MessageBuilder<'a> {
 
     /// Builds a message from the original RoomMessageEvent and
     /// all of its related events.
-    pub async fn with_relations(mut self, original: RoomMessageEvent, related: Vec<MessageRelation>) -> Message {
-        println!("BUILDING_MESSAGE_WITH_RELATIONS: {original:?}, RELATED: {related:?}");
+    pub async fn with_relations(mut self, original: RoomMessageEvent, mut related: Vec<MessageRelation>) -> Message {
+        related.sort_by_key(|e| e.timestamp());
 
-        // TODO: Sort the related events by timestamp
+        println!("BUILDING_MESSAGE_WITH_RELATIONS: {original:?}, RELATED: {related:?}");
 
         self.apply_original(original).await;
         self.apply_relations(related);
@@ -505,6 +526,7 @@ impl<'a> MessageBuilder<'a> {
     }
 
     fn apply_replacement(&mut self, replacement: ReplacementRelation) {
+        println!("APPLYING_REPLCEMENT");
         self.message.content = Some(replacement.new_content);
     }
 }
