@@ -21,6 +21,7 @@ use url::Url;
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::memory_cache::MemoryCache;
+use crate::message_bridge::MessageCache;
 use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
@@ -66,6 +67,8 @@ pub struct InitializedData {
     /// The absolute path to the root directory where data is stored.
     pub data_root_dir: PathBuf,
 
+    /// Contains the in memory message cache.
+    pub message_cache: MessageCache,
     /// Contains the in memory cache.
     pub memory_cache: MemoryCache,
     /// The persistent proto cache storing proto messages for the next application start.
@@ -214,6 +217,7 @@ impl MatrixClient {
         )
         .await?;
 
+        let message_cache = MessageCache::new();
         let memory_cache = MemoryCache::new();
 
         let proto_cache = ProtoCache::new(
@@ -247,6 +251,7 @@ impl MatrixClient {
 
             data_root_dir,
 
+            message_cache,
             memory_cache,
             proto_cache,
             media_manager,
@@ -273,6 +278,8 @@ impl MatrixClient {
             &initialized_data.database_passphrase,
         )
         .await?;
+
+        initialized_data.message_cache = MessageCache::new();
 
         initialized_data.memory_cache = MemoryCache::new();
 
@@ -1182,14 +1189,19 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in().await?;
+        let InitializedData {
+            message_cache,
+            media_manager,
+            ..
+        } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
 
-        let order = request
-            .order
-            .and_then(|v| MessagesOrder::try_from(v).ok())
-            .unwrap_or(MessagesOrder::Backward);
+        if request.order == Some(MessagesOrder::Forward.into()) {
+            return Err(errors::create_unknown(
+                "MessagesOrder::Forward is currently not supported",
+            ));
+        }
 
         let limit = request.limit.unwrap_or(10);
 
@@ -1207,10 +1219,11 @@ impl ClientAbstraction for MatrixClient {
             limit,
         };
 
-        let bridge =
-            message_bridge::MatrixMessageBridge::from_matrix_room(media_manager.clone(), room);
-        let mut stream = bridge.fetch_messages(query_options);
+        // let bridge =
+        //     message_bridge::MatrixMessageBridge::from_matrix_room(media_manager.clone(), room);
+        // let mut stream = bridge.fetch_messages(query_options);
 
+        let mut stream = message_cache.fetch_messages(room, query_options).await;
         let multipart_response = ctx.begin_multipart_response();
 
         while let Some(result) = stream.next().await {

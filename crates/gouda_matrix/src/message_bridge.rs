@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use gouda_proto::chat::{message, Message, Reaction};
 use matrix_sdk::deserialized_responses::{
@@ -17,6 +18,7 @@ use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::OwnedEventId;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::{Mutex, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
@@ -28,21 +30,99 @@ const MESSAGES_CHANNEL_CAPACITY: usize = 10;
 const ROOM_EVENTS_CHUNK_SIZE: u32 = 10;
 
 #[derive(Debug, thiserror::Error)]
-pub enum MatrixMessageBridgeError {
+pub enum MessageCacheError {
     #[error("receiver of the messages dropped")]
-    ReceiverDropped,
+    MessageReceiverDropped,
 
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
 }
 
-pub type Result<T> = std::result::Result<T, MatrixMessageBridgeError>;
+pub type Result<T> = std::result::Result<T, MessageCacheError>;
 
 pub struct QueryOptions {
     /// How many assembled messages should be returned.
     pub limit: u32,
     /// The ID of the message from where to begin fetching messages.
     pub from_message_id: Option<OwnedEventId>,
+}
+
+#[derive(Clone)]
+pub struct MessageCache {
+    inner: Arc<RwLock<MessageCacheInner>>,
+}
+
+impl MessageCache {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(MessageCacheInner::new())),
+        }
+    }
+
+    pub async fn fetch_messages(
+        &self,
+        room: Room,
+        options: QueryOptions,
+    ) -> ReceiverStream<Result<Message>> {
+        self.inner.write().await.fetch_messages(room, options).await
+    }
+}
+
+struct MessageCacheInner {
+    cached_rooms: Mutex<HashMap<String, Arc<Mutex<CachedRoom>>>>,
+}
+
+impl MessageCacheInner {
+    pub fn new() -> Self {
+        Self {
+            cached_rooms: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub async fn fetch_messages(
+        &mut self,
+        room: Room,
+        options: QueryOptions,
+    ) -> ReceiverStream<Result<Message>> {
+        let room = self.get_or_create_room(room).await;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
+
+        tokio::spawn(async move {
+            room.lock().await.fetch_messages(tx, options).await;
+        });
+
+        ReceiverStream::new(rx)
+    }
+
+    async fn get_or_create_room(&mut self, room: Room) -> Arc<Mutex<CachedRoom>> {
+        let mut guard = self.cached_rooms.lock().await;
+
+        let room = guard
+            .entry(room.room_id().to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(CachedRoom::new(room))))
+            .clone();
+
+        room
+    }
+}
+
+struct CachedRoom {
+    room: Room,
+    messages: HashMap<String, CachedMessage>,
+}
+
+impl CachedRoom {
+    pub fn new(room: Room) -> Self {
+        Self {
+            room,
+            messages: HashMap::new(),
+        }
+    }
+
+    pub async fn fetch_messages(&mut self, sender: Sender<Result<Message>>, options: QueryOptions) {
+        todo!()
+    }
 }
 
 /// Fetches and builds messages from the matrix server.
@@ -416,7 +496,7 @@ impl MessageFetcher {
         self.sender
             .send(Ok(message))
             .await
-            .map_err(|_| MatrixMessageBridgeError::ReceiverDropped)?;
+            .map_err(|_| MessageCacheError::MessageReceiverDropped)?;
 
         self.retrieved_messages += 1;
 
