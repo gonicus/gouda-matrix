@@ -485,7 +485,7 @@ impl CachedMessage {
     fn apply_replacements(&mut self, msg: &mut Message) {
         self.replacements.sort_by_key(|f| f.timestamp);
 
-        for replacement in &self.replacements {
+        if let Some(replacement) = self.replacements.last() {
             msg.content = Some(replacement.new_content.clone());
         }
     }
