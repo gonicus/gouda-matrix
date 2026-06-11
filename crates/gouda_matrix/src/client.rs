@@ -217,7 +217,6 @@ impl MatrixClient {
         )
         .await?;
 
-        let message_cache = MessageCache::new();
         let memory_cache = MemoryCache::new();
 
         let proto_cache = ProtoCache::new(
@@ -239,6 +238,8 @@ impl MatrixClient {
             memory_cache.clone(),
             media_manager.clone(),
         );
+
+        let message_cache = MessageCache::new(media_manager.clone());
 
         let data = InitializedData {
             client,
@@ -279,8 +280,6 @@ impl MatrixClient {
         )
         .await?;
 
-        initialized_data.message_cache = MessageCache::new();
-
         initialized_data.memory_cache = MemoryCache::new();
 
         initialized_data.media_manager = MediaManager::new(
@@ -302,6 +301,8 @@ impl MatrixClient {
             initialized_data.encryption_passphrase.clone(),
         )
         .await;
+
+        initialized_data.message_cache = MessageCache::new(initialized_data.media_manager.clone());
 
         log::info!("Successfully reset session");
 

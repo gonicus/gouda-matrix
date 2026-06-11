@@ -18,7 +18,7 @@ use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::OwnedEventId;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
@@ -49,13 +49,15 @@ pub struct QueryOptions {
 
 #[derive(Clone)]
 pub struct MessageCache {
-    inner: Arc<RwLock<MessageCacheInner>>,
+    inner: Arc<Mutex<MessageCacheInner>>,
 }
 
 impl MessageCache {
-    pub fn new() -> Self {
+    pub fn new(media_manager: MediaManager) -> Self {
+        let inner = MessageCacheInner::new(media_manager);
+
         Self {
-            inner: Arc::new(RwLock::new(MessageCacheInner::new())),
+            inner: Arc::new(Mutex::new(inner)),
         }
     }
 
@@ -64,17 +66,19 @@ impl MessageCache {
         room: Room,
         options: QueryOptions,
     ) -> ReceiverStream<Result<Message>> {
-        self.inner.write().await.fetch_messages(room, options).await
+        self.inner.lock().await.fetch_messages(room, options).await
     }
 }
 
 struct MessageCacheInner {
+    media_manager: MediaManager,
     cached_rooms: Mutex<HashMap<String, Arc<Mutex<CachedRoom>>>>,
 }
 
 impl MessageCacheInner {
-    pub fn new() -> Self {
+    pub fn new(media_manager: MediaManager) -> Self {
         Self {
+            media_manager,
             cached_rooms: Mutex::new(HashMap::new()),
         }
     }
@@ -100,21 +104,30 @@ impl MessageCacheInner {
 
         let room = guard
             .entry(room.room_id().to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(CachedRoom::new(room))))
+            .or_insert_with(|| self.create_new_room(room))
             .clone();
 
         room
     }
+
+    fn create_new_room(&self, room: Room) -> Arc<Mutex<CachedRoom>> {
+        Arc::new(Mutex::new(CachedRoom::new(
+            self.media_manager.clone(),
+            room,
+        )))
+    }
 }
 
 struct CachedRoom {
-    room: Room,
-    messages: HashMap<String, CachedMessage>,
+    pub media_manager: MediaManager,
+    pub room: Room,
+    pub messages: HashMap<String, CachedMessage>,
 }
 
 impl CachedRoom {
-    pub fn new(room: Room) -> Self {
+    pub fn new(media_manager: MediaManager, room: Room) -> Self {
         Self {
+            media_manager,
             room,
             messages: HashMap::new(),
         }
