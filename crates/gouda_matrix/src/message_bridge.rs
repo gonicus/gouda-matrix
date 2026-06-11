@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{message, Message, Reaction};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -59,6 +60,10 @@ impl MessageCache {
         Self {
             inner: Arc::new(Mutex::new(inner)),
         }
+    }
+
+    pub async fn cache_response_content(&self, content: &ResponseContent) {
+        // TODO: Cache response content and update data accordingly
     }
 
     pub async fn fetch_messages(
