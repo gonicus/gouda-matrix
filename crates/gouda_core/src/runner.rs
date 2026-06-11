@@ -9,6 +9,9 @@ use crate::Client;
 /// Channel capacity for the executor task queue.
 /// Provides back pressure if the executor cannot keep up with incoming requests.
 const EXECUTOR_CHANNEL_CAPACITY: usize = 128;
+/// Channel capacity for the output queue.
+/// This should be relatively low so that completed responses do not accumulate.
+const OUTPUT_CHANNEL_CAPACITY: usize = 24;
 
 /// The main entry point of the client, implementing the communication with the application
 /// and calls the requested methods on the client.
@@ -28,7 +31,7 @@ impl Runner {
     /// * `writer` - The writer to where responses and events are send
     pub fn new(client: Box<dyn Client>, reader: Box<Reader>, writer: Box<Writer>) -> Self {
         let (executor_tx, executor_rx) = mpsc::channel(EXECUTOR_CHANNEL_CAPACITY);
-        let (output_tx, output_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
 
         Self {
             input_processor: InputProcessor::new(reader, executor_tx.clone(), output_tx.clone()),

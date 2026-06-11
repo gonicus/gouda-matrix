@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use gouda_proto::chat::ResponseContainer;
 use prost::Message;
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -24,11 +24,11 @@ pub struct OutputProcessor {
     /// Where to write the resulting data.
     writer: BufWriter<Box<Writer>>,
     /// Receiver of tasks that should be executed.
-    task_receiver: UnboundedReceiver<OutputTask>,
+    task_receiver: Receiver<OutputTask>,
 }
 
 impl OutputProcessor {
-    pub fn new(writer: Box<Writer>, task_receiver: UnboundedReceiver<OutputTask>) -> Self {
+    pub fn new(writer: Box<Writer>, task_receiver: Receiver<OutputTask>) -> Self {
         Self {
             writer: BufWriter::new(writer),
             task_receiver,
@@ -120,7 +120,7 @@ mod tests {
     #[tokio::test]
     async fn test_output_processor_run() {
         // Arrange
-        let (output_tx, output_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = mpsc::channel(32);
         let (writer, output) = test_utils::WriterMock::new();
 
         let output_processor = OutputProcessor::new(Box::new(writer), output_rx);
@@ -145,9 +145,9 @@ mod tests {
         ];
 
         // Act
-        output_tx.send(create_output_task(5, response_1)).unwrap();
-        output_tx.send(create_output_task(6, response_2)).unwrap();
-        output_tx.send(OutputTask::Exit).unwrap();
+        output_tx.send(create_output_task(5, response_1)).await.unwrap();
+        output_tx.send(create_output_task(6, response_2)).await.unwrap();
+        output_tx.send(OutputTask::Exit).await.unwrap();
 
         output_processor.run().await.unwrap();
 

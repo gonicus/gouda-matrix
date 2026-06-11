@@ -1,7 +1,7 @@
 use gouda_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::Sender;
 
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
@@ -17,14 +17,14 @@ pub struct InputProcessor {
     /// Where to send the decoded input.
     executor_sender: Sender<ExecutorTask>,
     /// Where to send output. This is currently only used when reaching an EOF.
-    output_sender: UnboundedSender<OutputTask>,
+    output_sender: Sender<OutputTask>,
 }
 
 impl InputProcessor {
     pub fn new(
         reader: Box<Reader>,
         executor_sender: Sender<ExecutorTask>,
-        output_sender: UnboundedSender<OutputTask>,
+        output_sender: Sender<OutputTask>,
     ) -> Self {
         Self {
             reader: BufReader::new(reader),
@@ -93,7 +93,7 @@ impl InputProcessor {
         }
 
         log::debug!("Sending exit task to output processor");
-        if let Err(e) = self.output_sender.send(OutputTask::Exit) {
+        if let Err(e) = self.output_sender.send(OutputTask::Exit).await {
             log::error!("Error sending exit event to output processor: {e}");
         }
     }
@@ -236,7 +236,7 @@ mod tests {
         }));
 
         let (executor_tx, mut executor_rx) = mpsc::channel(64);
-        let (output_tx, mut output_rx) = mpsc::unbounded_channel();
+        let (output_tx, mut output_rx) = mpsc::channel(64);
         let input_processor =
             InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
 
