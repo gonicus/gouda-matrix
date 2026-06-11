@@ -7,10 +7,10 @@ use matrix_sdk::deserialized_responses::{
 };
 use matrix_sdk::ruma::events::reaction::ReactionEvent;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
-use matrix_sdk::ruma::events::room::message::RoomMessageEvent;
+use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContent};
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
 use matrix_sdk::ruma::events::{
-    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, OriginalMessageLikeEvent,
 };
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
@@ -86,36 +86,6 @@ impl MatrixMessageBridge {
     }
 }
 
-#[derive(Debug)]
-enum MessageRelation {
-    Replacement(ReplacementRelation),
-    Reaction(ReactionRelation),
-}
-
-impl MessageRelation {
-    pub fn timestamp(&self) -> u64 {
-        match self {
-            Self::Replacement(r) => r.timestamp,
-            Self::Reaction(r) => r.timestamp,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ReplacementRelation {
-    pub timestamp: u64,
-    pub new_content: message::Content,
-}
-
-#[derive(Debug)]
-struct ReactionRelation {
-    pub timestamp: u64,
-    /// The user that reacted.
-    pub user: String,
-    /// The emoji the user reacted with.
-    pub key: String,
-}
-
 struct MessageFetcher {
     media_manager: MediaManager,
 
@@ -136,7 +106,7 @@ struct MessageFetcher {
     /// Stashed child events that have not yet been assembled into a complete message.
     /// The events are grouped by the parent event they are referencing.
     /// The order of the events is indeterminate.
-    event_stash: HashMap<String, Vec<MessageRelation>>,
+    event_stash: HashMap<String, CachedMessage>,
     /// The number of chat messages we have build and send to the message receiver.
     retrieved_messages: u32,
 }
@@ -344,7 +314,7 @@ impl MessageFetcher {
                 message
             ).unwrap();
 
-            let replacement = ReplacementRelation {
+            let replacement = CachedReplacement {
                 timestamp: event.origin_server_ts().0.into(),
                 new_content,
             };
@@ -354,7 +324,7 @@ impl MessageFetcher {
             return Ok(());
         }
 
-        self.build_and_send_message(event).await
+        self.build_and_send_message(original).await
     }
 
     fn process_room_redaction(&self, event: RoomRedactionEvent) -> Result<()> {
@@ -369,10 +339,10 @@ impl MessageFetcher {
             return Ok(());
         };
 
-        let reaction = ReactionRelation {
-            timestamp: event.origin_server_ts().0.into(),
-            key: original.content.relates_to.key.clone(),
+        let reaction = CachedReaction {
+            id: event.event_id().to_string(),
             user: original.sender.to_string(),
+            emoji: original.content.relates_to.key.clone(),
         };
 
         let related_message = original.content.relates_to.event_id.to_string();
@@ -394,28 +364,49 @@ impl MessageFetcher {
         Ok(())
     }
 
-    fn stash_replacement(&mut self, original_message_id: String, new: ReplacementRelation) {
-        let related_events = self.event_stash.entry(original_message_id).or_default();
-        related_events.push(MessageRelation::Replacement(new));
+    fn stash_replacement(&mut self, original_message_id: String, replacement: CachedReplacement) {
+        let message = self.event_stash.entry(original_message_id).or_default();
+        message.replacements.push(replacement);
     }
 
-    fn stash_reaction(&mut self, original_message_id: String, reaction: ReactionRelation) {
-        let related_events = self.event_stash.entry(original_message_id).or_default();
-        related_events.push(MessageRelation::Reaction(reaction));
+    fn stash_reaction(&mut self, original_message_id: String, reaction: CachedReaction) {
+        let message = self.event_stash.entry(original_message_id).or_default();
+        message.reactions.push(reaction);
     }
 
-    async fn build_and_send_message(&mut self, event: RoomMessageEvent) -> Result<()> {
-        let message_id = event.event_id().to_string();
+    async fn build_original_message(&self, event: &OriginalMessageLikeEvent<RoomMessageEventContent>) -> Message {
+        let content = messages::generate_message_content!(
+            self.media_manager,
+            self.room,
+            event.event_id,
+            event.content.msgtype.clone(),
+            message
+        );
 
-        let message_builder = MessageBuilder::new(&self.room, &self.media_manager);
+        // TODO: mentioned_user_ids, is_encrypted, related_message_id, is_pinned
 
-        let message = if let Some(related) = self.event_stash.remove(&message_id) {
-            message_builder.with_relations(event, related).await
-        } else {
-            message_builder.single(event).await
-        };
+        Message {
+            room_id: event.room_id.to_string(),
+            message_id: event.event_id.to_string(),
+            sender_id: event.sender.to_string(),
+            is_encrypted: false,
+            is_pinned: false,
+            mentioned_user_ids: Vec::new(),
+            timestamp: event.origin_server_ts.0.into(),
+            reactions: Vec::new(),
+            related_message_id: None,
+            content,
+        }
+    }
 
-        self.send_finished_message(message).await
+    async fn build_and_send_message(&mut self, event: &OriginalMessageLikeEvent<RoomMessageEventContent>) -> Result<()> {
+        let original = self.build_original_message(event).await;
+        let message_id = original.message_id.clone();
+
+        let cached_message = self.event_stash.entry(message_id).or_default();
+        let assembled_message = cached_message.build_from_original(original);
+
+        self.send_finished_message(assembled_message).await
     }
 
     async fn send_finished_message(&mut self, message: Message) -> Result<()> {
@@ -430,87 +421,64 @@ impl MessageFetcher {
     }
 }
 
-struct MessageBuilder<'a> {
-    room: &'a Room,
-    media_manager: &'a MediaManager,
-    message: Message,
+#[derive(Debug)]
+struct CachedReplacement {
+    /// The timestamp when the replacement event was created.
+    pub timestamp: u64,
+    /// The new content replacing the original or any other related
+    /// replacement event.
+    pub new_content: message::Content,
 }
 
-impl<'a> MessageBuilder<'a> {
-    pub fn new(room: &'a Room, media_manager: &'a MediaManager) -> Self {
-        Self {
-            room,
-            media_manager,
-            message: Message::default(),
+#[derive(Debug)]
+struct CachedReaction {
+    /// The ID of the reaction event.
+    pub id: String,
+    /// The ID of the user who reacted.
+    pub user: String,
+    /// The emoji the user reacted with.
+    pub emoji: String,
+}
+
+#[derive(Debug, Default)]
+struct CachedMessage {
+    /// The parent aka original event of the message.
+    /// If none, we have not yet reached the original message event.
+    pub original: Option<Message>,
+    /// The reactions to this message.
+    pub reactions: Vec<CachedReaction>,
+    /// The replacement events to this message.
+    pub replacements: Vec<CachedReplacement>,
+}
+
+impl CachedMessage {
+    pub fn build_from_original(&mut self, mut original: Message) -> Message {
+        self.original = Some(original.clone());
+
+        self.apply_reactions(&mut original);
+        self.apply_replacements(&mut original);
+
+        original
+    }
+
+    fn apply_reactions(&self, msg: &mut Message) {
+        for reaction in &self.reactions {
+            let reaction = Reaction {
+                message_id: msg.message_id.clone(),
+                room_id: msg.room_id.clone(),
+                reaction: reaction.emoji.clone(),
+                user_id: Some(reaction.user.clone()),
+            };
+
+            msg.reactions.push(reaction);
         }
     }
 
-    /// Builds a message from a single RoomMessageEvent.
-    pub async fn single(mut self, event: RoomMessageEvent) -> Message {
-        println!("BUILDING_SINGLE_MESSAGE: {event:?}");
-        self.apply_original(event).await;
-        self.message
-    }
+    fn apply_replacements(&mut self, msg: &mut Message) {
+        self.replacements.sort_by_key(|f| f.timestamp);
 
-    /// Builds a message from the original RoomMessageEvent and
-    /// all of its related events.
-    pub async fn with_relations(mut self, original: RoomMessageEvent, mut related: Vec<MessageRelation>) -> Message {
-        related.sort_by_key(|e| e.timestamp());
-
-        println!("BUILDING_MESSAGE_WITH_RELATIONS: {original:?}, RELATED: {related:?}");
-
-        self.apply_original(original).await;
-        self.apply_relations(related);
-        self.message
-    }
-
-    async fn apply_original(&mut self, event: RoomMessageEvent) {
-        let original = event.as_original().unwrap().clone();
-
-        let content = messages::generate_message_content!(
-            self.media_manager,
-            self.room,
-            event.event_id(),
-            original.content.msgtype,
-            message
-        );
-
-        // TODO: mentioned_user_ids, is_encrypted, related_message_id, is_pinned
-
-        self.message = Message {
-            room_id: event.room_id().to_string(),
-            message_id: event.event_id().to_string(),
-            sender_id: event.sender().to_string(),
-            is_encrypted: false,
-            is_pinned: false,
-            mentioned_user_ids: Vec::new(),
-            timestamp: event.origin_server_ts().0.into(),
-            reactions: Vec::new(),
-            related_message_id: None,
-            content,
-        };
-    }
-
-    fn apply_relations(&mut self, related: Vec<MessageRelation>) {
-        for relation in related {
-            match relation {
-                MessageRelation::Reaction(r) => self.apply_reaction(r),
-                MessageRelation::Replacement(r) => self.apply_replacement(r),
-            }
+        for replacement in &self.replacements {
+            msg.content = Some(replacement.new_content.clone());
         }
-    }
-
-    fn apply_reaction(&mut self, reaction: ReactionRelation) {
-        self.message.reactions.push(Reaction {
-            room_id: self.message.room_id.clone(),
-            message_id: self.message.message_id.clone(),
-            reaction: reaction.key,
-            user_id: Some(reaction.user),
-        });
-    }
-
-    fn apply_replacement(&mut self, replacement: ReplacementRelation) {
-        println!("APPLYING_REPLCEMENT");
-        self.message.content = Some(replacement.new_content);
     }
 }
