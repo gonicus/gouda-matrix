@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::{Message, MessageContentMembershipChange, Reaction, message};
+use gouda_proto::chat::{message, Message, MessageContentMembershipChange, Reaction};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -427,7 +427,7 @@ impl<'a> MessageFetcher<'a> {
 
             let Some(new_content) = new_content else {
                 log::debug!("Ignoring an unsupported RoomMessageEvent content type");
-                return Ok(())
+                return Ok(());
             };
 
             let replacement = CachedReplacement {
