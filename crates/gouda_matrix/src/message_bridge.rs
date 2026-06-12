@@ -162,8 +162,6 @@ struct CachedReplacement {
 
 #[derive(Debug)]
 struct CachedReaction {
-    /// The ID of the reaction event.
-    pub id: String,
     /// The ID of the user who reacted.
     pub user: String,
     /// The emoji the user reacted with.
@@ -176,9 +174,9 @@ struct CachedMessage {
     /// If none, we have not yet reached the original message event.
     pub original: Option<Message>,
     /// The reactions to this message.
-    pub reactions: Vec<CachedReaction>,
+    pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
-    pub replacements: Vec<CachedReplacement>,
+    pub replacements: HashMap<String, CachedReplacement>,
 }
 
 impl CachedMessage {
@@ -192,7 +190,7 @@ impl CachedMessage {
     }
 
     fn apply_reactions(&self, msg: &mut Message) {
-        for reaction in &self.reactions {
+        for reaction in self.reactions.values() {
             let reaction = Reaction {
                 message_id: msg.message_id.clone(),
                 room_id: msg.room_id.clone(),
@@ -205,9 +203,10 @@ impl CachedMessage {
     }
 
     fn apply_replacements(&mut self, msg: &mut Message) {
-        self.replacements.sort_by_key(|f| f.timestamp);
+        let mut replacements: Vec<&CachedReplacement> = self.replacements.values().collect();
+        replacements.sort_by_key(|f| f.timestamp);
 
-        if let Some(replacement) = self.replacements.last() {
+        if let Some(replacement) = replacements.last() {
             msg.content = Some(replacement.new_content.clone());
         }
     }
@@ -432,7 +431,11 @@ impl<'a> MessageFetcher<'a> {
                 new_content,
             };
 
-            self.stash_replacement(relation.event_id.to_string(), replacement);
+            self.stash_replacement(
+                relation.event_id.to_string(),
+                original.event_id.to_string(),
+                replacement,
+            );
 
             return Ok(());
         }
@@ -453,14 +456,13 @@ impl<'a> MessageFetcher<'a> {
         };
 
         let reaction = CachedReaction {
-            id: event.event_id().to_string(),
             user: original.sender.to_string(),
             emoji: original.content.relates_to.key.clone(),
         };
 
         let related_message = original.content.relates_to.event_id.to_string();
 
-        self.stash_reaction(related_message, reaction);
+        self.stash_reaction(related_message, event.event_id().to_string(), reaction);
 
         Ok(())
     }
@@ -477,16 +479,24 @@ impl<'a> MessageFetcher<'a> {
         Ok(())
     }
 
-    fn stash_replacement(&mut self, original_message_id: String, replacement: CachedReplacement) {
+    fn stash_replacement(
+        &mut self,
+        original_message_id: String,
+        replacement_id: String,
+        replacement: CachedReplacement,
+    ) {
         let message = self.cache.messages.entry(original_message_id).or_default();
-        // TODO: Do not cache duplicates
-        message.replacements.push(replacement);
+        message.replacements.insert(replacement_id, replacement);
     }
 
-    fn stash_reaction(&mut self, original_message_id: String, reaction: CachedReaction) {
+    fn stash_reaction(
+        &mut self,
+        original_message_id: String,
+        reaction_id: String,
+        reaction: CachedReaction,
+    ) {
         let message = self.cache.messages.entry(original_message_id).or_default();
-        // TODO: Do not cache duplicates
-        message.reactions.push(reaction);
+        message.reactions.insert(reaction_id, reaction);
     }
 
     async fn build_original_message(
