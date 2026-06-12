@@ -108,13 +108,8 @@ impl MessageCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            let fetcher = MessageFetcher::new(
-                media_manager.clone(),
-                room,
-                tx,
-                options.limit,
-                from_token,
-            );
+            let fetcher =
+                MessageFetcher::new(media_manager.clone(), room, tx, options.limit, from_token);
 
             fetcher.run().await;
         });
@@ -141,7 +136,7 @@ struct CachedRoom {
     pub messages: Mutex<HashMap<String, CachedMessage>>,
     /// Events that we could not decrypt and that were sent to the application
     /// as an encrypted message.
-    pub encrypted_events: Mutex<HashMap<String, CachedDecryptedEvent>>,
+    pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
 }
 
 impl CachedRoom {
@@ -184,9 +179,8 @@ struct CachedMessage {
 
 /// An event we where not able to decrypt.
 #[derive(Debug)]
-struct CachedDecryptedEvent {
-    event: Raw<AnySyncTimelineEvent>,
-    utd_info: UnableToDecryptInfo,
+struct CachedEncryptedEvent {
+    pub event: AnySyncTimelineEvent,
 }
 
 impl CachedMessage {
@@ -368,20 +362,9 @@ impl MessageFetcher {
             }
         };
 
-        // TODO: Add the decryption failure to some vector for retrying decryption later.
+        let event_id = deserialized.event_id().to_string();
 
-        let message = Message {
-            room_id: self.cache.room.room_id().to_string(),
-            message_id: deserialized.event_id().to_string(),
-            timestamp: deserialized.origin_server_ts().0.into(),
-            sender_id: deserialized.sender().to_string(),
-            is_encrypted: true,
-            ..Default::default()
-        };
-
-        self.send_finished_message(message).await?;
-
-        Ok(())
+        self.build_and_send_encrypted_event(event_id, deserialized).await
     }
 
     async fn process_plain_text_event(&mut self, event: Raw<AnySyncTimelineEvent>) -> Result<()> {
@@ -558,11 +541,17 @@ impl MessageFetcher {
 
         let mut guard = self.cache.messages.lock()?;
 
-        let cached_message = guard
-            .entry(original.message_id.clone())
-            .or_default();
+        let cached_message = guard.entry(original.message_id.clone()).or_default();
 
         Ok(cached_message.build_from_original(original))
+    }
+
+    /// Caches the given encrypted event.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
+        let mut guard = self.cache.encrypted_events.lock()?;
+        guard.insert(event_id, event);
+        Ok(())
     }
 
     /// Removes a tracked encrypted event, if it exists.
@@ -571,6 +560,32 @@ impl MessageFetcher {
         let mut guard = self.cache.encrypted_events.lock()?;
         guard.remove(event_id);
         Ok(())
+    }
+
+    /// Caches the given encrypted event and sends a message
+    /// with the encrypted flag to the application.
+    /// Only returns an error when the cache lock is poisoined or the message receiver dropped.
+    async fn build_and_send_encrypted_event(
+        &mut self,
+        event_id: String,
+        event: AnySyncTimelineEvent,
+    ) -> Result<()> {
+        let message = Message {
+            message_id: event_id.clone(),
+            room_id: self.cache.room.room_id().to_string(),
+            timestamp: event.origin_server_ts().0.into(),
+            sender_id: event.sender().to_string(),
+            is_encrypted: true,
+            ..Default::default()
+        };
+
+        let cached_object = CachedEncryptedEvent {
+            event: event.clone(),
+        };
+
+        self.cache_encrypted_event(event_id, cached_object)?;
+
+        self.send_finished_message(message).await
     }
 
     /// Converts the given event to the original message object and builds the final
