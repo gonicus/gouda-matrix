@@ -198,7 +198,7 @@ pub async fn message_from_event(
     room: &Room,
     event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
 ) -> Message {
-    let related_message_id = get_related_message_id(&event);
+    let related_message_id = get_related_message_id(event);
     let mentioned_user_ids = matrix_mentions_to_proto_mentions(&event.content.mentions);
 
     let content = generate_message_content!(
@@ -214,7 +214,7 @@ pub async fn message_from_event(
         room_id: event.room_id.to_string(),
         sender_id: event.sender.to_string(),
         timestamp: event.origin_server_ts.get().into(),
-        content: content,
+        content,
         related_message_id,
         is_pinned: false,
         is_encrypted: false,

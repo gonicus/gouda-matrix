@@ -379,14 +379,9 @@ impl ClientAbstraction for MatrixClient {
             return;
         };
 
-        let InitializedData {
-            message_cache,
-            proto_cache,
-            ..
-        } = initialized_data;
+        let InitializedData { proto_cache, .. } = initialized_data;
 
         proto_cache.cache_response_content(content).await;
-        message_cache.cache_response_content(content).await;
     }
 
     async fn initialize(
