@@ -423,8 +423,12 @@ impl<'a> MessageFetcher<'a> {
                 relation.event_id,
                 relation.new_content.msgtype,
                 message
-            )
-            .unwrap();
+            );
+
+            let Some(new_content) = new_content else {
+                log::debug!("Ignoring an unsupported RoomMessageEvent content type");
+                return Ok(())
+            };
 
             let replacement = CachedReplacement {
                 timestamp: event.origin_server_ts().0.into(),
