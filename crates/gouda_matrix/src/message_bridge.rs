@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
-use gouda_proto::chat::{EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent, Reaction, message, message_change_event};
 use gouda_proto::chat::response_container::Content as ResponseContent;
+use gouda_proto::chat::{
+    message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent, Reaction,
+};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -22,7 +24,6 @@ use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::mpsc::Sender;
-use tokio::time::error::Elapsed;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
@@ -151,6 +152,8 @@ impl MessageCacheInner {
     }
 
     pub async fn retry_all_encrypted_events(&self) -> Result<()> {
+        log::debug!("Retrying decryption of events from all rooms");
+
         let guard = self.cached_rooms.lock()?;
 
         for room in guard.values().cloned() {
@@ -301,6 +304,11 @@ impl CachedRoom {
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
     pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
+        log::debug!(
+            "Retrying decryption of events from room {:?}. Request events: {events:?}",
+            self.room.room_id()
+        );
+
         for event in self.get_events_for_redecryption(events)? {
             self.retry_cached_encrypted_event(event).await?;
         }
@@ -547,6 +555,8 @@ impl CachedRoom {
 
     /// Retries to decrypt and process the given event.
     async fn retry_cached_encrypted_event(&self, event: CachedEncryptedEvent) -> Result<()> {
+        log::debug!("Retrying decryption of event: {event:?}");
+
         let event = match self.room.decrypt_event(&event.event, None).await {
             Ok(event) => event,
             Err(err) => {
@@ -585,7 +595,9 @@ impl CachedRoom {
             .change_content(content.into())
             .to_proto();
 
-        self.ctx.send_event(ResponseContent::MessageChangeEvent(event)).await;
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(event))
+            .await;
 
         Ok(())
     }
@@ -600,7 +612,9 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        self.ctx.send_event(ResponseContent::MessageRemoveEvent(proto)).await;
+        self.ctx
+            .send_event(ResponseContent::MessageRemoveEvent(proto))
+            .await;
     }
 
     /// Converts the given event to the original message object and

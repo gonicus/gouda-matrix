@@ -1498,6 +1498,8 @@ pub async fn build_client(
 }
 
 fn subscribe_to_decryption_reports(initialized_data: InitializedData) {
+    log::debug!("Subscribing to redecryption reports");
+
     tokio::spawn(async move {
         let InitializedData {
             client,
@@ -1520,6 +1522,8 @@ fn subscribe_to_decryption_reports(initialized_data: InitializedData) {
 }
 
 async fn handle_redecryptor_report(message_cache: &MessageCache, report: RedecryptorReport) {
+    log::debug!("Processing redecryptor report: {report:?}");
+
     match report {
         RedecryptorReport::BackupAvailable => message_cache.retry_all_encrypted_events().await,
         RedecryptorReport::Lagging => message_cache.retry_all_encrypted_events().await,
