@@ -152,6 +152,69 @@ impl CachedRoom {
             encrypted_events: Mutex::new(HashMap::new()),
         }
     }
+
+    /// Caches the given replacement.
+    /// Only returns an error when the cache lock is posoined.
+    pub fn cache_replacement(
+        &self,
+        original_message_id: String,
+        replacement_id: String,
+        replacement: CachedReplacement,
+    ) -> Result<()> {
+        self.remove_encrypted_event(&replacement_id)?;
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
+        message.replacements.insert(replacement_id, replacement);
+
+        Ok(())
+    }
+
+    /// Caches the given reaction.
+    /// Only returns an error when the cache lock is posoined.
+    pub fn cache_reaction(
+        &self,
+        original_message_id: String,
+        reaction_id: String,
+        reaction: CachedReaction,
+    ) -> Result<()> {
+        self.remove_encrypted_event(&reaction_id)?;
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
+        message.reactions.insert(reaction_id, reaction);
+
+        Ok(())
+    }
+
+    /// Caches the given original message and builds the final message
+    /// with the cached related events.
+    /// Only returns an error when the cache lock is posoined.
+    pub fn cache_and_build_message(&self, original: Message) -> Result<Message> {
+        self.remove_encrypted_event(&original.message_id)?;
+
+        let mut guard = self.messages.lock()?;
+
+        let cached_message = guard.entry(original.message_id.clone()).or_default();
+
+        Ok(cached_message.build_from_original(original))
+    }
+
+    /// Caches the given encrypted event.
+    /// Only returns an error when the cache lock is poisoined.
+    pub fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
+        let mut guard = self.encrypted_events.lock()?;
+        guard.insert(event_id, event);
+        Ok(())
+    }
+
+    /// Removes a tracked encrypted event, if it exists.
+    /// Only returns an error when the cache lock is poisoined.
+    pub fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
+        let mut guard = self.encrypted_events.lock()?;
+        guard.remove(event_id);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -440,7 +503,7 @@ impl MessageFetcher {
                 new_content,
             };
 
-            self.cache_replacement(
+            self.cache.cache_replacement(
                 relation.event_id.to_string(),
                 original.event_id.to_string(),
                 replacement,
@@ -471,7 +534,7 @@ impl MessageFetcher {
 
         let related_message = original.content.relates_to.event_id.to_string();
 
-        self.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
+        self.cache.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
 
         Ok(())
     }
@@ -511,69 +574,6 @@ impl MessageFetcher {
         self.build_and_send_message(message).await
     }
 
-    /// Caches the given replacement.
-    /// Only returns an error when the cache lock is posoined.
-    fn cache_replacement(
-        &self,
-        original_message_id: String,
-        replacement_id: String,
-        replacement: CachedReplacement,
-    ) -> Result<()> {
-        self.remove_encrypted_event(&replacement_id)?;
-
-        let mut guard = self.cache.messages.lock()?;
-        let message = guard.entry(original_message_id).or_default();
-        message.replacements.insert(replacement_id, replacement);
-
-        Ok(())
-    }
-
-    /// Caches the given reaction.
-    /// Only returns an error when the cache lock is posoined.
-    fn cache_reaction(
-        &self,
-        original_message_id: String,
-        reaction_id: String,
-        reaction: CachedReaction,
-    ) -> Result<()> {
-        self.remove_encrypted_event(&reaction_id)?;
-
-        let mut guard = self.cache.messages.lock()?;
-        let message = guard.entry(original_message_id).or_default();
-        message.reactions.insert(reaction_id, reaction);
-
-        Ok(())
-    }
-
-    /// Caches the given original message and builds the final message
-    /// with the cached related events.
-    /// Only returns an error when the cache lock is posoined.
-    fn cache_and_build_message(&self, original: Message) -> Result<Message> {
-        self.remove_encrypted_event(&original.message_id)?;
-
-        let mut guard = self.cache.messages.lock()?;
-
-        let cached_message = guard.entry(original.message_id.clone()).or_default();
-
-        Ok(cached_message.build_from_original(original))
-    }
-
-    /// Caches the given encrypted event.
-    /// Only returns an error when the cache lock is poisoined.
-    fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
-        let mut guard = self.cache.encrypted_events.lock()?;
-        guard.insert(event_id, event);
-        Ok(())
-    }
-
-    /// Removes a tracked encrypted event, if it exists.
-    /// Only returns an error when the cache lock is poisoined.
-    fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
-        let mut guard = self.cache.encrypted_events.lock()?;
-        guard.remove(event_id);
-        Ok(())
-    }
-
     /// Caches the given encrypted event and sends a message
     /// with the encrypted flag to the application.
     /// Only returns an error when the cache lock is poisoined or the message receiver dropped.
@@ -595,7 +595,7 @@ impl MessageFetcher {
             event: event.clone(),
         };
 
-        self.cache_encrypted_event(event_id, cached_object)?;
+        self.cache.cache_encrypted_event(event_id, cached_object)?;
 
         self.send_finished_message(message).await
     }
@@ -615,7 +615,7 @@ impl MessageFetcher {
     /// with the cached related events. Sends assembled message to the message receiver.
     /// Only returns an error when the cache lock is posoined or the message receiver dropped.
     async fn build_and_send_message(&mut self, message: Message) -> Result<()> {
-        let message = self.cache_and_build_message(message)?;
+        let message = self.cache.cache_and_build_message(message)?;
         self.send_finished_message(message).await
     }
 
