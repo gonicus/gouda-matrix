@@ -135,8 +135,13 @@ impl MessageCacheInner {
 }
 
 struct CachedRoom {
-    pub room: Room,
+    /// The room we work with.
+    room: Room,
+    /// The messages we have cached.
     pub messages: Mutex<HashMap<String, CachedMessage>>,
+    /// Events that we could not decrypt and that were sent to the application
+    /// as an encrypted message.
+    pub encrypted_events: Mutex<HashMap<String, CachedDecryptedEvent>>,
 }
 
 impl CachedRoom {
@@ -144,6 +149,7 @@ impl CachedRoom {
         Self {
             room,
             messages: Mutex::new(HashMap::new()),
+            encrypted_events: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -174,6 +180,13 @@ struct CachedMessage {
     pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
     pub replacements: HashMap<String, CachedReplacement>,
+}
+
+/// An event we where not able to decrypt.
+#[derive(Debug)]
+struct CachedDecryptedEvent {
+    event: Raw<AnySyncTimelineEvent>,
+    utd_info: UnableToDecryptInfo,
 }
 
 impl CachedMessage {
@@ -432,7 +445,7 @@ impl MessageFetcher {
                 new_content,
             };
 
-            self.stash_replacement(
+            self.cache_replacement(
                 relation.event_id.to_string(),
                 original.event_id.to_string(),
                 replacement,
@@ -463,7 +476,7 @@ impl MessageFetcher {
 
         let related_message = original.content.relates_to.event_id.to_string();
 
-        self.stash_reaction(related_message, event.event_id().to_string(), reaction)?;
+        self.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
 
         Ok(())
     }
@@ -503,30 +516,66 @@ impl MessageFetcher {
         self.build_and_send_message(message).await
     }
 
-    fn stash_replacement(
+    /// Caches the given replacement.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_replacement(
         &self,
         original_message_id: String,
         replacement_id: String,
         replacement: CachedReplacement,
     ) -> Result<()> {
+        self.remove_encrypted_event(&replacement_id)?;
+
         let mut guard = self.cache.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
         message.replacements.insert(replacement_id, replacement);
+
         Ok(())
     }
 
-    fn stash_reaction(
+    /// Caches the given reaction.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_reaction(
         &self,
         original_message_id: String,
         reaction_id: String,
         reaction: CachedReaction,
     ) -> Result<()> {
+        self.remove_encrypted_event(&reaction_id)?;
+
         let mut guard = self.cache.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
         message.reactions.insert(reaction_id, reaction);
+
         Ok(())
     }
 
+    /// Caches the given original message and builds the final message
+    /// with the cached related events.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_and_build_message(&self, original: Message) -> Result<Message> {
+        self.remove_encrypted_event(&original.message_id)?;
+
+        let mut guard = self.cache.messages.lock()?;
+
+        let cached_message = guard
+            .entry(original.message_id.clone())
+            .or_default();
+
+        Ok(cached_message.build_from_original(original))
+    }
+
+    /// Removes a tracked encrypted event, if it exists.
+    /// Only returns an error when the cache lock is poisoined.
+    fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
+        let mut guard = self.cache.encrypted_events.lock()?;
+        guard.remove(event_id);
+        Ok(())
+    }
+
+    /// Converts the given event to the original message object and builds the final
+    /// message with the cached related events.
+    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
     async fn build_and_send_message_event(
         &mut self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
@@ -535,20 +584,16 @@ impl MessageFetcher {
         self.build_and_send_message(msg).await
     }
 
+    /// Caches the given original message and assembles the final message object
+    /// with the cached related events. Sends assembled message to the message receiver.
+    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
     async fn build_and_send_message(&mut self, message: Message) -> Result<()> {
-        let message = {
-            let mut guard = self.cache.messages.lock()?;
-
-            let cached_message = guard
-                .entry(message.message_id.clone())
-                .or_default();
-
-                cached_message.build_from_original(message)
-        };
-
+        let message = self.cache_and_build_message(message)?;
         self.send_finished_message(message).await
     }
 
+    /// Sends the message to the message receiver.
+    /// Only returns an error when the message receiver dropped.
     async fn send_finished_message(&mut self, message: Message) -> Result<()> {
         self.sender
             .send(Ok(message))
@@ -561,6 +606,7 @@ impl MessageFetcher {
     }
 }
 
+/// Retrieves the correct pagination token to start pagination from the specified event.
 async fn resolve_event_for_pagination(room: &Room, event_id: &EventId) -> Result<Option<String>> {
     let response = room
         .event_with_context(event_id, true, js_int::uint!(0), None)
