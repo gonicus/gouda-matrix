@@ -2,8 +2,8 @@ use gouda_core::Result;
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use matrix_sdk::ruma::events::room::message::{ReplyMetadata, RoomMessageEventContent};
-use matrix_sdk::ruma::events::Mentions;
+use matrix_sdk::ruma::events::room::message::{Relation, ReplyMetadata, RoomMessageEventContent};
+use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
 
@@ -120,7 +120,7 @@ macro_rules! generate_message_content {
     ($media_manager:expr, $room:expr, $event_id:expr, $msgtype:expr, $dest_proto_message:ident) => {
         match $msgtype {
             matrix_sdk::ruma::events::room::message::MessageType::Audio(audio) => {
-                messages::download_audio!(
+                crate::messages::download_audio!(
                     audio,
                     $media_manager,
                     $room,
@@ -134,7 +134,7 @@ macro_rules! generate_message_content {
                 }),
             ),
             matrix_sdk::ruma::events::room::message::MessageType::File(file) => {
-                messages::download_file!(
+                crate::messages::download_file!(
                     file,
                     $media_manager,
                     $room,
@@ -143,7 +143,7 @@ macro_rules! generate_message_content {
                 )
             }
             matrix_sdk::ruma::events::room::message::MessageType::Image(image) => {
-                messages::download_image!(
+                crate::messages::download_image!(
                     image,
                     $media_manager,
                     $room,
@@ -152,7 +152,7 @@ macro_rules! generate_message_content {
                 )
             }
             matrix_sdk::ruma::events::room::message::MessageType::Location(location) => {
-                messages::convert_location!(location, $dest_proto_message)
+                crate::messages::convert_location!(location, $dest_proto_message)
             }
             matrix_sdk::ruma::events::room::message::MessageType::Notice(notice) => Some(
                 $dest_proto_message::Content::Text(gouda_proto::chat::MessageContentText {
@@ -170,7 +170,7 @@ macro_rules! generate_message_content {
                 }),
             ),
             matrix_sdk::ruma::events::room::message::MessageType::Video(video) => {
-                messages::download_video!(
+                crate::messages::download_video!(
                     video,
                     $media_manager,
                     $room,
@@ -193,17 +193,48 @@ pub(crate) use download_image;
 pub(crate) use download_video;
 pub(crate) use generate_message_content;
 
-pub fn message_content_to_message_change_event_content(
-    content: message::Content,
-) -> message_change_event::Content {
-    match content {
-        message::Content::Text(c) => message_change_event::Content::Text(c),
-        message::Content::Image(c) => message_change_event::Content::Image(c),
-        message::Content::File(c) => message_change_event::Content::File(c),
-        message::Content::MembershipChange(c) => message_change_event::Content::MembershipChange(c),
-        message::Content::AudioFile(c) => message_change_event::Content::AudioFile(c),
-        message::Content::VideoFile(c) => message_change_event::Content::VideoFile(c),
+pub async fn message_from_event(
+    media_manager: &MediaManager,
+    room: &Room,
+    event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+) -> Message {
+    let related_message_id = get_related_message_id(&event);
+    let mentioned_user_ids = matrix_mentions_to_proto_mentions(&event.content.mentions);
+
+    let content = generate_message_content!(
+        media_manager,
+        room,
+        event.event_id,
+        event.content.msgtype.clone(),
+        message
+    );
+
+    Message {
+        message_id: event.event_id.to_string(),
+        room_id: event.room_id.to_string(),
+        sender_id: event.sender.to_string(),
+        timestamp: event.origin_server_ts.get().into(),
+        content: content,
+        related_message_id,
+        is_pinned: false,
+        is_encrypted: false,
+        reactions: Vec::new(),
+        mentioned_user_ids,
     }
+}
+
+fn get_related_message_id(
+    event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+) -> Option<String> {
+    let Some(relation) = &event.content.relates_to else {
+        return None;
+    };
+
+    let Relation::Reply(reply) = relation else {
+        return None;
+    };
+
+    Some(reply.in_reply_to.event_id.to_string())
 }
 
 pub async fn send_text_message(

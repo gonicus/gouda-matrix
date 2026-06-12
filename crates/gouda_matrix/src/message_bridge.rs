@@ -444,8 +444,7 @@ impl<'a> MessageFetcher<'a> {
     }
 
     fn process_room_redaction(&self, event: RoomRedactionEvent) -> Result<()> {
-        // We can probably just ignore the redaction events.
-        // Maybe cleanup the stash of the redacted event?
+        // TODO: Process the redaction event and remove the appropriate event from the cache
         Ok(())
     }
 
@@ -499,39 +498,13 @@ impl<'a> MessageFetcher<'a> {
         message.reactions.insert(reaction_id, reaction);
     }
 
-    async fn build_original_message(
-        &self,
-        event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
-    ) -> Message {
-        let content = messages::generate_message_content!(
-            self.media_manager,
-            &self.cache.room,
-            event.event_id,
-            event.content.msgtype.clone(),
-            message
-        );
-
-        // TODO: mentioned_user_ids, is_encrypted, related_message_id, is_pinned
-
-        Message {
-            room_id: event.room_id.to_string(),
-            message_id: event.event_id.to_string(),
-            sender_id: event.sender.to_string(),
-            is_encrypted: false,
-            is_pinned: false,
-            mentioned_user_ids: Vec::new(),
-            timestamp: event.origin_server_ts.0.into(),
-            reactions: Vec::new(),
-            related_message_id: None,
-            content,
-        }
-    }
-
     async fn build_and_send_message(
         &mut self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
     ) -> Result<()> {
-        let original = self.build_original_message(event).await;
+        let original =
+            messages::message_from_event(&self.media_manager, &self.cache.room, event).await;
+
         let message_id = original.message_id.clone();
 
         let cached_message = self.cache.messages.entry(message_id).or_default();
