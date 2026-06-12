@@ -81,6 +81,19 @@ impl Default for message_change_event::Content {
     }
 }
 
+impl From<message::Content> for message_change_event::Content {
+    fn from(value: message::Content) -> Self {
+        match value {
+            message::Content::AudioFile(a) => Self::AudioFile(a),
+            message::Content::Image(i) => Self::Image(i),
+            message::Content::MembershipChange(c) => Self::MembershipChange(c),
+            message::Content::Text(t) => Self::Text(t),
+            message::Content::VideoFile(v) => Self::VideoFile(v),
+            message::Content::File(f) => Self::File(f),
+        }
+    }
+}
+
 impl RoomChangeEvent {
     pub fn update_into_room(self, room: &mut Room) {
         if self.has_user_id_list_changed {

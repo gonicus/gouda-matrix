@@ -1,7 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
-use gouda_proto::chat::{message, Message, MessageContentMembershipChange, Reaction};
+use gouda_core::RequestContext;
+use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::{EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent, Reaction, message, message_change_event};
+use gouda_proto::chat::response_container::Content as ResponseContent;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -19,6 +22,7 @@ use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::mpsc::Sender;
+use tokio::time::error::Elapsed;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
@@ -67,8 +71,8 @@ pub struct MessageCache {
 }
 
 impl MessageCache {
-    pub fn new(media_manager: MediaManager) -> Self {
-        let inner = MessageCacheInner::new(media_manager);
+    pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
+        let inner = MessageCacheInner::new(ctx, media_manager);
 
         Self {
             inner: Arc::new(inner),
@@ -108,13 +112,15 @@ impl MessageCache {
 }
 
 struct MessageCacheInner {
+    ctx: RequestContext,
     media_manager: MediaManager,
     cached_rooms: Mutex<HashMap<String, Arc<CachedRoom>>>,
 }
 
 impl MessageCacheInner {
-    pub fn new(media_manager: MediaManager) -> Self {
+    pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
         Self {
+            ctx,
             media_manager,
             cached_rooms: Mutex::new(HashMap::new()),
         }
@@ -190,7 +196,11 @@ impl MessageCacheInner {
     }
 
     fn build_room(&self, room: Room) -> Arc<CachedRoom> {
-        Arc::new(CachedRoom::new(self.media_manager.clone(), room))
+        Arc::new(CachedRoom::new(
+            self.ctx.clone(),
+            self.media_manager.clone(),
+            room,
+        ))
     }
 }
 
@@ -256,12 +266,14 @@ impl CachedMessage {
 }
 
 /// An event we where not able to decrypt.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CachedEncryptedEvent {
     pub event: Raw<OriginalSyncRoomEncryptedEvent>,
 }
 
 struct CachedRoom {
+    /// The context to use to send update events to the application.
+    ctx: RequestContext,
     /// The media manager to use to download message attachements.
     media_manager: MediaManager,
     /// The room we work with.
@@ -275,8 +287,9 @@ struct CachedRoom {
 }
 
 impl CachedRoom {
-    pub fn new(media_manager: MediaManager, room: Room) -> Self {
+    pub fn new(ctx: RequestContext, media_manager: MediaManager, room: Room) -> Self {
         Self {
+            ctx,
             media_manager,
             room,
 
@@ -288,24 +301,11 @@ impl CachedRoom {
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
     pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
-        let guard = self.encrypted_events.lock()?;
-
-        let iter: Box<dyn Iterator<Item = (&String, &CachedEncryptedEvent)>> =
-            if let Some(ref ids) = events {
-                Box::new(guard.iter().filter(|(key, _)| ids.contains(key.as_str())))
-            } else {
-                Box::new(guard.iter())
-            };
-
-        for (id, event) in iter {
-            let result = self.room.decrypt_event(&event.event, None).await?;
+        for event in self.get_events_for_redecryption(events)? {
+            self.retry_cached_encrypted_event(event).await?;
         }
 
         Ok(())
-    }
-
-    async fn decrypt_event(&self, id: &String, event: &CachedEncryptedEvent) -> Result<()> {
-        todo!()
     }
 
     /// Processes the given timeline event of the room.
@@ -355,14 +355,16 @@ impl CachedRoom {
             }
         };
 
-        if !matches!(
-            deserialized,
-            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                SyncMessageLikeEvent::Original(_),
-            ))
-        ) {
-            return Ok(None);
-        }
+        let json_str = event.json().get().to_string();
+
+        let encrypted_raw: Raw<OriginalSyncRoomEncryptedEvent> =
+            match serde_json::from_str(&json_str) {
+                Ok(raw) => raw,
+                Err(e) => {
+                    log::warn!("Failed to parse encrypted event: {e}");
+                    return Ok(None);
+                }
+            };
 
         let event_id = deserialized.event_id().to_string();
 
@@ -376,7 +378,7 @@ impl CachedRoom {
         };
 
         let cached_object = CachedEncryptedEvent {
-            event: event.cast_ref_unchecked(),
+            event: encrypted_raw,
         };
 
         self.cache_encrypted_event(event_id, cached_object)?;
@@ -521,6 +523,84 @@ impl CachedRoom {
         };
 
         self.build_from_message(message).map(|m| Some(m))
+    }
+
+    fn get_events_for_redecryption(
+        &self,
+        events: Option<BTreeSet<OwnedEventId>>,
+    ) -> Result<Vec<CachedEncryptedEvent>> {
+        let guard = self.encrypted_events.lock()?;
+
+        let events = if let Some(ref ids) = events {
+            guard
+                .iter()
+                .filter(|(key, _)| ids.contains(key.as_str()))
+                .map(|(_, value)| value)
+                .cloned()
+                .collect()
+        } else {
+            guard.values().cloned().collect()
+        };
+
+        Ok(events)
+    }
+
+    /// Retries to decrypt and process the given event.
+    async fn retry_cached_encrypted_event(&self, event: CachedEncryptedEvent) -> Result<()> {
+        let event = match self.room.decrypt_event(&event.event, None).await {
+            Ok(event) => event,
+            Err(err) => {
+                log::warn!("Error retrying decryption for event {event:?}: {err}");
+                return Ok(());
+            }
+        };
+
+        if matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. }) {
+            log::warn!("Unknown error retrying decryption for event {event:?}");
+            return Ok(());
+        }
+
+        let Some(event_id) = event.event_id() else {
+            return Ok(());
+        };
+
+        let message = self.process_timeline_event(event).await?;
+
+        if let Some(message) = message {
+            self.process_successfull_redecryption(message).await?;
+        } else {
+            self.redact_encrypted_message(event_id.to_string()).await;
+        }
+
+        Ok(())
+    }
+
+    /// Sends a message update event to the application with the now encrypted content.
+    async fn process_successfull_redecryption(&self, message: Message) -> Result<()> {
+        let Some(content) = message.content else {
+            return Ok(());
+        };
+
+        let event = MessageChangeEventBuilder::new(message.room_id, message.message_id)
+            .change_content(content.into())
+            .to_proto();
+
+        self.ctx.send_event(ResponseContent::MessageChangeEvent(event)).await;
+
+        Ok(())
+    }
+
+    /// Sends a remove event to the application to redact a previously encrypted message,
+    /// which after decryption is no longer relevant for the application.
+    async fn redact_encrypted_message(&self, message_id: String) {
+        let proto = MessageRemoveEvent {
+            message_id,
+            room_id: self.room.room_id().to_string(),
+            origin: EventOrigin::BackendOrigin.into(),
+            ..Default::default()
+        };
+
+        self.ctx.send_event(ResponseContent::MessageRemoveEvent(proto)).await;
     }
 
     /// Converts the given event to the original message object and

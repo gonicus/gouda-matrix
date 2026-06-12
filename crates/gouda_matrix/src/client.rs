@@ -240,7 +240,7 @@ impl MatrixClient {
             media_manager.clone(),
         );
 
-        let message_cache = MessageCache::new(media_manager.clone());
+        let message_cache = MessageCache::new(ctx, media_manager.clone());
 
         let data = InitializedData {
             client,
@@ -294,7 +294,7 @@ impl MatrixClient {
 
         initialized_data.event_manager = EventManager::new(
             initialized_data.client.clone(),
-            ctx,
+            ctx.clone(),
             initialized_data.memory_cache.clone(),
             initialized_data.media_manager.clone(),
         );
@@ -305,7 +305,8 @@ impl MatrixClient {
         )
         .await;
 
-        initialized_data.message_cache = MessageCache::new(initialized_data.media_manager.clone());
+        initialized_data.message_cache =
+            MessageCache::new(ctx, initialized_data.media_manager.clone());
 
         subscribe_to_decryption_reports(initialized_data.clone());
 
