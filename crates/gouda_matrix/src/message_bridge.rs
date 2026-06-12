@@ -25,8 +25,13 @@ use crate::{messages, user};
 
 /// The capacity of the channel for receiving retreived and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
-/// How many events are fetched with each room.messages request.
-const ROOM_EVENTS_CHUNK_SIZE: u32 = 10;
+
+/// How many events to fetch at least with each chunk.
+const ROOM_EVENTS_CHUNK_SIZE_MIN: u32 = 10;
+/// How many events to fetch at most with each chunk.
+const ROOM_EVENTS_CHUNK_SIZE_MAX: u32 = 100;
+
+const _: () = assert!(ROOM_EVENTS_CHUNK_SIZE_MIN <= ROOM_EVENTS_CHUNK_SIZE_MAX);
 
 #[derive(Debug, thiserror::Error)]
 pub enum MessageCacheError {
@@ -252,7 +257,7 @@ impl MessageFetcher {
             message_limit: limit,
 
             from_token,
-            chunk_size: ROOM_EVENTS_CHUNK_SIZE.into(),
+            chunk_size: calc_chunk_size(limit),
 
             retrieved_messages: 0,
         }
@@ -275,8 +280,14 @@ impl MessageFetcher {
     }
 
     async fn fetch_until_completion(&mut self) -> Result<()> {
+        log::debug!(
+            "Fetching events in chunks of {} to retrieve {} messages",
+            self.chunk_size,
+            self.message_limit
+        );
+
         while self.retrieved_messages < self.message_limit {
-            log::debug!("Fetching next event chunk");
+            log::debug!("Fetching next chunk of events");
 
             let options = self.build_messages_options();
 
@@ -364,7 +375,8 @@ impl MessageFetcher {
 
         let event_id = deserialized.event_id().to_string();
 
-        self.build_and_send_encrypted_event(event_id, deserialized).await
+        self.build_and_send_encrypted_event(event_id, deserialized)
+            .await
     }
 
     async fn process_plain_text_event(&mut self, event: Raw<AnySyncTimelineEvent>) -> Result<()> {
@@ -628,4 +640,18 @@ async fn resolve_event_for_pagination(room: &Room, event_id: &EventId) -> Result
         .await?;
 
     Ok(response.prev_batch_token)
+}
+
+//// Calculates the chunk size of events to retrieve.
+fn calc_chunk_size(limit: u32) -> js_int::UInt {
+    let estimated_events = (limit as f64) * 1.5;
+    let mut chunk_size = (estimated_events * 0.2).floor() as u32;
+
+    if chunk_size < ROOM_EVENTS_CHUNK_SIZE_MIN {
+        chunk_size = ROOM_EVENTS_CHUNK_SIZE_MIN
+    } else if chunk_size > ROOM_EVENTS_CHUNK_SIZE_MAX {
+        chunk_size = ROOM_EVENTS_CHUNK_SIZE_MAX
+    }
+
+    chunk_size.into()
 }
