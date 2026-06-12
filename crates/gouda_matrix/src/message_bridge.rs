@@ -6,6 +6,7 @@ use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
 use matrix_sdk::ruma::events::reaction::ReactionEvent;
+use matrix_sdk::ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
 use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContent};
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
@@ -83,7 +84,11 @@ impl MessageCache {
     }
 
     pub async fn retry_all_encrypted_events(&self) {
-        self.inner.retry_all_encrypted_events().await;
+        let result = self.inner.retry_all_encrypted_events().await;
+
+        if let Err(err) = result {
+            log::error!("Error retrying decryption of events: {err}");
+        }
     }
 
     pub async fn retry_encrypted_events(
@@ -91,9 +96,14 @@ impl MessageCache {
         room_id: impl Into<String>,
         events: BTreeSet<OwnedEventId>,
     ) {
-        self.inner
+        let result = self
+            .inner
             .retry_encrypted_events(room_id.into(), events)
             .await;
+
+        if let Err(err) = result {
+            log::error!("Error retrying decryption of events: {err}");
+        }
     }
 }
 
@@ -248,7 +258,7 @@ impl CachedMessage {
 /// An event we where not able to decrypt.
 #[derive(Debug)]
 struct CachedEncryptedEvent {
-    pub event: AnySyncTimelineEvent,
+    pub event: Raw<OriginalSyncRoomEncryptedEvent>,
 }
 
 struct CachedRoom {
@@ -278,6 +288,23 @@ impl CachedRoom {
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
     pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
+        let guard = self.encrypted_events.lock()?;
+
+        let iter: Box<dyn Iterator<Item = (&String, &CachedEncryptedEvent)>> =
+            if let Some(ref ids) = events {
+                Box::new(guard.iter().filter(|(key, _)| ids.contains(key.as_str())))
+            } else {
+                Box::new(guard.iter())
+            };
+
+        for (id, event) in iter {
+            let result = self.room.decrypt_event(&event.event, None).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn decrypt_event(&self, id: &String, event: &CachedEncryptedEvent) -> Result<()> {
         todo!()
     }
 
@@ -328,6 +355,15 @@ impl CachedRoom {
             }
         };
 
+        if !matches!(
+            deserialized,
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(_),
+            ))
+        ) {
+            return Ok(None);
+        }
+
         let event_id = deserialized.event_id().to_string();
 
         let message = Message {
@@ -340,7 +376,7 @@ impl CachedRoom {
         };
 
         let cached_object = CachedEncryptedEvent {
-            event: deserialized.clone(),
+            event: event.cast_ref_unchecked(),
         };
 
         self.cache_encrypted_event(event_id, cached_object)?;
