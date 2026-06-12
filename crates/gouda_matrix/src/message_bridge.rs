@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use gouda_proto::chat::{message, Message, MessageContentMembershipChange, Reaction};
 use matrix_sdk::deserialized_responses::{
@@ -18,7 +18,6 @@ use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
@@ -34,8 +33,17 @@ pub enum MessageCacheError {
     #[error("receiver of the messages dropped")]
     MessageReceiverDropped,
 
+    #[error("cache lock poisoined")]
+    CachePoisoined,
+
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
+}
+
+impl<T> From<std::sync::PoisonError<T>> for MessageCacheError {
+    fn from(_value: std::sync::PoisonError<T>) -> Self {
+        Self::CachePoisoined
+    }
 }
 
 pub type Result<T> = std::result::Result<T, MessageCacheError>;
@@ -49,7 +57,7 @@ pub struct QueryOptions {
 
 #[derive(Clone)]
 pub struct MessageCache {
-    inner: Arc<Mutex<MessageCacheInner>>,
+    inner: Arc<MessageCacheInner>,
 }
 
 impl MessageCache {
@@ -57,7 +65,7 @@ impl MessageCache {
         let inner = MessageCacheInner::new(media_manager);
 
         Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Arc::new(inner),
         }
     }
 
@@ -66,13 +74,13 @@ impl MessageCache {
         room: Room,
         options: QueryOptions,
     ) -> Result<ReceiverStream<Result<Message>>> {
-        self.inner.lock().await.fetch_messages(room, options).await
+        self.inner.fetch_messages(room, options).await
     }
 }
 
 struct MessageCacheInner {
     media_manager: MediaManager,
-    cached_rooms: Mutex<HashMap<String, Arc<Mutex<CachedRoom>>>>,
+    cached_rooms: Mutex<HashMap<String, Arc<CachedRoom>>>,
 }
 
 impl MessageCacheInner {
@@ -84,7 +92,7 @@ impl MessageCacheInner {
     }
 
     pub async fn fetch_messages(
-        &mut self,
+        &self,
         room: Room,
         options: QueryOptions,
     ) -> Result<ReceiverStream<Result<Message>>> {
@@ -94,54 +102,48 @@ impl MessageCacheInner {
             None
         };
 
-        let room = self.get_or_create_room(room).await;
+        let room = self.get_or_create_room(room)?;
         let media_manager = self.media_manager.clone();
 
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            let mut room = room.lock().await;
-
-            MessageFetcher::new(
+            let fetcher = MessageFetcher::new(
                 media_manager.clone(),
-                &mut room,
+                room,
                 tx,
                 options.limit,
                 from_token,
-            )
-            .run()
-            .await;
+            );
+
+            fetcher.run().await;
         });
 
         Ok(ReceiverStream::new(rx))
     }
 
-    async fn get_or_create_room(&mut self, room: Room) -> Arc<Mutex<CachedRoom>> {
-        let mut guard = self.cached_rooms.lock().await;
+    fn get_or_create_room(&self, room: Room) -> Result<Arc<CachedRoom>> {
+        let mut guard = self.cached_rooms.lock()?;
 
         let room = guard
             .entry(room.room_id().to_string())
-            .or_insert_with(|| self.create_new_room(room))
+            .or_insert_with(|| Arc::new(CachedRoom::new(room)))
             .clone();
 
-        room
-    }
-
-    fn create_new_room(&self, room: Room) -> Arc<Mutex<CachedRoom>> {
-        Arc::new(Mutex::new(CachedRoom::new(room)))
+        Ok(room)
     }
 }
 
 struct CachedRoom {
     pub room: Room,
-    pub messages: HashMap<String, CachedMessage>,
+    pub messages: Mutex<HashMap<String, CachedMessage>>,
 }
 
 impl CachedRoom {
     pub fn new(room: Room) -> Self {
         Self {
             room,
-            messages: HashMap::new(),
+            messages: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -207,11 +209,11 @@ impl CachedMessage {
     }
 }
 
-struct MessageFetcher<'a> {
+struct MessageFetcher {
     /// The media manager to use to download message attachements.
     media_manager: MediaManager,
     /// The room to use to fetch messages.
-    cache: &'a mut CachedRoom,
+    cache: Arc<CachedRoom>,
 
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
@@ -227,10 +229,10 @@ struct MessageFetcher<'a> {
     retrieved_messages: u32,
 }
 
-impl<'a> MessageFetcher<'a> {
+impl MessageFetcher {
     pub fn new(
         media_manager: MediaManager,
-        cache: &'a mut CachedRoom,
+        cache: Arc<CachedRoom>,
         sender: Sender<Result<Message>>,
         limit: u32,
         from_token: Option<String>,
@@ -434,7 +436,7 @@ impl<'a> MessageFetcher<'a> {
                 relation.event_id.to_string(),
                 original.event_id.to_string(),
                 replacement,
-            );
+            )?;
 
             return Ok(());
         }
@@ -461,7 +463,7 @@ impl<'a> MessageFetcher<'a> {
 
         let related_message = original.content.relates_to.event_id.to_string();
 
-        self.stash_reaction(related_message, event.event_id().to_string(), reaction);
+        self.stash_reaction(related_message, event.event_id().to_string(), reaction)?;
 
         Ok(())
     }
@@ -502,23 +504,27 @@ impl<'a> MessageFetcher<'a> {
     }
 
     fn stash_replacement(
-        &mut self,
+        &self,
         original_message_id: String,
         replacement_id: String,
         replacement: CachedReplacement,
-    ) {
-        let message = self.cache.messages.entry(original_message_id).or_default();
+    ) -> Result<()> {
+        let mut guard = self.cache.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
         message.replacements.insert(replacement_id, replacement);
+        Ok(())
     }
 
     fn stash_reaction(
-        &mut self,
+        &self,
         original_message_id: String,
         reaction_id: String,
         reaction: CachedReaction,
-    ) {
-        let message = self.cache.messages.entry(original_message_id).or_default();
+    ) -> Result<()> {
+        let mut guard = self.cache.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
         message.reactions.insert(reaction_id, reaction);
+        Ok(())
     }
 
     async fn build_and_send_message_event(
@@ -530,13 +536,15 @@ impl<'a> MessageFetcher<'a> {
     }
 
     async fn build_and_send_message(&mut self, message: Message) -> Result<()> {
-        let cached_message = self
-            .cache
-            .messages
-            .entry(message.message_id.clone())
-            .or_default();
+        let message = {
+            let mut guard = self.cache.messages.lock()?;
 
-        let message = cached_message.build_from_original(message);
+            let cached_message = guard
+                .entry(message.message_id.clone())
+                .or_default();
+
+                cached_message.build_from_original(message)
+        };
 
         self.send_finished_message(message).await
     }
