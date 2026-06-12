@@ -593,6 +593,7 @@ impl CachedRoom {
 
         let event = MessageChangeEventBuilder::new(message.room_id, message.message_id)
             .change_content(content.into())
+            .change_is_encrypted(false)
             .to_proto();
 
         self.ctx
