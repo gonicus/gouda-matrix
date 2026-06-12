@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use gouda_proto::chat::{message, Message, MessageContentMembershipChange, Reaction};
@@ -81,6 +81,20 @@ impl MessageCache {
     ) -> Result<ReceiverStream<Result<Message>>> {
         self.inner.fetch_messages(room, options).await
     }
+
+    pub async fn retry_all_encrypted_events(&self) {
+        self.inner.retry_all_encrypted_events().await;
+    }
+
+    pub async fn retry_encrypted_events(
+        &self,
+        room_id: impl Into<String>,
+        events: BTreeSet<OwnedEventId>,
+    ) {
+        self.inner
+            .retry_encrypted_events(room_id.into(), events)
+            .await;
+    }
 }
 
 struct MessageCacheInner {
@@ -108,18 +122,50 @@ impl MessageCacheInner {
         };
 
         let room = self.get_or_create_room(room)?;
-        let media_manager = self.media_manager.clone();
 
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            let fetcher =
-                MessageFetcher::new(media_manager.clone(), room, tx, options.limit, from_token);
-
-            fetcher.run().await;
+            MessageFetcher::new(room, tx, options.limit, from_token)
+                .run()
+                .await;
         });
 
         Ok(ReceiverStream::new(rx))
+    }
+
+    pub async fn retry_all_encrypted_events(&self) -> Result<()> {
+        let guard = self.cached_rooms.lock()?;
+
+        for room in guard.values().cloned() {
+            tokio::spawn(async move {
+                if let Err(err) = room.retry_decryption(None).await {
+                    log::error!("Error retrying decryption of all events: {err}");
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    pub async fn retry_encrypted_events(
+        &self,
+        room_id: String,
+        events: BTreeSet<OwnedEventId>,
+    ) -> Result<()> {
+        let guard = self.cached_rooms.lock()?;
+
+        let Some(room) = guard.get(&room_id).cloned() else {
+            return Ok(());
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = room.retry_decryption(Some(events)).await {
+                log::error!("Error retrying decryption of room events: {err}");
+            }
+        });
+
+        Ok(())
     }
 
     fn get_or_create_room(&self, room: Room) -> Result<Arc<CachedRoom>> {
@@ -127,93 +173,14 @@ impl MessageCacheInner {
 
         let room = guard
             .entry(room.room_id().to_string())
-            .or_insert_with(|| Arc::new(CachedRoom::new(room)))
+            .or_insert_with(|| self.build_room(room))
             .clone();
 
         Ok(room)
     }
-}
 
-struct CachedRoom {
-    /// The room we work with.
-    room: Room,
-    /// The messages we have cached.
-    pub messages: Mutex<HashMap<String, CachedMessage>>,
-    /// Events that we could not decrypt and that were sent to the application
-    /// as an encrypted message.
-    pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
-}
-
-impl CachedRoom {
-    pub fn new(room: Room) -> Self {
-        Self {
-            room,
-            messages: Mutex::new(HashMap::new()),
-            encrypted_events: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Caches the given replacement.
-    /// Only returns an error when the cache lock is posoined.
-    pub fn cache_replacement(
-        &self,
-        original_message_id: String,
-        replacement_id: String,
-        replacement: CachedReplacement,
-    ) -> Result<()> {
-        self.remove_encrypted_event(&replacement_id)?;
-
-        let mut guard = self.messages.lock()?;
-        let message = guard.entry(original_message_id).or_default();
-        message.replacements.insert(replacement_id, replacement);
-
-        Ok(())
-    }
-
-    /// Caches the given reaction.
-    /// Only returns an error when the cache lock is posoined.
-    pub fn cache_reaction(
-        &self,
-        original_message_id: String,
-        reaction_id: String,
-        reaction: CachedReaction,
-    ) -> Result<()> {
-        self.remove_encrypted_event(&reaction_id)?;
-
-        let mut guard = self.messages.lock()?;
-        let message = guard.entry(original_message_id).or_default();
-        message.reactions.insert(reaction_id, reaction);
-
-        Ok(())
-    }
-
-    /// Caches the given original message and builds the final message
-    /// with the cached related events.
-    /// Only returns an error when the cache lock is posoined.
-    pub fn cache_and_build_message(&self, original: Message) -> Result<Message> {
-        self.remove_encrypted_event(&original.message_id)?;
-
-        let mut guard = self.messages.lock()?;
-
-        let cached_message = guard.entry(original.message_id.clone()).or_default();
-
-        Ok(cached_message.build_from_original(original))
-    }
-
-    /// Caches the given encrypted event.
-    /// Only returns an error when the cache lock is poisoined.
-    pub fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
-        let mut guard = self.encrypted_events.lock()?;
-        guard.insert(event_id, event);
-        Ok(())
-    }
-
-    /// Removes a tracked encrypted event, if it exists.
-    /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
-        let mut guard = self.encrypted_events.lock()?;
-        guard.remove(event_id);
-        Ok(())
+    fn build_room(&self, room: Room) -> Arc<CachedRoom> {
+        Arc::new(CachedRoom::new(self.media_manager.clone(), room))
     }
 }
 
@@ -243,12 +210,6 @@ struct CachedMessage {
     pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
     pub replacements: HashMap<String, CachedReplacement>,
-}
-
-/// An event we where not able to decrypt.
-#[derive(Debug)]
-struct CachedEncryptedEvent {
-    pub event: AnySyncTimelineEvent,
 }
 
 impl CachedMessage {
@@ -284,9 +245,332 @@ impl CachedMessage {
     }
 }
 
-struct MessageFetcher {
+/// An event we where not able to decrypt.
+#[derive(Debug)]
+struct CachedEncryptedEvent {
+    pub event: AnySyncTimelineEvent,
+}
+
+struct CachedRoom {
     /// The media manager to use to download message attachements.
     media_manager: MediaManager,
+    /// The room we work with.
+    room: Room,
+
+    /// The messages we have cached.
+    pub messages: Mutex<HashMap<String, CachedMessage>>,
+    /// Events that we could not decrypt and that were sent to the application
+    /// as an encrypted message.
+    pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
+}
+
+impl CachedRoom {
+    pub fn new(media_manager: MediaManager, room: Room) -> Self {
+        Self {
+            media_manager,
+            room,
+
+            messages: Mutex::new(HashMap::new()),
+            encrypted_events: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Retries the decryption of the specified events.
+    /// If none, all encrypted events are retried.
+    pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
+        todo!()
+    }
+
+    /// Processes the given timeline event of the room.
+    /// Returns the message that has been fully assembled with the relations if a message
+    /// could be built using this event.
+    /// Only returns an error when the cache lock is poisoined.
+    pub async fn process_timeline_event(&self, event: TimelineEvent) -> Result<Option<Message>> {
+        match event.kind {
+            TimelineEventKind::Decrypted(event) => self.process_decrypted_event(event).await,
+            TimelineEventKind::UnableToDecrypt { event, utd_info } => {
+                self.process_unable_to_decrypt_event(event, utd_info)
+            }
+            TimelineEventKind::PlainText { event } => self.process_plain_text_event(event).await,
+        }
+    }
+
+    /// Returns the message that has been fully assembled with the relations if a message
+    /// could be built using this event.
+    /// Only returns an error when the cache lock is poisoined.
+    pub async fn process_decrypted_event(
+        &self,
+        event: DecryptedRoomEvent,
+    ) -> Result<Option<Message>> {
+        let deserialized = match event.event.deserialize() {
+            Ok(event) => event,
+            Err(err) => {
+                log::warn!("Unable to deserialize event {event:?}: {err}");
+                return Ok(None);
+            }
+        };
+
+        self.process_any_timeline_event(deserialized).await
+    }
+
+    fn process_unable_to_decrypt_event(
+        &self,
+        event: Raw<AnySyncTimelineEvent>,
+        utd_info: UnableToDecryptInfo,
+    ) -> Result<Option<Message>> {
+        log::error!("Unable to decrypt event {event:?}: {utd_info:?}");
+
+        let deserialized = match event.deserialize() {
+            Ok(event) => event,
+            Err(err) => {
+                log::warn!("Unable to deserialize decrypted event {event:?}: {err}");
+                return Ok(None);
+            }
+        };
+
+        let event_id = deserialized.event_id().to_string();
+
+        let message = Message {
+            message_id: event_id.clone(),
+            room_id: self.room.room_id().to_string(),
+            timestamp: deserialized.origin_server_ts().0.into(),
+            sender_id: deserialized.sender().to_string(),
+            is_encrypted: true,
+            ..Default::default()
+        };
+
+        let cached_object = CachedEncryptedEvent {
+            event: deserialized.clone(),
+        };
+
+        self.cache_encrypted_event(event_id, cached_object)?;
+
+        Ok(Some(message))
+    }
+
+    async fn process_plain_text_event(
+        &self,
+        event: Raw<AnySyncTimelineEvent>,
+    ) -> Result<Option<Message>> {
+        let deserialized = match event.deserialize() {
+            Ok(event) => event,
+            Err(err) => {
+                log::warn!("Unable to deserialize event {event:?}: {err}");
+                return Ok(None);
+            }
+        };
+
+        let full_event = deserialized.into_full_event(self.room.room_id().to_owned());
+
+        self.process_any_timeline_event(full_event).await
+    }
+
+    async fn process_any_timeline_event(&self, event: AnyTimelineEvent) -> Result<Option<Message>> {
+        match event {
+            AnyTimelineEvent::MessageLike(event) => {
+                self.process_any_message_like_event(event).await
+            }
+            AnyTimelineEvent::State(event) => self.process_any_state_event(event),
+        }
+    }
+
+    async fn process_any_message_like_event(
+        &self,
+        event: AnyMessageLikeEvent,
+    ) -> Result<Option<Message>> {
+        match event {
+            AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
+            AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
+            AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
+            _ => Ok(None),
+        }
+    }
+
+    async fn process_room_message(&self, event: RoomMessageEvent) -> Result<Option<Message>> {
+        use matrix_sdk::ruma::events::room::message::Relation;
+
+        let Some(original) = event.as_original() else {
+            // Redacted event, we don't need to care about that.
+            return Ok(None);
+        };
+
+        // Replacement events are stashed until we reach the original event.
+        if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
+            let new_content = messages::generate_message_content!(
+                self.media_manager,
+                &self.room,
+                relation.event_id,
+                relation.new_content.msgtype,
+                message
+            );
+
+            let Some(new_content) = new_content else {
+                log::debug!("Ignoring an unsupported RoomMessageEvent content type");
+                return Ok(None);
+            };
+
+            let replacement = CachedReplacement {
+                timestamp: event.origin_server_ts().0.into(),
+                new_content,
+            };
+
+            self.cache_replacement(
+                relation.event_id.to_string(),
+                original.event_id.to_string(),
+                replacement,
+            )?;
+
+            return Ok(None);
+        }
+
+        self.build_from_message_event(original)
+            .await
+            .map(|m| Some(m))
+    }
+
+    fn process_room_redaction(&self, _event: RoomRedactionEvent) -> Result<Option<Message>> {
+        // TODO: Process the redaction event and remove the appropriate event from the cache
+        //   This is relevant when the same messages are requested multiple times.
+        Ok(None)
+    }
+
+    fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<Message>> {
+        let Some(original) = event.as_original() else {
+            // Redacted event, we don't need to care about that.
+            return Ok(None);
+        };
+
+        let reaction = CachedReaction {
+            user: original.sender.to_string(),
+            emoji: original.content.relates_to.key.clone(),
+        };
+
+        let related_message = original.content.relates_to.event_id.to_string();
+
+        self.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
+
+        Ok(None)
+    }
+
+    fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<Message>> {
+        match event {
+            AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
+            _ => Ok(None),
+        }
+    }
+
+    fn process_room_member_event(&self, event: RoomMemberEvent) -> Result<Option<Message>> {
+        let Some(original) = event.as_original() else {
+            // Redacted event, we don't need to carte about that.
+            return Ok(None);
+        };
+
+        let Some(change) = user::convert_membership_change(&original.membership_change()) else {
+            // Not a relevant membership change
+            return Ok(None);
+        };
+
+        let content = MessageContentMembershipChange {
+            change: change.into(),
+            affected_user_id: original.state_key.to_string(),
+        };
+
+        let message = Message {
+            room_id: self.room.room_id().to_string(),
+            message_id: event.event_id().to_string(),
+            sender_id: event.sender().to_string(),
+            timestamp: event.origin_server_ts().0.into(),
+            content: Some(message::Content::MembershipChange(content)),
+            ..Default::default()
+        };
+
+        self.build_from_message(message).map(|m| Some(m))
+    }
+
+    /// Converts the given event to the original message object and
+    /// builds the final message with the cached relations.
+    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    async fn build_from_message_event(
+        &self,
+        event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Result<Message> {
+        let msg = messages::message_from_event(&self.media_manager, &self.room, event).await;
+        self.build_from_message(msg)
+    }
+
+    /// Caches the given original message and assembles the final message object
+    /// with the cached related events. Sends assembled message to the message receiver.
+    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    fn build_from_message(&self, message: Message) -> Result<Message> {
+        let message = self.cache_and_build_message(message)?;
+        Ok(message)
+    }
+
+    /// Caches the given replacement.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_replacement(
+        &self,
+        original_message_id: String,
+        replacement_id: String,
+        replacement: CachedReplacement,
+    ) -> Result<()> {
+        self.remove_encrypted_event(&replacement_id)?;
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
+        message.replacements.insert(replacement_id, replacement);
+
+        Ok(())
+    }
+
+    /// Caches the given reaction.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_reaction(
+        &self,
+        original_message_id: String,
+        reaction_id: String,
+        reaction: CachedReaction,
+    ) -> Result<()> {
+        self.remove_encrypted_event(&reaction_id)?;
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(original_message_id).or_default();
+        message.reactions.insert(reaction_id, reaction);
+
+        Ok(())
+    }
+
+    /// Caches the given original message and builds the final message
+    /// with the cached related events.
+    /// Only returns an error when the cache lock is posoined.
+    fn cache_and_build_message(&self, original: Message) -> Result<Message> {
+        self.remove_encrypted_event(&original.message_id)?;
+
+        let mut guard = self.messages.lock()?;
+
+        let cached_message = guard.entry(original.message_id.clone()).or_default();
+
+        Ok(cached_message.build_from_original(original))
+    }
+
+    /// Caches the given encrypted event.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
+        let mut guard = self.encrypted_events.lock()?;
+        guard.insert(event_id, event);
+        Ok(())
+    }
+
+    /// Removes a tracked encrypted event, if it exists.
+    /// Only returns an error when the cache lock is poisoined.
+    fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
+        let mut guard = self.encrypted_events.lock()?;
+        guard.remove(event_id);
+        Ok(())
+    }
+}
+
+struct MessageFetcher {
     /// The room to use to fetch messages.
     cache: Arc<CachedRoom>,
 
@@ -306,14 +590,12 @@ struct MessageFetcher {
 
 impl MessageFetcher {
     pub fn new(
-        media_manager: MediaManager,
         cache: Arc<CachedRoom>,
         sender: Sender<Result<Message>>,
         limit: u32,
         from_token: Option<String>,
     ) -> Self {
         Self {
-            media_manager,
             cache,
 
             sender,
@@ -387,15 +669,8 @@ impl MessageFetcher {
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
         for event in chunk {
-            match event.kind {
-                TimelineEventKind::Decrypted(event) => self.process_decrypted_event(event).await?,
-                TimelineEventKind::UnableToDecrypt { event, utd_info } => {
-                    self.process_unable_to_decrypt_event(event, utd_info)
-                        .await?
-                }
-                TimelineEventKind::PlainText { event } => {
-                    self.process_plain_text_event(event).await?
-                }
+            if let Some(message) = self.cache.process_timeline_event(event).await? {
+                self.send_finished_message(message).await?;
             }
 
             if self.retrieved_messages == self.message_limit {
@@ -405,218 +680,6 @@ impl MessageFetcher {
         }
 
         Ok(())
-    }
-
-    async fn process_decrypted_event(&mut self, event: DecryptedRoomEvent) -> Result<()> {
-        let deserialized = match event.event.deserialize() {
-            Ok(event) => event,
-            Err(err) => {
-                log::error!("Unable to deserialize event {event:?}: {err}");
-                // We return ok so we don't abord the fetching process
-                return Ok(());
-            }
-        };
-
-        self.process_any_timeline_event(deserialized).await
-    }
-
-    async fn process_unable_to_decrypt_event(
-        &mut self,
-        event: Raw<AnySyncTimelineEvent>,
-        utd_info: UnableToDecryptInfo,
-    ) -> Result<()> {
-        log::error!("Unable to decrypt event {event:?}: {utd_info:?}");
-
-        let deserialized = match event.deserialize() {
-            Ok(event) => event,
-            Err(err) => {
-                log::error!("Unable to deserialize decrypted event {event:?}: {err}");
-                // We return ok so we don't abord the fetching process
-                return Ok(());
-            }
-        };
-
-        let event_id = deserialized.event_id().to_string();
-
-        self.build_and_send_encrypted_event(event_id, deserialized)
-            .await
-    }
-
-    async fn process_plain_text_event(&mut self, event: Raw<AnySyncTimelineEvent>) -> Result<()> {
-        let deserialized = match event.deserialize() {
-            Ok(event) => event,
-            Err(err) => {
-                log::error!("Unable to deserialize event {event:?}: {err}");
-                // We return ok so we don't abord the fetching process
-                return Ok(());
-            }
-        };
-
-        let full_event = deserialized.into_full_event(self.cache.room.room_id().to_owned());
-
-        self.process_any_timeline_event(full_event).await
-    }
-
-    async fn process_any_timeline_event(&mut self, event: AnyTimelineEvent) -> Result<()> {
-        match event {
-            AnyTimelineEvent::MessageLike(event) => {
-                self.process_any_message_like_event(event).await
-            }
-            AnyTimelineEvent::State(event) => self.process_any_state_event(event).await,
-        }
-    }
-
-    async fn process_any_message_like_event(&mut self, event: AnyMessageLikeEvent) -> Result<()> {
-        match event {
-            AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
-            AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
-            AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
-            _ => Ok(()),
-        }
-    }
-
-    async fn process_room_message(&mut self, event: RoomMessageEvent) -> Result<()> {
-        use matrix_sdk::ruma::events::room::message::Relation;
-
-        let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to care about that.
-            return Ok(());
-        };
-
-        // Replacement events are stashed until we reach the original event.
-        if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
-            let new_content = messages::generate_message_content!(
-                self.media_manager,
-                &self.cache.room,
-                relation.event_id,
-                relation.new_content.msgtype,
-                message
-            );
-
-            let Some(new_content) = new_content else {
-                log::debug!("Ignoring an unsupported RoomMessageEvent content type");
-                return Ok(());
-            };
-
-            let replacement = CachedReplacement {
-                timestamp: event.origin_server_ts().0.into(),
-                new_content,
-            };
-
-            self.cache.cache_replacement(
-                relation.event_id.to_string(),
-                original.event_id.to_string(),
-                replacement,
-            )?;
-
-            return Ok(());
-        }
-
-        self.build_and_send_message_event(original).await
-    }
-
-    fn process_room_redaction(&self, _event: RoomRedactionEvent) -> Result<()> {
-        // TODO: Process the redaction event and remove the appropriate event from the cache
-        //   This is relevant when the same messages are requested multiple times.
-        Ok(())
-    }
-
-    fn process_reaction_event(&mut self, event: ReactionEvent) -> Result<()> {
-        let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to care about that.
-            return Ok(());
-        };
-
-        let reaction = CachedReaction {
-            user: original.sender.to_string(),
-            emoji: original.content.relates_to.key.clone(),
-        };
-
-        let related_message = original.content.relates_to.event_id.to_string();
-
-        self.cache.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
-
-        Ok(())
-    }
-
-    async fn process_any_state_event(&mut self, event: AnyStateEvent) -> Result<()> {
-        match event {
-            AnyStateEvent::RoomMember(event) => self.process_room_member_event(event).await,
-            _ => Ok(()),
-        }
-    }
-
-    async fn process_room_member_event(&mut self, event: RoomMemberEvent) -> Result<()> {
-        let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to carte about that.
-            return Ok(());
-        };
-
-        let Some(change) = user::convert_membership_change(&original.membership_change()) else {
-            // Not a relevant membership change
-            return Ok(());
-        };
-
-        let content = MessageContentMembershipChange {
-            change: change.into(),
-            affected_user_id: original.state_key.to_string(),
-        };
-
-        let message = Message {
-            room_id: self.cache.room.room_id().to_string(),
-            message_id: event.event_id().to_string(),
-            sender_id: event.sender().to_string(),
-            timestamp: event.origin_server_ts().0.into(),
-            content: Some(message::Content::MembershipChange(content)),
-            ..Default::default()
-        };
-
-        self.build_and_send_message(message).await
-    }
-
-    /// Caches the given encrypted event and sends a message
-    /// with the encrypted flag to the application.
-    /// Only returns an error when the cache lock is poisoined or the message receiver dropped.
-    async fn build_and_send_encrypted_event(
-        &mut self,
-        event_id: String,
-        event: AnySyncTimelineEvent,
-    ) -> Result<()> {
-        let message = Message {
-            message_id: event_id.clone(),
-            room_id: self.cache.room.room_id().to_string(),
-            timestamp: event.origin_server_ts().0.into(),
-            sender_id: event.sender().to_string(),
-            is_encrypted: true,
-            ..Default::default()
-        };
-
-        let cached_object = CachedEncryptedEvent {
-            event: event.clone(),
-        };
-
-        self.cache.cache_encrypted_event(event_id, cached_object)?;
-
-        self.send_finished_message(message).await
-    }
-
-    /// Converts the given event to the original message object and builds the final
-    /// message with the cached related events.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
-    async fn build_and_send_message_event(
-        &mut self,
-        event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
-    ) -> Result<()> {
-        let msg = messages::message_from_event(&self.media_manager, &self.cache.room, event).await;
-        self.build_and_send_message(msg).await
-    }
-
-    /// Caches the given original message and assembles the final message object
-    /// with the cached related events. Sends assembled message to the message receiver.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
-    async fn build_and_send_message(&mut self, message: Message) -> Result<()> {
-        let message = self.cache.cache_and_build_message(message)?;
-        self.send_finished_message(message).await
     }
 
     /// Sends the message to the message receiver.
