@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::{message, Message, Reaction};
+use gouda_proto::chat::{Message, MessageContentMembershipChange, Reaction, message};
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -23,7 +23,7 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::media::MediaManager;
-use crate::messages;
+use crate::{messages, user};
 
 /// The capacity of the channel for receiving retreived and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -440,7 +440,7 @@ impl<'a> MessageFetcher<'a> {
             return Ok(());
         }
 
-        self.build_and_send_message(original).await
+        self.build_and_send_message_event(original).await
     }
 
     fn process_room_redaction(&self, event: RoomRedactionEvent) -> Result<()> {
@@ -466,16 +466,39 @@ impl<'a> MessageFetcher<'a> {
         Ok(())
     }
 
-    async fn process_any_state_event(&self, event: AnyStateEvent) -> Result<()> {
+    async fn process_any_state_event(&mut self, event: AnyStateEvent) -> Result<()> {
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event).await,
             _ => Ok(()),
         }
     }
 
-    async fn process_room_member_event(&self, event: RoomMemberEvent) -> Result<()> {
-        // TODO: Implement room member event.
-        Ok(())
+    async fn process_room_member_event(&mut self, event: RoomMemberEvent) -> Result<()> {
+        let Some(original) = event.as_original() else {
+            // Redacted event, we don't need to carte about that.
+            return Ok(());
+        };
+
+        let Some(change) = user::convert_membership_change(&original.membership_change()) else {
+            // Not a relevant membership change
+            return Ok(());
+        };
+
+        let content = MessageContentMembershipChange {
+            change: change.into(),
+            affected_user_id: original.state_key.to_string(),
+        };
+
+        let message = Message {
+            room_id: self.cache.room.room_id().to_string(),
+            message_id: event.event_id().to_string(),
+            sender_id: event.sender().to_string(),
+            timestamp: event.origin_server_ts().0.into(),
+            content: Some(message::Content::MembershipChange(content)),
+            ..Default::default()
+        };
+
+        self.build_and_send_message(message).await
     }
 
     fn stash_replacement(
@@ -498,19 +521,24 @@ impl<'a> MessageFetcher<'a> {
         message.reactions.insert(reaction_id, reaction);
     }
 
-    async fn build_and_send_message(
+    async fn build_and_send_message_event(
         &mut self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
     ) -> Result<()> {
-        let original =
-            messages::message_from_event(&self.media_manager, &self.cache.room, event).await;
+        let msg = messages::message_from_event(&self.media_manager, &self.cache.room, event).await;
+        self.build_and_send_message(msg).await
+    }
 
-        let message_id = original.message_id.clone();
+    async fn build_and_send_message(&mut self, message: Message) -> Result<()> {
+        let cached_message = self
+            .cache
+            .messages
+            .entry(message.message_id.clone())
+            .or_default();
 
-        let cached_message = self.cache.messages.entry(message_id).or_default();
-        let assembled_message = cached_message.build_from_original(original);
+        let message = cached_message.build_from_original(message);
 
-        self.send_finished_message(assembled_message).await
+        self.send_finished_message(message).await
     }
 
     async fn send_finished_message(&mut self, message: Message) -> Result<()> {
