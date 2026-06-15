@@ -5,8 +5,8 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk::Client;
 use matrix_sdk::stream::StreamExt;
+use matrix_sdk::Client;
 use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -90,7 +90,10 @@ impl Session {
         mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
-        subscribe_to_decryption_reports(initialized_data.client.clone(), initialized_data.message_cache.clone());
+        subscribe_to_decryption_reports(
+            initialized_data.client.clone(),
+            initialized_data.message_cache.clone(),
+        );
 
         self.initial_sync(&mut ctx, &initialized_data).await?;
 
@@ -276,7 +279,9 @@ fn subscribe_to_decryption_reports(client: Client, message_cache: MessageCache) 
 async fn handle_room_keys(message_cache: &MessageCache, keys: Vec<RoomKeyInfo>) {
     for key in keys {
         log::debug!("Received new room keys: {key:?}");
-        message_cache.retry_encrypted_events(key.room_id, None).await;
+        message_cache
+            .retry_encrypted_events(key.room_id, None)
+            .await;
     }
 }
 
