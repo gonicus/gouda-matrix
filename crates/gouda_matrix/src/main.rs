@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 use gouda_core::Runner;
@@ -11,10 +11,11 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 
+/// The default log level for our own crates.
+const LOG_LEVEL_DEFAULT: &str = "INFO";
 /// The default log file to use.
 const LOG_FILE_DEFAULT: &str = "matrix_client.log";
-/// The log level for our own crates.
-const LOG_LEVEL_CUSTOM: LevelFilter = LevelFilter::Debug;
+
 /// The log level for all other crates.
 const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
@@ -26,6 +27,13 @@ struct Args {
     #[arg(help = "Path to the socket for sending responses")]
     pub response_socket: String,
 
+    #[arg(
+        long,
+        default_value = LOG_LEVEL_DEFAULT,
+        help="The log level to use. Must be OFF, ERROR, WARN, INFO, DEBUG or TRACE",
+    )]
+    pub log_level: LevelFilter,
+
     #[arg(long, default_value = LOG_FILE_DEFAULT, help="The file where logs are written")]
     pub log_file_path: PathBuf,
 }
@@ -34,7 +42,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    setup_logging(&args.log_file_path);
+    setup_logging(&args);
 
     log::info!("Socket for incoming requests: '{}'", args.request_socket);
     log::info!("Socket for outgoing responses: '{}'", args.response_socket);
@@ -48,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runner.run().await.map(|_| ()).map_err(|err| err.into())
 }
 
-fn setup_logging(log_file: &Path) {
+fn setup_logging(args: &Args) {
     // Setup encoders
     let encoder = PatternEncoder::new("{h({d(%H:%M:%S)} {l} {t} - {m}{n})}");
 
@@ -56,7 +64,7 @@ fn setup_logging(log_file: &Path) {
     let file = match FileAppender::builder()
         .encoder(Box::new(encoder))
         .append(false)
-        .build(log_file)
+        .build(&args.log_file_path)
     {
         Ok(f) => f,
         Err(e) => {
@@ -68,9 +76,9 @@ fn setup_logging(log_file: &Path) {
     // Build final config
     let config = Config::builder()
         .appender(Appender::builder().build("file", Box::new(file)))
-        .logger(setup_custom_logger("gouda_core"))
-        .logger(setup_custom_logger("gouda_matrix_adapter"))
-        .logger(setup_custom_logger("gouda_matrix"))
+        .logger(setup_custom_logger(args, "gouda_core"))
+        .logger(setup_custom_logger(args, "gouda_matrix_adapter"))
+        .logger(setup_custom_logger(args, "gouda_matrix"))
         .build(Root::builder().appender("file").build(LOG_LEVEL_OTHERS));
 
     // Ignore any errors in the logging configuration. We don't want the
@@ -80,11 +88,11 @@ fn setup_logging(log_file: &Path) {
     }
 }
 
-fn setup_custom_logger(name: &str) -> Logger {
+fn setup_custom_logger(args: &Args, name: &str) -> Logger {
     Logger::builder()
         .appender("file")
         .additive(false)
-        .build(name, LOG_LEVEL_CUSTOM)
+        .build(name, args.log_level)
 }
 
 async fn connect_socket(
