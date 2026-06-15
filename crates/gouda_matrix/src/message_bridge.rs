@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
@@ -80,6 +80,7 @@ impl MessageCache {
         }
     }
 
+    /// Fetches the assembled messages from the room with the given options.
     pub async fn fetch_messages(
         &self,
         room: Room,
@@ -88,14 +89,16 @@ impl MessageCache {
         self.inner.fetch_messages(room, options).await
     }
 
-    pub async fn retry_encrypted_events(
-        &self,
-        room_id: impl Into<String>,
-        events: Option<BTreeSet<OwnedEventId>>,
-    ) {
+    /// Retries to decrypt previously unencryptable events.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id`: The ID of the room the events belong to.
+    /// * `session_id`: The ID of the session used to encrypt the events.
+    pub async fn retry_encrypted_events(&self, room_id: impl Into<String>, session_id: String) {
         let result = self
             .inner
-            .retry_encrypted_events(room_id.into(), events)
+            .retry_encrypted_events(room_id.into(), session_id)
             .await;
 
         if let Err(err) = result {
@@ -143,11 +146,7 @@ impl MessageCacheInner {
         Ok(ReceiverStream::new(rx))
     }
 
-    pub async fn retry_encrypted_events(
-        &self,
-        room_id: String,
-        events: Option<BTreeSet<OwnedEventId>>,
-    ) -> Result<()> {
+    pub async fn retry_encrypted_events(&self, room_id: String, session_id: String) -> Result<()> {
         let guard = self.cached_rooms.lock()?;
 
         let Some(room) = guard.get(&room_id).cloned() else {
@@ -155,7 +154,7 @@ impl MessageCacheInner {
         };
 
         tokio::spawn(async move {
-            if let Err(err) = room.retry_decryption(events).await {
+            if let Err(err) = room.retry_decryption(session_id).await {
                 log::error!("Error retrying decryption of room events: {err}");
             }
         });
@@ -247,7 +246,11 @@ impl CachedMessage {
 /// An event we where not able to decrypt.
 #[derive(Debug, Clone)]
 struct CachedEncryptedEvent {
+    /// The original event we where not able to decrypt.
     pub event: Raw<OriginalSyncRoomEncryptedEvent>,
+    /// The ID of the session used to encrypt the message, if it used the
+    /// `m.megolm.v1.aes-sha2` algorithm.
+    pub session_id: Option<String>,
 }
 
 struct CachedRoom {
@@ -279,13 +282,13 @@ impl CachedRoom {
 
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
-    pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
+    pub async fn retry_decryption(&self, session_id: String) -> Result<()> {
         log::debug!(
-            "Retrying decryption of events from room {:?}. Request events: {events:?}",
+            "Retrying decryption of events from room {:?} for session_id: {session_id}",
             self.room.room_id()
         );
 
-        for event in self.get_events_for_redecryption(events)? {
+        for event in self.get_events_for_redecryption(session_id)? {
             self.retry_cached_encrypted_event(event).await?;
         }
 
@@ -363,6 +366,7 @@ impl CachedRoom {
 
         let cached_object = CachedEncryptedEvent {
             event: encrypted_raw,
+            session_id: utd_info.session_id,
         };
 
         self.cache_encrypted_event(event_id, cached_object)?;
@@ -509,22 +513,14 @@ impl CachedRoom {
         self.build_from_message(message).map(|m| Some(m))
     }
 
-    fn get_events_for_redecryption(
-        &self,
-        events: Option<BTreeSet<OwnedEventId>>,
-    ) -> Result<Vec<CachedEncryptedEvent>> {
+    fn get_events_for_redecryption(&self, session_id: String) -> Result<Vec<CachedEncryptedEvent>> {
         let guard = self.encrypted_events.lock()?;
 
-        let events = if let Some(ref ids) = events {
-            guard
-                .iter()
-                .filter(|(key, _)| ids.contains(key.as_str()))
-                .map(|(_, value)| value)
-                .cloned()
-                .collect()
-        } else {
-            guard.values().cloned().collect()
-        };
+        let events = guard
+            .iter()
+            .filter(|p| p.1.session_id.as_ref() == Some(&session_id))
+            .map(|p| p.1.clone())
+            .collect();
 
         Ok(events)
     }

@@ -90,7 +90,7 @@ impl Session {
         mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
-        subscribe_to_decryption_reports(
+        subscibe_to_room_keys(
             initialized_data.client.clone(),
             initialized_data.message_cache.clone(),
         );
@@ -256,8 +256,8 @@ impl Session {
     }
 }
 
-fn subscribe_to_decryption_reports(client: Client, message_cache: MessageCache) {
-    log::debug!("Subscribing to redecryption reports");
+fn subscibe_to_room_keys(client: Client, message_cache: MessageCache) {
+    log::debug!("Subscribing to room keys stream");
 
     tokio::spawn(async move {
         let Some(mut stream) = client.encryption().room_keys_received_stream().await else {
@@ -277,10 +277,11 @@ fn subscribe_to_decryption_reports(client: Client, message_cache: MessageCache) 
 }
 
 async fn handle_room_keys(message_cache: &MessageCache, keys: Vec<RoomKeyInfo>) {
-    for key in keys {
-        log::debug!("Received new room keys: {key:?}");
+    for info in keys {
+        log::debug!("Received new room keys: {info:?}");
+
         message_cache
-            .retry_encrypted_events(key.room_id, None)
+            .retry_encrypted_events(info.room_id, info.session_id)
             .await;
     }
 }
