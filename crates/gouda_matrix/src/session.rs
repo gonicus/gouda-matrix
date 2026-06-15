@@ -270,18 +270,6 @@ fn subscribe_to_decryption_reports(client: Client, message_cache: MessageCache) 
                 }
             }
         }
-
-        // let mut stream = client.event_cache().subscribe_to_decryption_reports();
-
-        // while let Some(report) = stream.next().await {
-        //     match report {
-        //         Ok(report) => handle_redecryptor_report(&message_cache, report).await,
-        //         Err(err) => {
-        //             log::error!("Received error on redecryption report stream {err}");
-        //             break;
-        //         }
-        //     }
-        // }
     });
 }
 
@@ -291,18 +279,6 @@ async fn handle_room_keys(message_cache: &MessageCache, keys: Vec<RoomKeyInfo>) 
         message_cache.retry_encrypted_events(key.room_id, None).await;
     }
 }
-
-// async fn handle_redecryptor_report(message_cache: &MessageCache, report: RedecryptorReport) {
-//     log::debug!("Processing redecryptor report: {report:?}");
-
-//     match report {
-//         RedecryptorReport::BackupAvailable => message_cache.retry_all_encrypted_events().await,
-//         RedecryptorReport::Lagging => message_cache.retry_all_encrypted_events().await,
-//         RedecryptorReport::ResolvedUtds { room_id, events } => {
-//             message_cache.retry_encrypted_events(room_id, events).await
-//         }
-//     }
-// }
 
 async fn send_capabilities_event(ctx: &mut RequestContext) {
     let re = CapabilityEvent {
