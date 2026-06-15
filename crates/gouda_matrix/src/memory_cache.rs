@@ -735,9 +735,7 @@ impl CachedRoom {
         log::debug!("Processing successful redecryption of message: {message:?}");
 
         let Some(content) = message.content else {
-            log::debug!(
-                "Redacting previously send encrypted message as decrypted message has no content"
-            );
+            log::debug!("Redacting previously send message as decrypted message has no content");
             self.redact_encrypted_message(message.message_id).await;
             return Ok(());
         };
@@ -792,7 +790,7 @@ impl CachedRoom {
     /// which after decryption is no longer relevant for the application.
     async fn redact_encrypted_message(&self, message_id: String) {
         log::debug!(
-            "Sending a MessageRemoveEvent to redact the previsouly encrypted message: {message_id}"
+            "Sending MessageRemoveEvent to redact previously encrypted message: {message_id}"
         );
 
         let proto = MessageRemoveEvent {
