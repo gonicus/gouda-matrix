@@ -20,7 +20,7 @@ use url::Url;
 
 use crate::events::EventManager;
 use crate::media::MediaManager;
-use crate::memory_cache::MemoryCache;
+use crate::memory_cache::{self, MemoryCache};
 use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
@@ -1204,7 +1204,7 @@ impl ClientAbstraction for MatrixClient {
             })
             .transpose()?;
 
-        let query_options = message_bridge::QueryOptions {
+        let query_options = memory_cache::QueryOptions {
             from_message_id,
             limit,
         };
@@ -1212,12 +1212,12 @@ impl ClientAbstraction for MatrixClient {
         let mut stream = memory_cache
             .fetch_messages(room, query_options)
             .await
-            .map_err(errors::convert_message_cache_error)?;
+            .map_err(errors::convert_memory_cache_error)?;
 
         let multipart_response = ctx.begin_multipart_response();
 
         while let Some(result) = stream.next().await {
-            let message = result.map_err(errors::convert_message_cache_error)?;
+            let message = result.map_err(errors::convert_memory_cache_error)?;
 
             multipart_response
                 .send_item(ResponseContent::MessageReceivedEvent(message))
@@ -1437,7 +1437,12 @@ impl ClientAbstraction for MatrixClient {
             return Err(errors::create_error(ErrorType::ReactionNotFound));
         };
 
-        room.redact(&cached_reaction.event_id, None, None)
+        let Ok(event_id) = EventId::parse(&cached_reaction.reaction_id) else {
+            log::error!("Unable to parse cached reaction ID to an event ID");
+            return Err(errors::create_error(ErrorType::ReactionNotFound));
+        };
+
+        room.redact(&event_id, None, None)
             .await
             .map_err(errors::convert_http_error)?;
 

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
-use crate::message_bridge::MessageCache;
+use crate::memory_cache::MemoryCache;
 use crate::{crypto, errors, user};
 
 /// The full session to persist.
@@ -92,7 +92,7 @@ impl Session {
     ) -> Result<()> {
         subscribe_to_room_keys(
             initialized_data.client.clone(),
-            initialized_data.message_cache.clone(),
+            initialized_data.memory_cache.clone(),
         );
 
         self.initial_sync(&mut ctx, &initialized_data).await?;
@@ -256,7 +256,7 @@ impl Session {
     }
 }
 
-fn subscribe_to_room_keys(client: Client, message_cache: MessageCache) {
+fn subscribe_to_room_keys(client: Client, memory_cache: MemoryCache) {
     log::debug!("Subscribing to room keys stream");
 
     tokio::spawn(async move {
@@ -267,7 +267,7 @@ fn subscribe_to_room_keys(client: Client, message_cache: MessageCache) {
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(keys) => handle_room_keys(&message_cache, keys).await,
+                Ok(keys) => handle_room_keys(&memory_cache, keys).await,
                 Err(err) => {
                     log::error!("Received error on room keys stream {err}");
                 }
@@ -276,11 +276,11 @@ fn subscribe_to_room_keys(client: Client, message_cache: MessageCache) {
     });
 }
 
-async fn handle_room_keys(message_cache: &MessageCache, keys: Vec<RoomKeyInfo>) {
+async fn handle_room_keys(memory_cache: &MemoryCache, keys: Vec<RoomKeyInfo>) {
     for info in keys {
         log::debug!("Received new room keys: {info:?}");
 
-        message_cache
+        memory_cache
             .retry_encrypted_events(info.room_id, info.session_id)
             .await;
     }

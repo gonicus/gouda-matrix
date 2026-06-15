@@ -272,6 +272,7 @@ impl MemoryCacheInner {
 /// Contains metadata to a reaction.
 #[derive(Debug, Clone)]
 pub struct ReactionMetadata {
+    pub reaction_id: String,
     pub user_id: String,
     pub emoji: String,
     pub message_id: String,
@@ -279,10 +280,16 @@ pub struct ReactionMetadata {
 }
 
 impl ReactionMetadata {
-    pub(self) fn new(cached: CachedReaction, message_id: String, room_id: String) -> Self {
+    pub(self) fn new(
+        cached: CachedReaction,
+        reaction_id: String,
+        message_id: String,
+        room_id: String,
+    ) -> Self {
         let CachedReaction { user_id, emoji } = cached;
 
         Self {
+            reaction_id,
             user_id,
             emoji,
             message_id,
@@ -569,7 +576,7 @@ impl CachedRoom {
 
     fn process_room_redaction(&self, _event: RoomRedactionEvent) -> Result<Option<Message>> {
         // TODO: Process the redaction event and remove the appropriate event from the cache
-        //   This is relevant when the same messages are requested multiple times.
+        //   This is only relevant when the same messages are requested multiple times.
         Ok(None)
     }
 
@@ -776,7 +783,12 @@ impl CachedRoom {
             return Ok(None);
         };
 
-        let metadata = ReactionMetadata::new(removed, message_id, self.room.room_id().to_string());
+        let metadata = ReactionMetadata::new(
+            removed,
+            reaction_id.to_string(),
+            message_id,
+            self.room.room_id().to_string(),
+        );
 
         Ok(Some(metadata))
     }
@@ -795,10 +807,9 @@ impl CachedRoom {
             return Ok(None);
         };
 
-        let removed: Vec<CachedReaction> = message
+        let removed: Vec<(String, CachedReaction)> = message
             .reactions
             .extract_if(|_, p| p.user_id == user_id && p.emoji == emoji)
-            .map(|(_, v)| v)
             .collect();
 
         let Some(removed) = removed.into_iter().next() else {
@@ -806,7 +817,8 @@ impl CachedRoom {
         };
 
         let metadata = ReactionMetadata::new(
-            removed,
+            removed.1,
+            removed.0,
             message_id.to_owned(),
             self.room.room_id().to_string(),
         );

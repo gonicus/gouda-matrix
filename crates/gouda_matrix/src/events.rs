@@ -511,7 +511,7 @@ impl EventExecutor {
             .memory_cache
             .remove_reaction_by_id(room.room_id().as_str(), event_id);
 
-        let Ok(Some(reaction)) = reaction else {
+        let Some(reaction) = reaction else {
             return;
         };
 

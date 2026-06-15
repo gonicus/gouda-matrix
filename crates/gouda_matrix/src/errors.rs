@@ -10,7 +10,7 @@ use ruma_common::api::error::{
     Error as RumaClientError, ErrorKind as RumaClientErrorKind, IntoHttpError,
 };
 
-use crate::message_bridge::MessageCacheError;
+use crate::memory_cache::MemoryCacheError;
 
 /// Creates a new chat error given an error type as well as an error message.
 pub fn create_error_msg<M: std::fmt::Display>(ty: ErrorType, msg: M) -> Error {
@@ -173,9 +173,10 @@ pub fn convert_id_parse_error(err: IdParseError) -> Error {
     create_error_msg(ErrorType::InvalidUserId, err.to_string())
 }
 
-pub fn convert_message_cache_error(err: MessageCacheError) -> Error {
+/// Converts a `MemoryCacheError` to a new chat error.
+pub fn convert_memory_cache_error(err: MemoryCacheError) -> Error {
     match err {
-        MessageCacheError::MatrixError(err) => convert_matrix_sdk_error(err),
+        MemoryCacheError::MatrixError(err) => convert_matrix_sdk_error(err),
         err => create_unknown(err),
     }
 }
