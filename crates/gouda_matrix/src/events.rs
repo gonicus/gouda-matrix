@@ -33,7 +33,7 @@ use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::media::MediaManager;
-use crate::memory_cache::{CachedReaction, MemoryCache};
+use crate::memory_cache::{MemoryCache, ReactionMetadata};
 use crate::{messages, rooms, unwrap_or_log_return, user};
 
 // After how many seconds does an event count as historical?
@@ -450,7 +450,7 @@ impl EventExecutor {
 
         match event {
             AnyMessageLikeEvent::Reaction(event) => {
-                self.redact_reaction(event.event_id().as_str()).await;
+                self.redact_reaction(room, event.event_id().as_str()).await;
             }
             AnyMessageLikeEvent::RoomEncrypted(event) => {
                 // TODO: This doesn't necessarily have to be a text message event.
@@ -478,7 +478,7 @@ impl EventExecutor {
 
         match event {
             AnySyncMessageLikeEvent::Reaction(event) => {
-                self.redact_reaction(event.event_id().as_str()).await;
+                self.redact_reaction(room, event.event_id().as_str()).await;
             }
             AnySyncMessageLikeEvent::RoomEncrypted(event) => {
                 // TODO: This doesn't necessarily have to be a text message event.
@@ -506,12 +506,16 @@ impl EventExecutor {
             .await;
     }
 
-    async fn redact_reaction(&mut self, event_id: &str) {
-        let Some(reaction) = self.memory_cache.untrack_reaction_by_id(event_id) else {
+    async fn redact_reaction(&mut self, room: Room, event_id: &str) {
+        let reaction = self
+            .memory_cache
+            .remove_reaction_by_id(room.room_id().as_str(), event_id);
+
+        let Ok(Some(reaction)) = reaction else {
             return;
         };
 
-        let CachedReaction {
+        let ReactionMetadata {
             room_id,
             message_id,
             user_id,
@@ -797,22 +801,14 @@ impl EventExecutor {
     }
 
     async fn exec_reaction_event(&mut self, room: Room, event: OriginalSyncReactionEvent) {
-        let reaction = CachedReaction {
-            event_id: event.event_id,
+        let proto = ChatReaction {
             room_id: room.room_id().to_string(),
             message_id: event.content.relates_to.event_id.to_string(),
-            user_id: event.sender.to_string(),
-            emoji: event.content.relates_to.key,
+            reaction: event.content.relates_to.key.to_string(),
+            user_id: Some(event.sender.to_string()),
         };
 
-        let proto = ChatReaction {
-            room_id: reaction.room_id.clone(),
-            message_id: reaction.message_id.clone(),
-            reaction: reaction.emoji.clone(),
-            user_id: Some(reaction.user_id.clone()),
-        };
-
-        self.memory_cache.track_reaction(reaction);
+        self.memory_cache.cache_reaction(room, event);
 
         self.ctx
             .send_event(ResponseContent::ReactionCreatedEvent(proto))

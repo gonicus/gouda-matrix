@@ -7,7 +7,6 @@ mod events;
 mod macros;
 mod media;
 mod memory_cache;
-mod message_bridge;
 mod messages;
 mod proto_cache;
 mod rooms;

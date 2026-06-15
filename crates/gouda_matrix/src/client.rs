@@ -21,12 +21,11 @@ use url::Url;
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::memory_cache::MemoryCache;
-use crate::message_bridge::MessageCache;
 use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, message_bridge, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, messages, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -67,8 +66,6 @@ pub struct InitializedData {
     /// The absolute path to the root directory where data is stored.
     pub data_root_dir: PathBuf,
 
-    /// Contains the in memory message cache.
-    pub message_cache: MessageCache,
     /// Contains the in memory cache.
     pub memory_cache: MemoryCache,
     /// The persistent proto cache storing proto messages for the next application start.
@@ -217,8 +214,6 @@ impl MatrixClient {
         )
         .await?;
 
-        let memory_cache = MemoryCache::new();
-
         let proto_cache = ProtoCache::new(
             get_cache_dir(&data_root_dir),
             request.encryption_secret.clone(),
@@ -232,14 +227,14 @@ impl MatrixClient {
         )
         .await;
 
+        let memory_cache = MemoryCache::new(ctx.clone(), media_manager.clone());
+
         let event_manager = EventManager::new(
             client.clone(),
-            ctx.clone(),
+            ctx,
             memory_cache.clone(),
             media_manager.clone(),
         );
-
-        let message_cache = MessageCache::new(ctx, media_manager.clone());
 
         let data = InitializedData {
             client,
@@ -252,7 +247,6 @@ impl MatrixClient {
 
             data_root_dir,
 
-            message_cache,
             memory_cache,
             proto_cache,
             media_manager,
@@ -280,8 +274,6 @@ impl MatrixClient {
         )
         .await?;
 
-        initialized_data.memory_cache = MemoryCache::new();
-
         initialized_data.media_manager = MediaManager::new(
             initialized_data.client.clone(),
             initialized_data.data_root_dir.clone(),
@@ -289,9 +281,12 @@ impl MatrixClient {
         )
         .await;
 
+        initialized_data.memory_cache =
+            MemoryCache::new(ctx.clone(), initialized_data.media_manager.clone());
+
         initialized_data.event_manager = EventManager::new(
             initialized_data.client.clone(),
-            ctx.clone(),
+            ctx,
             initialized_data.memory_cache.clone(),
             initialized_data.media_manager.clone(),
         );
@@ -301,9 +296,6 @@ impl MatrixClient {
             initialized_data.encryption_passphrase.clone(),
         )
         .await;
-
-        initialized_data.message_cache =
-            MessageCache::new(ctx, initialized_data.media_manager.clone());
 
         log::info!("Successfully reset session");
 
@@ -1191,7 +1183,7 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let InitializedData { message_cache, .. } = self.get_initialized_data_logged_in().await?;
+        let InitializedData { memory_cache, .. } = self.get_initialized_data_logged_in().await?;
 
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
 
@@ -1217,7 +1209,7 @@ impl ClientAbstraction for MatrixClient {
             limit,
         };
 
-        let mut stream = message_cache
+        let mut stream = memory_cache
             .fetch_messages(room, query_options)
             .await
             .map_err(errors::convert_message_cache_error)?;
@@ -1439,7 +1431,7 @@ impl ClientAbstraction for MatrixClient {
             user_id.unwrap_or(client.user_id().map(|f| f.to_string()).unwrap_or_default());
 
         let cached_reaction =
-            memory_cache.untrack_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
+            memory_cache.remove_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
 
         let Some(cached_reaction) = cached_reaction else {
             return Err(errors::create_error(ErrorType::ReactionNotFound));

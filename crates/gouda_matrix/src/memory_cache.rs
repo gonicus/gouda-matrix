@@ -40,7 +40,7 @@ const ROOM_EVENTS_CHUNK_SIZE_MAX: u32 = 100;
 const _: () = assert!(ROOM_EVENTS_CHUNK_SIZE_MIN <= ROOM_EVENTS_CHUNK_SIZE_MAX);
 
 #[derive(Debug, thiserror::Error)]
-pub enum MessageCacheError {
+pub enum MemoryCacheError {
     #[error("receiver of the messages dropped")]
     MessageReceiverDropped,
 
@@ -51,13 +51,13 @@ pub enum MessageCacheError {
     MatrixError(#[from] matrix_sdk::Error),
 }
 
-impl<T> From<std::sync::PoisonError<T>> for MessageCacheError {
+impl<T> From<std::sync::PoisonError<T>> for MemoryCacheError {
     fn from(_value: std::sync::PoisonError<T>) -> Self {
         Self::CachePoisoined
     }
 }
 
-pub type Result<T> = std::result::Result<T, MessageCacheError>;
+pub type Result<T> = std::result::Result<T, MemoryCacheError>;
 
 pub struct QueryOptions {
     /// How many assembled messages should be returned.
@@ -67,13 +67,13 @@ pub struct QueryOptions {
 }
 
 #[derive(Clone)]
-pub struct MessageCache {
-    inner: Arc<MessageCacheInner>,
+pub struct MemoryCache {
+    inner: Arc<MemoryCacheInner>,
 }
 
-impl MessageCache {
+impl MemoryCache {
     pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
-        let inner = MessageCacheInner::new(ctx, media_manager);
+        let inner = MemoryCacheInner::new(ctx, media_manager);
 
         Self {
             inner: Arc::new(inner),
@@ -106,17 +106,25 @@ impl MessageCache {
         }
     }
 
-    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) -> Result<()> {
-        self.inner.cache_reaction(room, event)
+    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) {
+        if let Err(err) = self.inner.cache_reaction(room, event) {
+            log::error!("Error caching reaction: {err}");
+        }
     }
 
     pub fn remove_reaction_by_id(
         &self,
         room_id: impl AsRef<str>,
         reaction_id: impl AsRef<str>,
-    ) -> Result<Option<CachedReaction>> {
-        self.inner
-            .remove_reaction_by_id(room_id.as_ref(), reaction_id.as_ref())
+    ) -> Option<ReactionMetadata> {
+        let result = self
+            .inner
+            .remove_reaction_by_id(room_id.as_ref(), reaction_id.as_ref());
+
+        result.unwrap_or_else(|err| {
+            log::error!("Error removing reaction by id: {err}");
+            None
+        })
     }
 
     pub fn remove_reaction_by_emoji(
@@ -125,23 +133,28 @@ impl MessageCache {
         message_id: impl AsRef<str>,
         user: impl AsRef<str>,
         emoji: impl AsRef<str>,
-    ) -> Result<Option<CachedReaction>> {
-        self.inner.remove_reaction_by_emoji(
+    ) -> Option<ReactionMetadata> {
+        let result = self.inner.remove_reaction_by_emoji(
             message_id.as_ref(),
             room_id.as_ref(),
             user.as_ref(),
             emoji.as_ref(),
-        )
+        );
+
+        result.unwrap_or_else(|err| {
+            log::error!("Error removing reaction by id: {err}");
+            None
+        })
     }
 }
 
-struct MessageCacheInner {
+struct MemoryCacheInner {
     ctx: RequestContext,
     media_manager: MediaManager,
     cached_rooms: Mutex<HashMap<String, Arc<CachedRoom>>>,
 }
 
-impl MessageCacheInner {
+impl MemoryCacheInner {
     pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
         Self {
             ctx,
@@ -197,7 +210,7 @@ impl MessageCacheInner {
         let reaction_id = event.event_id.to_string();
 
         let reaction = CachedReaction {
-            user: event.sender.to_string(),
+            user_id: event.sender.to_string(),
             emoji: event.content.relates_to.key,
         };
 
@@ -210,7 +223,7 @@ impl MessageCacheInner {
         &self,
         room_id: &str,
         reaction_id: &str,
-    ) -> Result<Option<CachedReaction>> {
+    ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
             return Ok(None);
         };
@@ -224,7 +237,7 @@ impl MessageCacheInner {
         message_id: &str,
         user_id: &str,
         emoji: &str,
-    ) -> Result<Option<CachedReaction>> {
+    ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
             return Ok(None);
         };
@@ -256,6 +269,28 @@ impl MessageCacheInner {
     }
 }
 
+/// Contains metadata to a reaction.
+#[derive(Debug, Clone)]
+pub struct ReactionMetadata {
+    pub user_id: String,
+    pub emoji: String,
+    pub message_id: String,
+    pub room_id: String,
+}
+
+impl ReactionMetadata {
+    pub(self) fn new(cached: CachedReaction, message_id: String, room_id: String) -> Self {
+        let CachedReaction { user_id, emoji } = cached;
+
+        Self {
+            user_id,
+            emoji,
+            message_id,
+            room_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct CachedReplacement {
     /// The timestamp when the replacement event was created.
@@ -266,9 +301,9 @@ struct CachedReplacement {
 }
 
 #[derive(Debug)]
-pub struct CachedReaction {
+struct CachedReaction {
     /// The ID of the user who reacted.
-    pub user: String,
+    pub user_id: String,
     /// The emoji the user reacted with.
     pub emoji: String,
 }
@@ -300,7 +335,7 @@ impl CachedMessage {
                 message_id: msg.message_id.clone(),
                 room_id: msg.room_id.clone(),
                 reaction: reaction.emoji.clone(),
-                user_id: Some(reaction.user.clone()),
+                user_id: Some(reaction.user_id.clone()),
             };
 
             msg.reactions.push(reaction);
@@ -545,7 +580,7 @@ impl CachedRoom {
         };
 
         let reaction = CachedReaction {
-            user: original.sender.to_string(),
+            user_id: original.sender.to_string(),
             emoji: original.content.relates_to.key.clone(),
         };
 
@@ -726,20 +761,24 @@ impl CachedRoom {
 
     /// Removes the given reaction by id.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<CachedReaction>> {
-        let guard = self.reaction_id_to_message.lock()?;
-
-        let Some(message_id) = guard.get(reaction_id) else {
+    pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
+        let Some(message_id) = self.reaction_id_to_message_id(reaction_id)? else {
             return Ok(None);
         };
 
         let mut guard = self.messages.lock()?;
 
-        let Some(message) = guard.get_mut(message_id) else {
+        let Some(message) = guard.get_mut(&message_id) else {
             return Ok(None);
         };
 
-        Ok(message.reactions.remove(reaction_id))
+        let Some(removed) = message.reactions.remove(reaction_id) else {
+            return Ok(None);
+        };
+
+        let metadata = ReactionMetadata::new(removed, message_id, self.room.room_id().to_string());
+
+        Ok(Some(metadata))
     }
 
     /// Removes the given reaction by user and emoji.
@@ -749,7 +788,7 @@ impl CachedRoom {
         message_id: &str,
         user_id: &str,
         emoji: &str,
-    ) -> Result<Option<CachedReaction>> {
+    ) -> Result<Option<ReactionMetadata>> {
         let mut guard = self.messages.lock()?;
 
         let Some(message) = guard.get_mut(message_id) else {
@@ -758,11 +797,30 @@ impl CachedRoom {
 
         let removed: Vec<CachedReaction> = message
             .reactions
-            .extract_if(|_, p| p.user == user_id && p.emoji == emoji)
+            .extract_if(|_, p| p.user_id == user_id && p.emoji == emoji)
             .map(|(_, v)| v)
             .collect();
 
-        Ok(removed.into_iter().next())
+        let Some(removed) = removed.into_iter().next() else {
+            return Ok(None);
+        };
+
+        let metadata = ReactionMetadata::new(
+            removed,
+            message_id.to_owned(),
+            self.room.room_id().to_string(),
+        );
+
+        Ok(Some(metadata))
+    }
+
+    /// Gets the message_id a  reaction belongs to.
+    fn reaction_id_to_message_id(&self, reaction_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .reaction_id_to_message
+            .lock()?
+            .get(reaction_id)
+            .cloned())
     }
 
     /// Caches the given original message and builds the final message
@@ -913,7 +971,7 @@ impl MessageFetcher {
         self.sender
             .send(Ok(message))
             .await
-            .map_err(|_| MessageCacheError::MessageReceiverDropped)?;
+            .map_err(|_| MemoryCacheError::MessageReceiverDropped)?;
 
         self.retrieved_messages += 1;
 
