@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use tokio::sync::RwLock;
 
 use crate::{crypto, debug_assert_or_log};
 
@@ -18,6 +17,9 @@ const CACHED_USERS_FILE: &str = "users";
 pub enum ProtoCacheError {
     #[error("decode error")]
     DecodeError,
+
+    #[error("lock poisoined")]
+    Poisoined,
 
     #[error("unknown and unexpected error")]
     Unknown,
@@ -35,6 +37,12 @@ pub enum ProtoCacheError {
     Io(#[from] std::io::Error),
 }
 
+impl<T> From<std::sync::PoisonError<T>> for ProtoCacheError {
+    fn from(_value: std::sync::PoisonError<T>) -> Self {
+        Self::Poisoined
+    }
+}
+
 type Result<T> = std::result::Result<T, ProtoCacheError>;
 
 /// Unlike the `Cache`, the `ProtoCache` is a persistent cache that stores
@@ -48,7 +56,7 @@ type Result<T> = std::result::Result<T, ProtoCacheError>;
 /// This ensures that sync always starts with the current state of the cache at startup.
 #[derive(Clone)]
 pub struct ProtoCache {
-    inner: Arc<RwLock<ProtoCacheInner>>,
+    inner: Arc<ProtoCacheInner>,
 }
 
 impl ProtoCache {
@@ -66,7 +74,7 @@ impl ProtoCache {
             ProtoCacheInner::from_directory(cache_directory.into(), cache_passphrase.into()).await;
 
         let obj = Self {
-            inner: Arc::new(RwLock::new(inner)),
+            inner: Arc::new(inner),
         };
 
         obj.clone().begin_save_interval();
@@ -78,49 +86,63 @@ impl ProtoCache {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(SAVE_INTERVAL_SECONDS)).await;
-                self.inner.read().await.save().await;
+                self.inner.save().await;
             }
         });
     }
 
-    pub async fn sync_token(&self) -> Option<String> {
-        self.inner.read().await.sync_token().clone()
+    pub fn sync_token(&self) -> Option<String> {
+        self.inner
+            .sync_token()
+            .inspect_err(|err| log::error!("Error retrieving sync token: {err}"))
+            .ok()
+            .flatten()
     }
 
-    pub async fn set_sync_token(&self, sync_token: String) {
+    pub fn set_sync_token(&self, sync_token: String) {
         log::debug!("Updating sync token");
-        *self.inner.write().await.sync_token_mut() = Some(sync_token);
+
+        if let Err(err) = self.inner.set_sync_token(sync_token) {
+            log::error!("Error caching sync token: {err}");
+        }
     }
 
-    pub async fn user_status(&self) -> Option<UserStatus> {
-        self.inner.read().await.user_status().clone()
+    pub fn user_status(&self) -> Option<UserStatus> {
+        self.inner
+            .user_status()
+            .inspect_err(|err| log::error!("Error retrieving user status: {err}"))
+            .ok()
+            .flatten()
     }
 
-    pub async fn set_user_status(&self, user_status: UserStatus) {
+    pub fn set_user_status(&self, user_status: UserStatus) {
         log::debug!("Caching user status: {user_status:?}");
-        *self.inner.write().await.user_status_mut() = Some(user_status)
+
+        if let Err(err) = self.inner.set_user_status(user_status) {
+            log::error!("Error caching user status: {err}");
+        }
     }
 
     /// Caches the specified response content.
-    pub async fn cache_response_content(&self, content: &ResponseContent) {
+    pub fn cache_response_content(&self, content: &ResponseContent) {
         match content {
             ResponseContent::RoomListResponse(room_list) => {
-                self.cache_rooms(room_list.room_list.clone()).await;
+                self.cache_rooms(room_list.room_list.clone());
             }
             ResponseContent::RoomCreatedEvent(room) => {
-                self.cache_room(room.clone()).await;
+                self.cache_room(room.clone());
             }
             ResponseContent::RoomLeftEvent(event) => {
-                self.remove_room(&event.room_id).await;
+                self.remove_room(&event.room_id);
             }
             ResponseContent::RoomChangeEvent(event) => {
-                self.update_room(event.clone()).await;
+                self.update_room(event.clone());
             }
             ResponseContent::UserResponse(user) => {
-                self.cache_user(user.clone()).await;
+                self.cache_user(user.clone());
             }
             ResponseContent::UserChangeEvent(event) => {
-                self.update_user(event.clone()).await;
+                self.update_user(event.clone());
             }
             _ => (),
         }
@@ -128,55 +150,78 @@ impl ProtoCache {
 
     /// Gets all cached rooms.
     /// None is returned if no rooms have been cached previously.
-    pub async fn cached_rooms(&self) -> Option<Vec<Room>> {
-        let reader = self.inner.read().await;
-        let rooms = reader.room_list()?;
-        Some(rooms.clone())
+    pub fn cached_rooms(&self) -> Option<Vec<Room>> {
+        self.inner
+            .room_list()
+            .inspect_err(|err| log::error!("Error retrieving cached room list: {err}"))
+            .ok()
+            .flatten()
     }
 
     /// Gets a cached user.
-    pub async fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
-        self.inner.read().await.get_user(user_id.as_ref()).cloned()
+    pub fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
+        self.inner
+            .get_user(user_id.as_ref())
+            .inspect_err(|err| log::error!("Error retrieving cached user: {err}"))
+            .ok()
+            .flatten()
     }
 
     /// Cache the specified room.
-    async fn cache_room(&self, room: Room) {
+    fn cache_room(&self, room: Room) {
         log::debug!("Caching room: {room:?}");
-        self.inner.write().await.cache_room(room);
+
+        if let Err(err) = self.inner.cache_room(room) {
+            log::error!("Error caching room: {err}");
+        }
     }
 
     /// Update an already cached room.
-    async fn update_room(&self, event: RoomChangeEvent) {
+    fn update_room(&self, event: RoomChangeEvent) {
         log::debug!("Updating room: {event:?}");
-        self.inner.write().await.update_room(event);
+
+        if let Err(err) = self.inner.update_room(event) {
+            log::error!("Error updating room: {err}");
+        }
     }
 
     /// Caches many rooms.
-    async fn cache_rooms(&self, rooms: Vec<Room>) {
+    fn cache_rooms(&self, rooms: Vec<Room>) {
         log::debug!("Caching room list: {rooms:?}");
-        let mut writer = self.inner.write().await;
+
         for room in rooms {
-            writer.cache_room(room);
+            if let Err(err) = self.inner.cache_room(room) {
+                log::error!("Error caching room: {err}");
+            }
         }
     }
 
     /// Removes a previously cached room.
-    async fn remove_room(&self, room_id: impl AsRef<str>) {
+    fn remove_room(&self, room_id: impl AsRef<str>) {
         let room_id = room_id.as_ref();
         log::debug!("Removing cached room: {room_id:?}");
-        self.inner.write().await.remove_room(room_id);
+
+        if let Err(err) = self.inner.remove_room(room_id) {
+            log::error!("Error removing cached room: {err}");
+        }
     }
 
     /// Caches a user.
-    async fn cache_user(&self, user: User) {
+    fn cache_user(&self, user: User) {
         log::debug!("Caching user: {user:?}");
-        self.inner.write().await.cache_user(user);
+
+        if let Err(err) = self.inner.cache_user(user) {
+            log::error!("Error caching user: {err}");
+        }
     }
 
     /// Updates an already cached user, if the user exists.
-    async fn update_user(&self, event: UserChangeEvent) {
+    fn update_user(&self, event: UserChangeEvent) {
         log::debug!("Updating user: {event:?}");
-        self.inner.write().await.update_user(event);
+
+        if let Err(err) = self.inner.update_user(event) {
+            log::error!("Error updating user: {err}");
+        }
     }
 }
 
@@ -203,11 +248,11 @@ struct ProtoCacheInner {
     users_file: PathBuf,
 
     /// The persistent stored data.
-    info: Info,
+    info: Mutex<Info>,
     /// The rooms that have been cached.
-    cached_rooms: Option<Vec<Room>>,
+    cached_rooms: Mutex<Option<Vec<Room>>>,
     /// The users that have been cached.
-    cached_users: Option<Vec<User>>,
+    cached_users: Mutex<Option<Vec<User>>>,
 }
 
 impl ProtoCacheInner {
@@ -225,15 +270,15 @@ impl ProtoCacheInner {
             "Received a relative cache directory"
         );
 
-        let mut obj = Self {
+        let obj = Self {
             passphrase: cache_passphrase,
             info_file: cache_directory.join(CACHED_INFO_FILE),
             rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
             users_file: cache_directory.join(CACHED_USERS_FILE),
 
-            info: Info::default(),
-            cached_rooms: None,
-            cached_users: None,
+            info: Mutex::new(Info::default()),
+            cached_rooms: Mutex::new(None),
+            cached_users: Mutex::new(None),
         };
 
         obj.read_from_file_system().await;
@@ -247,7 +292,7 @@ impl ProtoCacheInner {
         }
     }
 
-    async fn read_from_file_system(&mut self) {
+    async fn read_from_file_system(&self) {
         if let Err(err) = self.read_info().await {
             log::error!("Error reading cache info from the file system: {err}");
         }
@@ -262,7 +307,7 @@ impl ProtoCacheInner {
     }
 
     /// Reads the cache information from the file system.
-    async fn read_info(&mut self) -> Result<()> {
+    async fn read_info(&self) -> Result<()> {
         log::info!("Reading cache info from: {:?}", &self.info_file);
 
         let decrypted = crypto::decrypt_file(&self.info_file, &self.passphrase).await?;
@@ -270,13 +315,14 @@ impl ProtoCacheInner {
 
         log::info!("Successfully read cache info");
 
-        self.info = storage;
+        let mut guard = self.info.lock()?;
+        *guard = storage;
 
         Ok(())
     }
 
     /// Reads the rooms from the file system.
-    async fn read_rooms(&mut self) -> Result<()> {
+    async fn read_rooms(&self) -> Result<()> {
         log::info!("Reading cached rooms from: {:?}", &self.rooms_file);
 
         let encoded = crypto::decrypt_file(&self.rooms_file, &self.passphrase).await?;
@@ -284,13 +330,14 @@ impl ProtoCacheInner {
 
         log::info!("Successfully read cached rooms");
 
-        self.cached_rooms = Some(decoded);
+        let mut guard = self.cached_rooms.lock()?;
+        *guard = Some(decoded);
 
         Ok(())
     }
 
     /// Reads the cached users from the file system.
-    async fn read_users(&mut self) -> Result<()> {
+    async fn read_users(&self) -> Result<()> {
         log::info!("Reading cached users from: {:?}", &self.users_file);
 
         let encoded = crypto::decrypt_file(&self.users_file, &self.passphrase).await?;
@@ -298,7 +345,8 @@ impl ProtoCacheInner {
 
         log::info!("Successfully read cached users");
 
-        self.cached_users = Some(decoded);
+        let mut guard = self.cached_users.lock()?;
+        *guard = Some(decoded);
 
         Ok(())
     }
@@ -332,12 +380,17 @@ impl ProtoCacheInner {
     async fn write_rooms(&self) -> Result<()> {
         log::info!("Persisting cached rooms");
 
-        let Some(rooms) = &self.cached_rooms else {
-            log::info!("No rooms to cache, nothing to do");
-            return Ok(());
+        let encoded = {
+            let guard = self.cached_rooms.lock()?;
+
+            let Some(rooms) = guard.as_ref() else {
+                log::info!("No rooms to cache, nothing to do");
+                return Ok(());
+            };
+
+            encode_proto_messages(rooms)
         };
 
-        let encoded = encode_proto_messages(rooms);
         crypto::encrypt_to_file(&self.rooms_file, &self.passphrase, encoded).await?;
 
         Ok(())
@@ -346,12 +399,17 @@ impl ProtoCacheInner {
     async fn write_users(&self) -> Result<()> {
         log::info!("Persisting cached users");
 
-        let Some(users) = &self.cached_users else {
-            log::info!("No users to cache, nothing to do");
-            return Ok(());
+        let encoded = {
+            let guard = self.cached_users.lock()?;
+
+            let Some(users) = guard.as_ref() else {
+                log::info!("No users to cache, nothing to do");
+                return Ok(());
+            };
+
+            encode_proto_messages(users)
         };
 
-        let encoded = encode_proto_messages(users);
         crypto::encrypt_to_file(&self.users_file, &self.passphrase, encoded).await?;
 
         Ok(())
@@ -360,7 +418,11 @@ impl ProtoCacheInner {
     async fn write_info(&self) -> Result<()> {
         log::info!("Persisting cache info");
 
-        let serialized = serde_json::to_vec(&self.info)?;
+        let serialized = {
+            let guard = self.info.lock()?;
+            serde_json::to_vec(&*guard)?
+        };
+
         crypto::encrypt_to_file(&self.info_file, &self.passphrase, serialized).await?;
 
         log::info!("Successfully persisted cache info");
@@ -368,91 +430,107 @@ impl ProtoCacheInner {
         Ok(())
     }
 
-    pub fn sync_token(&self) -> &Option<String> {
-        &self.info.sync_token
+    pub fn sync_token(&self) -> Result<Option<String>> {
+        Ok(self.info.lock()?.sync_token.clone())
     }
 
-    pub fn sync_token_mut(&mut self) -> &mut Option<String> {
-        &mut self.info.sync_token
+    pub fn set_sync_token(&self, sync_token: String) -> Result<()> {
+        self.info.lock()?.sync_token = Some(sync_token);
+        Ok(())
     }
 
-    pub fn user_status(&self) -> &Option<UserStatus> {
-        &self.info.user_status
+    pub fn user_status(&self) -> Result<Option<UserStatus>> {
+        Ok(self.info.lock()?.user_status.clone())
     }
 
-    pub fn user_status_mut(&mut self) -> &mut Option<UserStatus> {
-        &mut self.info.user_status
+    pub fn set_user_status(&self, user_status: UserStatus) -> Result<()> {
+        self.info.lock()?.user_status = Some(user_status);
+        Ok(())
     }
 
-    pub fn cache_room(&mut self, room: Room) {
-        let rooms = self.cached_rooms.get_or_insert_default();
+    pub fn cache_room(&self, room: Room) -> Result<()> {
+        let mut guard = self.cached_rooms.lock()?;
+        let rooms = guard.get_or_insert_default();
 
         if let Some(existing) = rooms.iter_mut().find(|p| p.room_id == room.room_id) {
             *existing = room;
         } else {
             rooms.push(room);
         }
+
+        Ok(())
     }
 
-    pub fn update_room(&mut self, event: RoomChangeEvent) {
-        let Some(room) = self.get_room_mut(&event.room_id) else {
+    pub fn update_room(&self, event: RoomChangeEvent) -> Result<()> {
+        let mut guard = self.cached_rooms.lock()?;
+
+        let Some(rooms) = &mut *guard else {
             log::debug!("Room has not been cached before, nothing to do");
-            return;
+            return Ok(());
+        };
+
+        let Some(room) = rooms.iter_mut().find(|p| p.room_id == event.room_id) else {
+            log::debug!("Room has not been cached before, nothing to do");
+            return Ok(());
         };
 
         event.update_into_room(room);
+
+        Ok(())
     }
 
-    pub fn remove_room(&mut self, room_id: &str) {
-        if let Some(rooms) = &mut self.cached_rooms {
+    pub fn remove_room(&self, room_id: &str) -> Result<()> {
+        let mut guard = self.cached_rooms.lock()?;
+
+        if let Some(rooms) = guard.as_mut() {
             rooms.retain(|f| f.room_id != room_id);
         }
+
+        Ok(())
     }
 
-    pub fn room_list(&self) -> Option<&Vec<Room>> {
-        self.cached_rooms.as_ref()
+    pub fn room_list(&self) -> Result<Option<Vec<Room>>> {
+        Ok(self.cached_rooms.lock()?.clone())
     }
 
-    fn get_room_mut(&mut self, room_id: &str) -> Option<&mut Room> {
-        if let Some(rooms) = &mut self.cached_rooms {
-            rooms.iter_mut().find(|p| p.room_id == room_id)
-        } else {
-            None
-        }
-    }
-
-    pub fn cache_user(&mut self, user: User) {
-        let users = self.cached_users.get_or_insert_default();
+    pub fn cache_user(&self, user: User) -> Result<()> {
+        let mut guard = self.cached_users.lock()?;
+        let users = guard.get_or_insert_default();
 
         if let Some(existing) = users.iter_mut().find(|p| p.user_id == user.user_id) {
             *existing = user;
         } else {
             users.push(user);
         }
+
+        Ok(())
     }
 
-    pub fn update_user(&mut self, event: UserChangeEvent) {
-        let Some(user) = self.get_user_mut(&event.user_id) else {
+    pub fn update_user(&self, event: UserChangeEvent) -> Result<()> {
+        let mut guard = self.cached_users.lock()?;
+
+        let Some(users) = &mut *guard else {
             log::debug!("User has not been cached before, nothing to do");
-            return;
+            return Ok(());
+        };
+
+        let Some(user) = users.iter_mut().find(|p| p.user_id == event.user_id) else {
+            log::debug!("User has not been cached before, nothing to do");
+            return Ok(());
         };
 
         event.update_into_user(user);
+
+        Ok(())
     }
 
-    pub fn get_user(&self, user_id: &str) -> Option<&User> {
-        if let Some(users) = &self.cached_users {
-            users.iter().find(|p| p.user_id == user_id)
-        } else {
-            None
-        }
-    }
+    pub fn get_user(&self, user_id: &str) -> Result<Option<User>> {
+        let guard = self.cached_users.lock()?;
 
-    fn get_user_mut(&mut self, user_id: &str) -> Option<&mut User> {
-        if let Some(users) = &mut self.cached_users {
-            users.iter_mut().find(|p| p.user_id == user_id)
+        if let Some(users) = &*guard {
+            Ok(users.iter().find(|p| p.user_id == user_id).cloned())
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -665,7 +743,7 @@ mod tests {
         // Arrange
         let test_data = TestData::new().await;
 
-        let mut cache_inner =
+        let cache_inner =
             ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
                 .await;
 
@@ -685,10 +763,14 @@ mod tests {
             ..Default::default()
         };
 
-        *cache_inner.sync_token_mut() = expected_sync_token.clone();
-        *cache_inner.user_status_mut() = expected_user_status.clone();
-        cache_inner.cache_room(expected_room.clone());
-        cache_inner.cache_user(expected_user.clone());
+        cache_inner
+            .set_sync_token(expected_sync_token.clone().unwrap())
+            .unwrap();
+        cache_inner
+            .set_user_status(expected_user_status.clone().unwrap())
+            .unwrap();
+        cache_inner.cache_room(expected_room.clone()).unwrap();
+        cache_inner.cache_user(expected_user.clone()).unwrap();
 
         // Act
         cache_inner.save().await;
@@ -742,7 +824,7 @@ mod tests {
             .write_users(expected_users.clone(), "secret-123")
             .await;
 
-        let mut cache_inner =
+        let cache_inner =
             ProtoCacheInner::from_directory(test_data.cache_dir.clone(), "secret-123".to_owned())
                 .await;
 
@@ -750,44 +832,54 @@ mod tests {
         cache_inner.read_from_file_system().await;
 
         // Assert
-        assert_eq!(cache_inner.info, expected_info);
-        assert_eq!(cache_inner.cached_rooms, Some(expected_rooms));
-        assert_eq!(cache_inner.cached_users, Some(expected_users));
+        assert_eq!(*cache_inner.info.lock().unwrap(), expected_info);
+        assert_eq!(
+            *cache_inner.cached_rooms.lock().unwrap(),
+            Some(expected_rooms)
+        );
+        assert_eq!(
+            *cache_inner.cached_users.lock().unwrap(),
+            Some(expected_users)
+        );
     }
 
     #[tokio::test]
     async fn test_proto_cache_sync_token() {
         let TestData { cache, .. } = TestData::new().await;
-        cache.set_sync_token("some-sync-token".to_owned()).await;
-        assert_eq!(cache.sync_token().await, Some("some-sync-token".to_owned()));
+        cache.set_sync_token("some-sync-token".to_owned());
+        assert_eq!(cache.sync_token(), Some("some-sync-token".to_owned()));
     }
 
     #[tokio::test]
     async fn test_proto_cache_sync_token_none() {
         let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.sync_token().await, None);
+        assert_eq!(cache.sync_token(), None);
     }
 
     #[tokio::test]
     async fn test_proto_cache_user_status() {
         let TestData { cache, .. } = TestData::new().await;
+
         let status = UserStatus {
             state: 1,
             status_message: Some("msg".to_owned()),
         };
-        cache.set_user_status(status.clone()).await;
-        assert_eq!(cache.user_status().await, Some(status));
+
+        cache.set_user_status(status.clone());
+
+        assert_eq!(cache.user_status(), Some(status));
     }
 
     #[tokio::test]
     async fn test_proto_cache_user_status_none() {
         let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.user_status().await, None);
+        assert_eq!(cache.user_status(), None);
     }
 
     #[tokio::test]
     async fn test_proto_cache_cached_rooms() {
         let TestData { cache, .. } = TestData::new().await;
+
         let expected_rooms = vec![
             Room {
                 display_name: Some("Room 1".to_owned()),
@@ -798,19 +890,22 @@ mod tests {
                 ..Default::default()
             },
         ];
-        cache.inner.write().await.cached_rooms = Some(expected_rooms.clone());
-        assert_eq!(cache.cached_rooms().await, Some(expected_rooms));
+
+        *cache.inner.cached_rooms.lock().unwrap() = Some(expected_rooms.clone());
+
+        assert_eq!(cache.cached_rooms(), Some(expected_rooms));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cached_rooms_none() {
         let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.cached_rooms().await, None);
+        assert_eq!(cache.cached_rooms(), None);
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_list_response() {
         let TestData { cache, .. } = TestData::new().await;
+
         let rooms = vec![
             Room {
                 room_id: "room-1".to_owned(),
@@ -823,111 +918,142 @@ mod tests {
                 ..Default::default()
             },
         ];
+
         let response = ResponseContent::RoomListResponse(RoomListResponse {
             room_list: rooms.clone(),
         });
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_rooms().await, Some(rooms));
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_rooms(), Some(rooms));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_created_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
         let response = ResponseContent::RoomCreatedEvent(room.clone());
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_rooms().await, Some(vec![room]));
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_rooms(), Some(vec![room]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_left_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
         let response = ResponseContent::RoomLeftEvent(RoomLeftEvent {
             room_id: "room-1".to_owned(),
             ..Default::default()
         });
-        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_rooms().await, Some(vec![]));
+
+        *cache.inner.cached_rooms.lock().unwrap() = Some(vec![room.clone()]);
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_rooms(), Some(vec![]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_room_change_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let room = Room {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1".to_owned()),
             ..Default::default()
         };
+
+        *cache.inner.cached_rooms.lock().unwrap() = Some(vec![room.clone()]);
+
         let mut updated_room = room.clone();
         updated_room.display_name = Some("Room 1 New Name".to_owned());
+
         let response = ResponseContent::RoomChangeEvent(RoomChangeEvent {
             room_id: "room-1".to_owned(),
             display_name: Some("Room 1 New Name".to_owned()),
             ..Default::default()
         });
-        cache.inner.write().await.cached_rooms = Some(vec![room.clone()]);
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_rooms().await, Some(vec![updated_room]));
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_rooms(), Some(vec![updated_room]));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_user_response() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
+
         let response = ResponseContent::UserResponse(user.clone());
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_user("user-1").await, Some(user));
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_user("user-1"), Some(user));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cache_response_content_user_change_event() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
+
+        *cache.inner.cached_users.lock().unwrap() = Some(vec![user.clone()]);
+
         let mut user_updated = user.clone();
         user_updated.display_name = Some("User 1 New Name".to_owned());
+
         let response = ResponseContent::UserChangeEvent(UserChangeEvent {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1 New Name".to_owned()),
             ..Default::default()
         });
-        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
-        cache.cache_response_content(&response).await;
-        assert_eq!(cache.cached_user("user-1").await, Some(user_updated));
+
+        cache.cache_response_content(&response);
+
+        assert_eq!(cache.cached_user("user-1"), Some(user_updated));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cached_user() {
         let TestData { cache, .. } = TestData::new().await;
+
         let user = User {
             user_id: "user-1".to_owned(),
             display_name: Some("User 1".to_owned()),
             ..Default::default()
         };
-        cache.inner.write().await.cached_users = Some(vec![user.clone()]);
-        assert_eq!(cache.cached_user("user-1").await, Some(user));
+
+        *cache.inner.cached_users.lock().unwrap() = Some(vec![user.clone()]);
+
+        assert_eq!(cache.cached_user("user-1"), Some(user));
     }
 
     #[tokio::test]
     async fn test_proto_cache_cached_user_none() {
         let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.cached_user("user-1").await, None);
+        assert_eq!(cache.cached_user("user-1"), None);
     }
 }

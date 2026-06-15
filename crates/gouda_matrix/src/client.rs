@@ -374,7 +374,7 @@ impl ClientAbstraction for MatrixClient {
 
         let InitializedData { proto_cache, .. } = initialized_data;
 
-        proto_cache.cache_response_content(content).await;
+        proto_cache.cache_response_content(content);
     }
 
     async fn initialize(
@@ -819,7 +819,7 @@ impl ClientAbstraction for MatrixClient {
             .await
             .map_err(errors::convert_http_error)?;
 
-        proto_cache.set_user_status(request).await;
+        proto_cache.set_user_status(request);
 
         Ok(())
     }

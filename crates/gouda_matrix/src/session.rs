@@ -121,7 +121,7 @@ impl Session {
             return;
         };
 
-        if let Some(status) = proto_cache.user_status().await {
+        if let Some(status) = proto_cache.user_status() {
             let proto = builder::UserChangeEventBuilder::new(user_id.to_string())
                 .change_status(status)
                 .to_proto();
@@ -182,11 +182,11 @@ impl Session {
     async fn sync_once(&self, initialized_data: &InitializedData) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
-        if let Some(token) = &initialized_data.proto_cache.sync_token().await {
+        if let Some(token) = &initialized_data.proto_cache.sync_token() {
             sync_settings = sync_settings.token(token);
         }
 
-        if let Some(user_status) = &initialized_data.proto_cache.user_status().await {
+        if let Some(user_status) = &initialized_data.proto_cache.user_status() {
             let presence_state = user_status.state.try_into().unwrap_or_default();
             let matrix_presence = user::chat_presence_state_to_matrix(presence_state)
                 .unwrap_or(ruma_common::presence::PresenceState::Online);
@@ -197,8 +197,7 @@ impl Session {
 
         initialized_data
             .proto_cache
-            .set_sync_token(response.next_batch.clone())
-            .await;
+            .set_sync_token(response.next_batch.clone());
 
         Ok(())
     }
