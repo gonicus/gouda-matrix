@@ -298,7 +298,7 @@ impl ReactionMetadata {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CachedReplacement {
     /// The timestamp when the replacement event was created.
     pub timestamp: u64,
@@ -307,7 +307,7 @@ struct CachedReplacement {
     pub new_content: message::Content,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CachedReaction {
     /// The ID of the user who reacted.
     pub user_id: String,
@@ -369,6 +369,14 @@ struct CachedEncryptedEvent {
     pub session_id: Option<String>,
 }
 
+/// An action that was executed when processing an event.
+enum CachedRoomAction {
+    /// A message could be build from the event.
+    Message(Message),
+    /// A reaction could be build from the event.
+    Reaction(ReactionMetadata),
+}
+
 struct CachedRoom {
     /// The context to use to send update events to the application.
     ctx: RequestContext,
@@ -421,7 +429,10 @@ impl CachedRoom {
     /// Returns the message that has been fully assembled with the relations if a message
     /// could be built using this event.
     /// Only returns an error when the cache lock is poisoined.
-    pub async fn process_timeline_event(&self, event: TimelineEvent) -> Result<Option<Message>> {
+    pub async fn process_timeline_event(
+        &self,
+        event: TimelineEvent,
+    ) -> Result<Option<CachedRoomAction>> {
         match event.kind {
             TimelineEventKind::Decrypted(event) => self.process_decrypted_event(event).await,
             TimelineEventKind::UnableToDecrypt { event, utd_info } => {
@@ -437,7 +448,7 @@ impl CachedRoom {
     pub async fn process_decrypted_event(
         &self,
         event: DecryptedRoomEvent,
-    ) -> Result<Option<Message>> {
+    ) -> Result<Option<CachedRoomAction>> {
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
             Err(err) => {
@@ -453,7 +464,7 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
         utd_info: UnableToDecryptInfo,
-    ) -> Result<Option<Message>> {
+    ) -> Result<Option<CachedRoomAction>> {
         log::error!("Unable to decrypt event {event:?}: {utd_info:?}");
 
         let deserialized = match event.deserialize() {
@@ -493,13 +504,13 @@ impl CachedRoom {
 
         self.cache_encrypted_event(event_id, cached_object)?;
 
-        Ok(Some(message))
+        Ok(Some(CachedRoomAction::Message(message)))
     }
 
     async fn process_plain_text_event(
         &self,
         event: Raw<AnySyncTimelineEvent>,
-    ) -> Result<Option<Message>> {
+    ) -> Result<Option<CachedRoomAction>> {
         let deserialized = match event.deserialize() {
             Ok(event) => event,
             Err(err) => {
@@ -513,7 +524,10 @@ impl CachedRoom {
         self.process_any_timeline_event(full_event).await
     }
 
-    async fn process_any_timeline_event(&self, event: AnyTimelineEvent) -> Result<Option<Message>> {
+    async fn process_any_timeline_event(
+        &self,
+        event: AnyTimelineEvent,
+    ) -> Result<Option<CachedRoomAction>> {
         match event {
             AnyTimelineEvent::MessageLike(event) => {
                 self.process_any_message_like_event(event).await
@@ -525,7 +539,7 @@ impl CachedRoom {
     async fn process_any_message_like_event(
         &self,
         event: AnyMessageLikeEvent,
-    ) -> Result<Option<Message>> {
+    ) -> Result<Option<CachedRoomAction>> {
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
@@ -534,7 +548,10 @@ impl CachedRoom {
         }
     }
 
-    async fn process_room_message(&self, event: RoomMessageEvent) -> Result<Option<Message>> {
+    async fn process_room_message(
+        &self,
+        event: RoomMessageEvent,
+    ) -> Result<Option<CachedRoomAction>> {
         use matrix_sdk::ruma::events::room::message::Relation;
 
         let Some(original) = event.as_original() else {
@@ -571,16 +588,21 @@ impl CachedRoom {
             return Ok(None);
         }
 
-        self.build_from_message_event(original).await.map(Some)
+        self.build_from_message_event(original)
+            .await
+            .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
-    fn process_room_redaction(&self, _event: RoomRedactionEvent) -> Result<Option<Message>> {
+    fn process_room_redaction(
+        &self,
+        _event: RoomRedactionEvent,
+    ) -> Result<Option<CachedRoomAction>> {
         // TODO: Process the redaction event and remove the appropriate event from the cache
         //   This is only relevant when the same messages are requested multiple times.
         Ok(None)
     }
 
-    fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<Message>> {
+    fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to care about that.
             return Ok(None);
@@ -591,21 +613,36 @@ impl CachedRoom {
             emoji: original.content.relates_to.key.clone(),
         };
 
-        let related_message = original.content.relates_to.event_id.to_string();
+        let reaction_id = event.event_id().to_string();
+        let message_id = original.content.relates_to.event_id.to_string();
 
-        self.cache_reaction(related_message, event.event_id().to_string(), reaction)?;
+        self.cache_reaction(
+            message_id.clone(),
+            reaction_id.clone(),
+            reaction.clone(),
+        )?;
 
-        Ok(None)
+        let metadata = ReactionMetadata::new(
+            reaction,
+            reaction_id,
+            message_id,
+            self.room.room_id().to_string(),
+        );
+
+        Ok(Some(CachedRoomAction::Reaction(metadata)))
     }
 
-    fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<Message>> {
+    fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<CachedRoomAction>> {
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
             _ => Ok(None),
         }
     }
 
-    fn process_room_member_event(&self, event: RoomMemberEvent) -> Result<Option<Message>> {
+    fn process_room_member_event(
+        &self,
+        event: RoomMemberEvent,
+    ) -> Result<Option<CachedRoomAction>> {
         let Some(original) = event.as_original() else {
             // Redacted event, we don't need to carte about that.
             return Ok(None);
@@ -630,7 +667,8 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        self.build_from_message(message).map(Some)
+        self.build_from_message(message)
+            .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
     fn get_events_for_redecryption(&self, session_id: String) -> Result<Vec<CachedEncryptedEvent>> {
@@ -677,8 +715,22 @@ impl CachedRoom {
         Ok(())
     }
 
+    /// Processes the succesful redecryption of a event.
+    /// This sends updates events to the application.
+    async fn process_successful_redecryption(&self, action: CachedRoomAction) -> Result<()> {
+        match action {
+            CachedRoomAction::Message(message) => {
+                self.process_successful_redecryption_message(message).await
+            }
+            CachedRoomAction::Reaction(reaction) => {
+                self.process_successful_redecryption_reaction(reaction)
+                    .await
+            }
+        }
+    }
+
     /// Sends a message update event to the application with the now encrypted content.
-    async fn process_successful_redecryption(&self, message: Message) -> Result<()> {
+    async fn process_successful_redecryption_message(&self, message: Message) -> Result<()> {
         let Some(content) = message.content else {
             return Ok(());
         };
@@ -690,6 +742,36 @@ impl CachedRoom {
 
         self.ctx
             .send_event(ResponseContent::MessageChangeEvent(event))
+            .await;
+
+        Ok(())
+    }
+
+    /// Redacts the previsouly send encrypted message and sends a
+    /// reaction created event afterwards.
+    async fn process_successful_redecryption_reaction(
+        &self,
+        reaction: ReactionMetadata,
+    ) -> Result<()> {
+        let ReactionMetadata {
+            reaction_id,
+            user_id,
+            emoji,
+            message_id,
+            room_id,
+        } = reaction;
+
+        self.redact_encrypted_message(reaction_id).await;
+
+        let proto = Reaction {
+            room_id,
+            message_id,
+            reaction: emoji,
+            user_id: Some(user_id),
+        };
+
+        self.ctx
+            .send_event(ResponseContent::ReactionCreatedEvent(proto))
             .await;
 
         Ok(())
@@ -964,7 +1046,11 @@ impl MessageFetcher {
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
         for event in chunk {
-            if let Some(message) = self.cache.process_timeline_event(event).await? {
+            let action = self.cache.process_timeline_event(event).await?;
+
+            // We only need to act on assembled messages, as the reactions
+            // are already included.
+            if let Some(CachedRoomAction::Message(message)) = action {
                 self.send_finished_message(message).await?;
             }
 
