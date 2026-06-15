@@ -15,6 +15,7 @@ use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
+use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use ruma_common::{EventId, OwnedEventId};
 use tokio_stream::StreamExt;
 use url::Url;
@@ -260,8 +261,6 @@ impl MatrixClient {
             event_manager,
         };
 
-        subscribe_to_decryption_reports(data.clone());
-
         self.initialized_data = Some(data);
 
         #[allow(clippy::unwrap_used)]
@@ -307,8 +306,6 @@ impl MatrixClient {
 
         initialized_data.message_cache =
             MessageCache::new(ctx, initialized_data.media_manager.clone());
-
-        subscribe_to_decryption_reports(initialized_data.clone());
 
         log::info!("Successfully reset session");
 
@@ -1495,42 +1492,6 @@ pub async fn build_client(
     }
 
     Ok(client)
-}
-
-fn subscribe_to_decryption_reports(initialized_data: InitializedData) {
-    log::debug!("Subscribing to redecryption reports");
-
-    tokio::spawn(async move {
-        let InitializedData {
-            client,
-            message_cache,
-            ..
-        } = initialized_data;
-
-        let mut stream = client.event_cache().subscribe_to_decryption_reports();
-
-        while let Some(report) = stream.next().await {
-            match report {
-                Ok(report) => handle_redecryptor_report(&message_cache, report).await,
-                Err(err) => {
-                    log::error!("Received error on redecryption report stream {err}");
-                    break;
-                }
-            }
-        }
-    });
-}
-
-async fn handle_redecryptor_report(message_cache: &MessageCache, report: RedecryptorReport) {
-    log::debug!("Processing redecryptor report: {report:?}");
-
-    match report {
-        RedecryptorReport::BackupAvailable => message_cache.retry_all_encrypted_events().await,
-        RedecryptorReport::Lagging => message_cache.retry_all_encrypted_events().await,
-        RedecryptorReport::ResolvedUtds { room_id, events } => {
-            message_cache.retry_encrypted_events(room_id, events).await
-        }
-    }
 }
 
 fn remove_session_data(initialized_data: &InitializedData) -> Result<()> {

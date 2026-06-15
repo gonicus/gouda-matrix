@@ -99,7 +99,7 @@ impl MessageCache {
     pub async fn retry_encrypted_events(
         &self,
         room_id: impl Into<String>,
-        events: BTreeSet<OwnedEventId>,
+        events: Option<BTreeSet<OwnedEventId>>,
     ) {
         let result = self
             .inner
@@ -170,7 +170,7 @@ impl MessageCacheInner {
     pub async fn retry_encrypted_events(
         &self,
         room_id: String,
-        events: BTreeSet<OwnedEventId>,
+        events: Option<BTreeSet<OwnedEventId>>,
     ) -> Result<()> {
         let guard = self.cached_rooms.lock()?;
 
@@ -179,7 +179,7 @@ impl MessageCacheInner {
         };
 
         tokio::spawn(async move {
-            if let Err(err) = room.retry_decryption(Some(events)).await {
+            if let Err(err) = room.retry_decryption(events).await {
                 log::error!("Error retrying decryption of room events: {err}");
             }
         });
@@ -376,6 +376,8 @@ impl CachedRoom {
 
         let event_id = deserialized.event_id().to_string();
 
+        self.request_redecryption(event_id.clone());
+
         let message = Message {
             message_id: event_id.clone(),
             room_id: self.room.room_id().to_string(),
@@ -392,6 +394,18 @@ impl CachedRoom {
         self.cache_encrypted_event(event_id, cached_object)?;
 
         Ok(Some(message))
+    }
+
+    fn request_redecryption(&self, event_id: String) {
+        use matrix_sdk::event_cache::DecryptionRetryRequest;
+
+        let request = DecryptionRetryRequest {
+            room_id: self.room.room_id().to_owned(),
+            utd_session_ids: BTreeSet::from([event_id]),
+            refresh_info_session_ids: BTreeSet::new(),
+        };
+
+        self.room.client().event_cache().request_decryption(request);
     }
 
     async fn process_plain_text_event(

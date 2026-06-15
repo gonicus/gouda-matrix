@@ -6,10 +6,13 @@ use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::Client;
+use matrix_sdk::stream::StreamExt;
+use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::client::InitializedData;
+use crate::message_bridge::MessageCache;
 use crate::{crypto, errors, user};
 
 /// The full session to persist.
@@ -87,6 +90,8 @@ impl Session {
         mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
+        subscribe_to_decryption_reports(initialized_data.client.clone(), initialized_data.message_cache.clone());
+
         self.initial_sync(&mut ctx, &initialized_data).await?;
 
         self.exec_initial_actions(&ctx, &initialized_data).await;
@@ -247,6 +252,57 @@ impl Session {
         Ok(())
     }
 }
+
+fn subscribe_to_decryption_reports(client: Client, message_cache: MessageCache) {
+    log::debug!("Subscribing to redecryption reports");
+
+    tokio::spawn(async move {
+        let Some(mut stream) = client.encryption().room_keys_received_stream().await else {
+            log::error!("Unable to subscribe to room keys stream");
+            return;
+        };
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(keys) => handle_room_keys(&message_cache, keys).await,
+                Err(err) => {
+                    log::error!("Received error on room keys stream {err}");
+                }
+            }
+        }
+
+        // let mut stream = client.event_cache().subscribe_to_decryption_reports();
+
+        // while let Some(report) = stream.next().await {
+        //     match report {
+        //         Ok(report) => handle_redecryptor_report(&message_cache, report).await,
+        //         Err(err) => {
+        //             log::error!("Received error on redecryption report stream {err}");
+        //             break;
+        //         }
+        //     }
+        // }
+    });
+}
+
+async fn handle_room_keys(message_cache: &MessageCache, keys: Vec<RoomKeyInfo>) {
+    for key in keys {
+        log::debug!("Received new room keys: {key:?}");
+        message_cache.retry_encrypted_events(key.room_id, None).await;
+    }
+}
+
+// async fn handle_redecryptor_report(message_cache: &MessageCache, report: RedecryptorReport) {
+//     log::debug!("Processing redecryptor report: {report:?}");
+
+//     match report {
+//         RedecryptorReport::BackupAvailable => message_cache.retry_all_encrypted_events().await,
+//         RedecryptorReport::Lagging => message_cache.retry_all_encrypted_events().await,
+//         RedecryptorReport::ResolvedUtds { room_id, events } => {
+//             message_cache.retry_encrypted_events(room_id, events).await
+//         }
+//     }
+// }
 
 async fn send_capabilities_event(ctx: &mut RequestContext) {
     let re = CapabilityEvent {
