@@ -556,7 +556,7 @@ impl CachedRoom {
             _ => {
                 log::debug!("Ignoring event because event type is not implemented");
                 Ok(None)
-            },
+            }
         }
     }
 
@@ -660,7 +660,7 @@ impl CachedRoom {
             _ => {
                 log::debug!("Ignoring event because event type is not implemented");
                 Ok(None)
-            },
+            }
         }
     }
 
@@ -939,7 +939,9 @@ impl CachedRoom {
         user_id: &str,
         emoji: &str,
     ) -> Result<Option<ReactionMetadata>> {
-        log::debug!("Removing cached reaction by emoji {emoji} from user {user_id} on message {message_id}");
+        log::debug!(
+            "Removing cached reaction by emoji {emoji} from user {user_id} on message {message_id}"
+        );
 
         let mut guard = self.messages.lock()?;
 
