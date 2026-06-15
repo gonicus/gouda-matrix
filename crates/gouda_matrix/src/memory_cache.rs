@@ -370,6 +370,7 @@ struct CachedEncryptedEvent {
 }
 
 /// An action that was executed when processing an event.
+#[derive(Debug)]
 enum CachedRoomAction {
     /// A message could be build from the event.
     Message(Message),
@@ -616,11 +617,7 @@ impl CachedRoom {
         let reaction_id = event.event_id().to_string();
         let message_id = original.content.relates_to.event_id.to_string();
 
-        self.cache_reaction(
-            message_id.clone(),
-            reaction_id.clone(),
-            reaction.clone(),
-        )?;
+        self.cache_reaction(message_id.clone(), reaction_id.clone(), reaction.clone())?;
 
         let metadata = ReactionMetadata::new(
             reaction,
@@ -701,13 +698,18 @@ impl CachedRoom {
         }
 
         let Some(event_id) = event.event_id() else {
+            log::warn!("Successfully decrypted event but event does not have an ID");
             return Ok(());
         };
 
-        let message = self.process_timeline_event(event).await?;
+        log::debug!("Processing successfully decrypted event: {event:?}");
 
-        if let Some(message) = message {
-            self.process_successful_redecryption(message).await?;
+        let action = self.process_timeline_event(event).await?;
+
+        log::debug!("Received action after processing event: {action:?}");
+
+        if let Some(action) = action {
+            self.process_successful_redecryption(action).await?;
         } else {
             self.redact_encrypted_message(event_id.to_string()).await;
         }
@@ -720,20 +722,27 @@ impl CachedRoom {
     async fn process_successful_redecryption(&self, action: CachedRoomAction) -> Result<()> {
         match action {
             CachedRoomAction::Message(message) => {
-                self.process_successful_redecryption_message(message).await
+                self.process_successful_redecrypted_message(message).await
             }
             CachedRoomAction::Reaction(reaction) => {
-                self.process_successful_redecryption_reaction(reaction)
-                    .await
+                self.process_successful_redecrypted_reaction(reaction).await
             }
         }
     }
 
     /// Sends a message update event to the application with the now encrypted content.
-    async fn process_successful_redecryption_message(&self, message: Message) -> Result<()> {
+    async fn process_successful_redecrypted_message(&self, message: Message) -> Result<()> {
+        log::debug!("Processing successful redecryption of message: {message:?}");
+
         let Some(content) = message.content else {
+            log::debug!(
+                "Redacting previously send encrypted message as decrypted message has no content"
+            );
+            self.redact_encrypted_message(message.message_id).await;
             return Ok(());
         };
+
+        log::debug!("Sending MessageChangeEvent to application");
 
         let event = MessageChangeEventBuilder::new(message.room_id, message.message_id)
             .change_content(content.into())
@@ -749,10 +758,12 @@ impl CachedRoom {
 
     /// Redacts the previsouly send encrypted message and sends a
     /// reaction created event afterwards.
-    async fn process_successful_redecryption_reaction(
+    async fn process_successful_redecrypted_reaction(
         &self,
         reaction: ReactionMetadata,
     ) -> Result<()> {
+        log::debug!("Processing successful redecryption of reaction: {reaction:?}");
+
         let ReactionMetadata {
             reaction_id,
             user_id,
@@ -780,6 +791,10 @@ impl CachedRoom {
     /// Sends a remove event to the application to redact a previously encrypted message,
     /// which after decryption is no longer relevant for the application.
     async fn redact_encrypted_message(&self, message_id: String) {
+        log::debug!(
+            "Sending a MessageRemoveEvent to redact the previsouly encrypted message: {message_id}"
+        );
+
         let proto = MessageRemoveEvent {
             message_id,
             room_id: self.room.room_id().to_string(),
