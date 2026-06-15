@@ -9,6 +9,7 @@ gouda_core.workspace = true
 gouda_proto.workspace = true
 
 tokio.workspace = true
+tokio-stream.workspace = true
 
 interprocess.workspace = true
 clap.workspace = true
@@ -23,7 +24,6 @@ async-trait.workspace = true
 js_int.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-base.workspace = true
-matrix-sdk-common.workspace = true
 matrix-sdk-crypto.workspace = true
 ruma-common.workspace = true
 url.workspace = true
@@ -36,7 +36,6 @@ argon2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-futures-util.workspace = true
 infer.workspace = true
 
 thiserror.workspace = true

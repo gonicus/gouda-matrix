@@ -568,8 +568,8 @@ impl Client for ClientMock {
 
     async fn get_room_messages(
         &mut self,
-        ctx: &RequestContext,
-        _request: &RoomMessagesRequest,
+        ctx: RequestContext,
+        _request: RoomMessagesRequest,
     ) -> Result<()> {
         self.received_ctx = Some(ctx.clone());
         self.get_room_messages_call_count += 1;
