@@ -514,7 +514,7 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing plain text event");
+        log::debug!("Processing raw AnySyncTimelineEvent");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
@@ -1008,8 +1008,6 @@ impl CachedRoom {
     /// Removes a tracked encrypted event, if it exists.
     /// Only returns an error when the cache lock is poisoined.
     fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
-        log::debug!("Removing encrypted event: {event_id}");
-
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
 
