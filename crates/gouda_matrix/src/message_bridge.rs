@@ -449,9 +449,7 @@ impl CachedRoom {
             return Ok(None);
         }
 
-        self.build_from_message_event(original)
-            .await
-            .map(|m| Some(m))
+        self.build_from_message_event(original).await.map(Some)
     }
 
     fn process_room_redaction(&self, _event: RoomRedactionEvent) -> Result<Option<Message>> {
@@ -510,7 +508,7 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        self.build_from_message(message).map(|m| Some(m))
+        self.build_from_message(message).map(Some)
     }
 
     fn get_events_for_redecryption(&self, session_id: String) -> Result<Vec<CachedEncryptedEvent>> {
@@ -808,16 +806,10 @@ async fn resolve_event_for_pagination(room: &Room, event_id: &EventId) -> Result
     Ok(response.prev_batch_token)
 }
 
-//// Calculates the chunk size of events to retrieve.
+/// Calculates the chunk size of events to retrieve.
 fn calc_chunk_size(limit: u32) -> js_int::UInt {
     let estimated_events = (limit as f64) * 1.5;
-    let mut chunk_size = (estimated_events * 0.2).floor() as u32;
-
-    if chunk_size < ROOM_EVENTS_CHUNK_SIZE_MIN {
-        chunk_size = ROOM_EVENTS_CHUNK_SIZE_MIN
-    } else if chunk_size > ROOM_EVENTS_CHUNK_SIZE_MAX {
-        chunk_size = ROOM_EVENTS_CHUNK_SIZE_MAX
-    }
-
+    let chunk_size = (estimated_events * 0.2).floor() as u32;
+    let chunk_size = chunk_size.clamp(ROOM_EVENTS_CHUNK_SIZE_MIN, ROOM_EVENTS_CHUNK_SIZE_MAX);
     chunk_size.into()
 }
