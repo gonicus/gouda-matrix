@@ -49,7 +49,7 @@ impl RoomManager {
     /// synced in the background. If the rooms are not yet cached, this method
     /// retrieves them from the server and blocks once all rooms have been retrieved.
     pub async fn get_and_sync_rooms(&self) -> Result<Vec<Room>> {
-        match self.proto_cache.cached_rooms().await {
+        match self.proto_cache.cached_rooms() {
             Some(room_list) => {
                 log::debug!("Rooms have already been cached before");
                 self.clone().sync_cached_rooms();
@@ -100,7 +100,7 @@ impl RoomManager {
                 }
             };
 
-            let cached = self.proto_cache.cached_rooms().await.unwrap_or_default();
+            let cached = self.proto_cache.cached_rooms().unwrap_or_default();
             let result = utils::compare_lists(&cached, &fetched, |a, b| a.room_id == b.room_id);
             self.process_comparison_result(result).await;
 
