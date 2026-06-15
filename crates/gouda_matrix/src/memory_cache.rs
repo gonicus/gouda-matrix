@@ -533,6 +533,8 @@ impl CachedRoom {
         &self,
         event: AnyTimelineEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing AnyTimelineEvent");
+
         match event {
             AnyTimelineEvent::MessageLike(event) => {
                 self.process_any_message_like_event(event).await
@@ -545,11 +547,16 @@ impl CachedRoom {
         &self,
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing AnyMessageLikeEvent");
+
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
             AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
-            _ => Ok(None),
+            _ => {
+                log::debug!("Ignoring event because event type is not implemented");
+                Ok(None)
+            },
         }
     }
 
@@ -568,6 +575,8 @@ impl CachedRoom {
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
+            log::debug!("Event is a replacement, processing replacement");
+
             let new_content = messages::generate_message_content!(
                 self.media_manager,
                 &self.room,
@@ -577,7 +586,7 @@ impl CachedRoom {
             );
 
             let Some(new_content) = new_content else {
-                log::debug!("Ignoring an unsupported RoomMessageEvent content type");
+                log::debug!("Ignoring replacement as it does not have a content");
                 return Ok(None);
             };
 
@@ -604,8 +613,12 @@ impl CachedRoom {
         &self,
         _event: RoomRedactionEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Ignoring RoomRedactionEvent");
+
         // TODO: Process the redaction event and remove the appropriate event from the cache
-        //   This is only relevant when the same messages are requested multiple times.
+        //   This is only relevant when the same messages are requested multiple times, which
+        //   is currently not needed.
+
         Ok(None)
     }
 
@@ -625,8 +638,6 @@ impl CachedRoom {
         let reaction_id = event.event_id().to_string();
         let message_id = original.content.relates_to.event_id.to_string();
 
-        log::debug!("Caching reaction: {reaction:?}");
-
         self.cache_reaction(message_id.clone(), reaction_id.clone(), reaction.clone())?;
 
         let metadata = ReactionMetadata::new(
@@ -642,9 +653,14 @@ impl CachedRoom {
     }
 
     fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing AnyStateEvent");
+
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
-            _ => Ok(None),
+            _ => {
+                log::debug!("Ignoring event because event type is not implemented");
+                Ok(None)
+            },
         }
     }
 
@@ -848,6 +864,8 @@ impl CachedRoom {
         replacement_id: String,
         replacement: CachedReplacement,
     ) -> Result<()> {
+        log::info!("Caching replacement {replacement_id} of message {original_message_id} with {replacement:?}");
+
         self.remove_encrypted_event(&replacement_id)?;
 
         let mut guard = self.messages.lock()?;
@@ -865,6 +883,8 @@ impl CachedRoom {
         reaction_id: String,
         reaction: CachedReaction,
     ) -> Result<()> {
+        log::info!("Caching reaction {reaction_id} of message {message_id} with {reaction:?}");
+
         self.remove_encrypted_event(&reaction_id)?;
 
         let mut guard = self.messages.lock()?;
@@ -880,17 +900,22 @@ impl CachedRoom {
     /// Removes the given reaction by id.
     /// Only returns an error when the cache lock is poisoined.
     pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
+        log::debug!("Removing cached reaction by ID {reaction_id:?}");
+
         let Some(message_id) = self.reaction_id_to_message_id(reaction_id)? else {
+            log::debug!("Reaction not found in reaction to message mapping");
             return Ok(None);
         };
 
         let mut guard = self.messages.lock()?;
 
         let Some(message) = guard.get_mut(&message_id) else {
+            log::error!("Message to the reaction not found");
             return Ok(None);
         };
 
         let Some(removed) = message.reactions.remove(reaction_id) else {
+            log::error!("Reaction inside cached message not found");
             return Ok(None);
         };
 
@@ -900,6 +925,8 @@ impl CachedRoom {
             message_id,
             self.room.room_id().to_string(),
         );
+
+        log::debug!("Returning metadata of removed reaction: {metadata:?}");
 
         Ok(Some(metadata))
     }
@@ -912,9 +939,12 @@ impl CachedRoom {
         user_id: &str,
         emoji: &str,
     ) -> Result<Option<ReactionMetadata>> {
+        log::debug!("Removing cached reaction by emoji {emoji} from user {user_id} on message {message_id}");
+
         let mut guard = self.messages.lock()?;
 
         let Some(message) = guard.get_mut(message_id) else {
+            log::debug!("Message of the reaction not found");
             return Ok(None);
         };
 
@@ -924,6 +954,7 @@ impl CachedRoom {
             .collect();
 
         let Some(removed) = removed.into_iter().next() else {
+            log::debug!("Reaction of the user with the given emoji not found");
             return Ok(None);
         };
 
@@ -933,6 +964,8 @@ impl CachedRoom {
             message_id.to_owned(),
             self.room.room_id().to_string(),
         );
+
+        log::debug!("Returning metadata of removed reaction: {metadata:?}");
 
         Ok(Some(metadata))
     }
@@ -950,6 +983,8 @@ impl CachedRoom {
     /// with the cached related events.
     /// Only returns an error when the cache lock is posoined.
     fn cache_and_build_message(&self, original: Message) -> Result<Message> {
+        log::debug!("Caching and assembling original message: {original:?}");
+
         self.remove_encrypted_event(&original.message_id)?;
 
         let mut guard = self.messages.lock()?;
@@ -962,16 +997,22 @@ impl CachedRoom {
     /// Caches the given encrypted event.
     /// Only returns an error when the cache lock is poisoined.
     fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
+        log::debug!("Caching encrypted event {event_id:?}");
+
         let mut guard = self.encrypted_events.lock()?;
         guard.insert(event_id, event);
+
         Ok(())
     }
 
     /// Removes a tracked encrypted event, if it exists.
     /// Only returns an error when the cache lock is poisoined.
     fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
+        log::debug!("Removing encrypted event: {event_id}");
+
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
+
         Ok(())
     }
 }
