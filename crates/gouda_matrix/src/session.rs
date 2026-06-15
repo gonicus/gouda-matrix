@@ -90,7 +90,7 @@ impl Session {
         mut ctx: RequestContext,
         initialized_data: InitializedData,
     ) -> Result<()> {
-        subscibe_to_room_keys(
+        subscribe_to_room_keys(
             initialized_data.client.clone(),
             initialized_data.message_cache.clone(),
         );
@@ -256,7 +256,7 @@ impl Session {
     }
 }
 
-fn subscibe_to_room_keys(client: Client, message_cache: MessageCache) {
+fn subscribe_to_room_keys(client: Client, message_cache: MessageCache) {
     log::debug!("Subscribing to room keys stream");
 
     tokio::spawn(async move {

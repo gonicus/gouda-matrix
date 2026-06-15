@@ -29,7 +29,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::media::MediaManager;
 use crate::{messages, user};
 
-/// The capacity of the channel for receiving retreived and assembled messages.
+/// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
 
 /// How many events to fetch at least with each chunk.
@@ -256,7 +256,7 @@ struct CachedEncryptedEvent {
 struct CachedRoom {
     /// The context to use to send update events to the application.
     ctx: RequestContext,
-    /// The media manager to use to download message attachements.
+    /// The media manager to use to download message attachments.
     media_manager: MediaManager,
     /// The room we work with.
     room: Room,
@@ -549,7 +549,7 @@ impl CachedRoom {
         let message = self.process_timeline_event(event).await?;
 
         if let Some(message) = message {
-            self.process_successfull_redecryption(message).await?;
+            self.process_successful_redecryption(message).await?;
         } else {
             self.redact_encrypted_message(event_id.to_string()).await;
         }
@@ -558,7 +558,7 @@ impl CachedRoom {
     }
 
     /// Sends a message update event to the application with the now encrypted content.
-    async fn process_successfull_redecryption(&self, message: Message) -> Result<()> {
+    async fn process_successful_redecryption(&self, message: Message) -> Result<()> {
         let Some(content) = message.content else {
             return Ok(());
         };
