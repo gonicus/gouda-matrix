@@ -450,6 +450,8 @@ impl CachedRoom {
         &self,
         event: DecryptedRoomEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing decrypted event");
+
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
             Err(err) => {
@@ -512,6 +514,8 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing plain text event");
+
         let deserialized = match event.deserialize() {
             Ok(event) => event,
             Err(err) => {
@@ -555,8 +559,10 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         use matrix_sdk::ruma::events::room::message::Relation;
 
+        log::debug!("Processing RoomMessageEvent");
+
         let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to care about that.
+            log::debug!("Event is redacted, nothing to do");
             return Ok(None);
         };
 
@@ -604,8 +610,10 @@ impl CachedRoom {
     }
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing ReactionEvent");
+
         let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to care about that.
+            log::debug!("Event is redacted, nothing to do");
             return Ok(None);
         };
 
@@ -617,6 +625,8 @@ impl CachedRoom {
         let reaction_id = event.event_id().to_string();
         let message_id = original.content.relates_to.event_id.to_string();
 
+        log::debug!("Caching reaction: {reaction:?}");
+
         self.cache_reaction(message_id.clone(), reaction_id.clone(), reaction.clone())?;
 
         let metadata = ReactionMetadata::new(
@@ -625,6 +635,8 @@ impl CachedRoom {
             message_id,
             self.room.room_id().to_string(),
         );
+
+        log::debug!("Returning reaction metadata: {metadata:?}");
 
         Ok(Some(CachedRoomAction::Reaction(metadata)))
     }
@@ -640,13 +652,15 @@ impl CachedRoom {
         &self,
         event: RoomMemberEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing RoomMemberEvent");
+
         let Some(original) = event.as_original() else {
-            // Redacted event, we don't need to carte about that.
+            log::debug!("Event is redacted, nothing to do");
             return Ok(None);
         };
 
         let Some(change) = user::convert_membership_change(&original.membership_change()) else {
-            // Not a relevant membership change
+            log::debug!("Event does not contain a relevant membership change, nothing to do");
             return Ok(None);
         };
 
@@ -663,6 +677,8 @@ impl CachedRoom {
             content: Some(message::Content::MembershipChange(content)),
             ..Default::default()
         };
+
+        log::debug!("Build original membership change message: {message:?}");
 
         self.build_from_message(message)
             .map(|msg| Some(CachedRoomAction::Message(msg)))
@@ -717,7 +733,7 @@ impl CachedRoom {
         Ok(())
     }
 
-    /// Processes the succesful redecryption of a event.
+    /// Processes the successful redecryption of a event.
     /// This sends updates events to the application.
     async fn process_successful_redecryption(&self, action: CachedRoomAction) -> Result<()> {
         match action {
@@ -754,7 +770,7 @@ impl CachedRoom {
         Ok(())
     }
 
-    /// Redacts the previsouly send encrypted message and sends a
+    /// Redacts the previously send encrypted message and sends a
     /// reaction created event afterwards.
     async fn process_successful_redecrypted_reaction(
         &self,
