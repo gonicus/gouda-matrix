@@ -10,7 +10,7 @@ use gouda_proto::chat::{
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
-use matrix_sdk::ruma::events::reaction::ReactionEvent;
+use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
 use matrix_sdk::ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
 use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContent};
@@ -105,6 +105,34 @@ impl MessageCache {
             log::error!("Error retrying decryption of events: {err}");
         }
     }
+
+    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) -> Result<()> {
+        self.inner.cache_reaction(room, event)
+    }
+
+    pub fn remove_reaction_by_id(
+        &self,
+        room_id: impl AsRef<str>,
+        reaction_id: impl AsRef<str>,
+    ) -> Result<Option<CachedReaction>> {
+        self.inner
+            .remove_reaction_by_id(room_id.as_ref(), reaction_id.as_ref())
+    }
+
+    pub fn remove_reaction_by_emoji(
+        &self,
+        room_id: impl AsRef<str>,
+        message_id: impl AsRef<str>,
+        user: impl AsRef<str>,
+        emoji: impl AsRef<str>,
+    ) -> Result<Option<CachedReaction>> {
+        self.inner.remove_reaction_by_emoji(
+            message_id.as_ref(),
+            room_id.as_ref(),
+            user.as_ref(),
+            emoji.as_ref(),
+        )
+    }
 }
 
 struct MessageCacheInner {
@@ -162,6 +190,52 @@ impl MessageCacheInner {
         Ok(())
     }
 
+    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) -> Result<()> {
+        let cached_room = self.get_or_create_room(room)?;
+
+        let message_id = event.content.relates_to.event_id.to_string();
+        let reaction_id = event.event_id.to_string();
+
+        let reaction = CachedReaction {
+            user: event.sender.to_string(),
+            emoji: event.content.relates_to.key,
+        };
+
+        log::debug!("Caching reaction {reaction:?} for message {message_id}");
+
+        cached_room.cache_reaction(message_id, reaction_id, reaction)
+    }
+
+    pub fn remove_reaction_by_id(
+        &self,
+        room_id: &str,
+        reaction_id: &str,
+    ) -> Result<Option<CachedReaction>> {
+        let Some(cached_room) = self.get_room(room_id)? else {
+            return Ok(None);
+        };
+
+        cached_room.remove_reaction_by_id(reaction_id)
+    }
+
+    pub fn remove_reaction_by_emoji(
+        &self,
+        room_id: &str,
+        message_id: &str,
+        user_id: &str,
+        emoji: &str,
+    ) -> Result<Option<CachedReaction>> {
+        let Some(cached_room) = self.get_room(room_id)? else {
+            return Ok(None);
+        };
+
+        cached_room.remove_reaction_by_emoji(message_id, user_id, emoji)
+    }
+
+    fn get_room(&self, room_id: &str) -> Result<Option<Arc<CachedRoom>>> {
+        Ok(self.cached_rooms.lock()?.get(room_id).cloned())
+    }
+
     fn get_or_create_room(&self, room: Room) -> Result<Arc<CachedRoom>> {
         let mut guard = self.cached_rooms.lock()?;
 
@@ -192,7 +266,7 @@ struct CachedReplacement {
 }
 
 #[derive(Debug)]
-struct CachedReaction {
+pub struct CachedReaction {
     /// The ID of the user who reacted.
     pub user: String,
     /// The emoji the user reacted with.
@@ -266,6 +340,10 @@ struct CachedRoom {
     /// Events that we could not decrypt and that were sent to the application
     /// as an encrypted message.
     pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
+
+    /// Maps a reaction ID to a message ID.
+    /// (reaction_id, message_id)
+    reaction_id_to_message: Mutex<HashMap<String, String>>,
 }
 
 impl CachedRoom {
@@ -277,6 +355,8 @@ impl CachedRoom {
 
             messages: Mutex::new(HashMap::new()),
             encrypted_events: Mutex::new(HashMap::new()),
+
+            reaction_id_to_message: Mutex::new(HashMap::new()),
         }
     }
 
@@ -625,20 +705,64 @@ impl CachedRoom {
     }
 
     /// Caches the given reaction.
-    /// Only returns an error when the cache lock is posoined.
-    fn cache_reaction(
+    /// Only returns an error when the cache lock is poisoined.
+    pub fn cache_reaction(
         &self,
-        original_message_id: String,
+        message_id: String,
         reaction_id: String,
         reaction: CachedReaction,
     ) -> Result<()> {
         self.remove_encrypted_event(&reaction_id)?;
 
         let mut guard = self.messages.lock()?;
-        let message = guard.entry(original_message_id).or_default();
-        message.reactions.insert(reaction_id, reaction);
+        let message = guard.entry(message_id.clone()).or_default();
+        message.reactions.insert(reaction_id.clone(), reaction);
+
+        let mut guard = self.reaction_id_to_message.lock()?;
+        guard.insert(reaction_id, message_id);
 
         Ok(())
+    }
+
+    /// Removes the given reaction by id.
+    /// Only returns an error when the cache lock is poisoined.
+    pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<CachedReaction>> {
+        let guard = self.reaction_id_to_message.lock()?;
+
+        let Some(message_id) = guard.get(reaction_id) else {
+            return Ok(None);
+        };
+
+        let mut guard = self.messages.lock()?;
+
+        let Some(message) = guard.get_mut(message_id) else {
+            return Ok(None);
+        };
+
+        Ok(message.reactions.remove(reaction_id))
+    }
+
+    /// Removes the given reaction by user and emoji.
+    /// Only returns an error when the cache lock is poisoined.
+    pub fn remove_reaction_by_emoji(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        emoji: &str,
+    ) -> Result<Option<CachedReaction>> {
+        let mut guard = self.messages.lock()?;
+
+        let Some(message) = guard.get_mut(message_id) else {
+            return Ok(None);
+        };
+
+        let removed: Vec<CachedReaction> = message
+            .reactions
+            .extract_if(|_, p| p.user == user_id && p.emoji == emoji)
+            .map(|(_, v)| v)
+            .collect();
+
+        Ok(removed.into_iter().next())
     }
 
     /// Caches the given original message and builds the final message
