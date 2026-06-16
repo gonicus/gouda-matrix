@@ -17,7 +17,7 @@ use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
-use crate::client::InitializedData;
+use crate::client::SessionContext;
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
 use crate::utils::ComparisonResult;
@@ -32,15 +32,15 @@ pub struct RoomManager {
 }
 
 impl RoomManager {
-    pub fn from_initialized_data(
+    pub fn from_session(
         context: RequestContext,
-        initialized_data: &InitializedData,
+        session: &SessionContext,
     ) -> Self {
         Self {
             context,
-            client: initialized_data.client.clone(),
-            proto_cache: initialized_data.proto_cache.clone(),
-            media_manager: initialized_data.media_manager.clone(),
+            client: session.client.clone(),
+            proto_cache: session.proto_cache.clone(),
+            media_manager: session.media_manager.clone(),
         }
     }
 

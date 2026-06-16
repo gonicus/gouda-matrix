@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
 use gouda_core::{Client as ClientAbstraction, RequestContext, Result};
@@ -15,6 +16,7 @@ use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelat
 use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
 use ruma_common::{EventId, OwnedEventId};
+use tokio::sync::OnceCell;
 use tokio_stream::StreamExt;
 use url::Url;
 
@@ -32,40 +34,273 @@ const MEDIA_DIR: &str = "media";
 const CACHE_DIR: &str = "cache";
 const AUTH_FILE: &str = "auth";
 
-fn get_session_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
-    data_root_dir.as_ref().join(SESSION_DIR)
+pub struct MatrixClient {
+    inner: OnceCell<MatrixClientInner>,
 }
 
-fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
-    data_root_dir.as_ref().join(MEDIA_DIR)
+impl MatrixClient {
+    pub fn new() -> Self {
+        Self {
+            inner: OnceCell::new(),
+        }
+    }
+
+    fn inner(&self) -> Result<&MatrixClientInner> {
+        let Some(inner) = self.inner.get() else {
+            return Err(errors::create_error_msg(
+                ErrorType::NotInitialized,
+                "The client is not initialized",
+            ));
+        };
+
+        Ok(inner)
+    }
 }
 
-fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
-    data_root_dir.as_ref().join(CACHE_DIR)
+#[async_trait]
+impl ClientAbstraction for MatrixClient {
+    async fn initialize(
+        &self,
+        ctx: RequestContext,
+        request: InitializationRequest,
+    ) -> Result<StatusUpdate> {
+        if self.inner.initialized() {
+            return Err(errors::create_error(ErrorType::AlreadyInitialized));
+        }
+
+        let (client, result) = MatrixClientInner::new(ctx, request).await?;
+
+        if let Err(err) = self.inner.set(client) {
+            log::error!("Error when initializting client: {err}");
+            return Err(errors::create_unknown("Unknown error initializing client"));
+        }
+
+        Ok(result)
+    }
+
+    async fn on_response(&self, response: ResponseContainer) {
+        let Ok(inner) = self.inner() else {
+            log::error!("Received response while client is not initialized");
+            return;
+        };
+
+        let Some(content) = response.content else {
+            log::error!("Received response with no content: {response:?}");
+            return;
+        };
+
+        inner.on_response(content).await;
+    }
+
+    async fn get_login_flows(&self, ctx: RequestContext) -> Result<LoginFlowsResponse> {
+        self.inner()?.get_login_flows(ctx).await
+    }
+
+    async fn get_identity_providers(
+        &self,
+        ctx: RequestContext,
+    ) -> Result<IdentityProvidersResponse> {
+        self.inner()?.get_identity_providers(ctx).await
+    }
+
+    async fn login_username_password(
+        &self,
+        ctx: RequestContext,
+        request: LoginUsernamePasswordRequest,
+    ) -> Result<StatusUpdate> {
+        self.inner()?.login_username_password(ctx, request).await
+    }
+
+    async fn login_sso(
+        &self,
+        ctx: RequestContext,
+        request: LoginSsoRequest,
+    ) -> Result<LoginSsoResponse> {
+        self.inner()?.login_sso(ctx, request).await
+    }
+
+    async fn recovery_key_verification(
+        &self,
+        ctx: RequestContext,
+        request: RecoveryKeyVerificationRequest,
+    ) -> Result<VerificationEndEvent> {
+        self.inner()?.recovery_key_verification(ctx, request).await
+    }
+
+    async fn cross_signing_start(
+        &self,
+        ctx: RequestContext,
+        request: CrossSigningStartRequest,
+    ) -> Result<CrossSigningStartResponse> {
+        self.inner()?.cross_signing_start(ctx, request).await
+    }
+
+    async fn cross_signing_select_method(
+        &self,
+        ctx: RequestContext,
+        request: CrossSigningMethodSelectedRequest,
+    ) -> Result<()> {
+        self.inner()?.cross_signing_select_method(ctx, request).await
+    }
+
+    async fn cross_signing_confirm(
+        &self,
+        ctx: RequestContext,
+        request: CrossSigningConfirmRequest,
+    ) -> Result<()> {
+        self.inner()?.cross_signing_confirm(ctx, request).await
+    }
+
+    async fn abort_verification(
+        &self,
+        ctx: RequestContext,
+        request: VerificationAbortRequest,
+    ) -> Result<VerificationEndEvent> {
+        self.inner()?.abort_verification(ctx, request).await
+    }
+
+    async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
+        self.inner()?.get_user(ctx, request).await
+    }
+
+    async fn search_users(
+        &self,
+        ctx: RequestContext,
+        request: UserSearchRequest,
+    ) -> Result<UserSearchResponse> {
+        self.inner()?.search_users(ctx, request).await
+    }
+
+    async fn set_status(&self, ctx: RequestContext, request: UserStatus) -> Result<()> {
+        self.inner()?.set_status(ctx, request).await
+    }
+
+    async fn get_public_rooms(
+        &self,
+        ctx: RequestContext,
+        request: PublicRoomListRequest,
+    ) -> Result<PublicRoomListResponse> {
+        self.inner()?.get_public_rooms(ctx, request).await
+    }
+
+    async fn invite(
+        &self,
+        ctx: RequestContext,
+        request: InvitationRequest,
+    ) -> Result<RoomChangeEvent> {
+        self.inner()?.invite(ctx, request).await
+    }
+
+    async fn invitation_reply(&self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
+        self.inner()?.invitation_reply(ctx, request).await
+    }
+
+    async fn get_rooms(
+        &self,
+        ctx: RequestContext,
+        request: RoomListRequest,
+    ) -> Result<RoomListResponse> {
+        self.inner()?.get_rooms(ctx, request).await
+    }
+
+    async fn create_group_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomCreateGroupRequest,
+    ) -> Result<Room> {
+        self.inner()?.create_group_room(ctx, request).await
+    }
+
+    async fn create_direct_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomCreateDirectRequest,
+    ) -> Result<Room> {
+        self.inner()?.create_direct_room(ctx, request).await
+    }
+
+    async fn change_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomChangeRequest,
+    ) -> Result<RoomChangeEvent> {
+        self.inner()?.change_room(ctx, request).await
+    }
+
+    async fn leave_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomLeaveRequest,
+    ) -> Result<RoomLeftEvent> {
+        self.inner()?.leave_room(ctx, request).await
+    }
+
+    async fn join_room(&self, ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
+        self.inner()?.join_room(ctx, request).await
+    }
+
+    async fn knock_room(&self, ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
+        self.inner()?.knock_room(ctx, request).await
+    }
+
+    async fn get_room_messages(
+        &self,
+        ctx: RequestContext,
+        request: RoomMessagesRequest,
+    ) -> Result<()> {
+        self.inner()?.get_room_messages(ctx, request).await
+    }
+
+    async fn mark_as_read(
+        &self,
+        ctx: RequestContext,
+        request: RoomMarkAsReadRequest,
+    ) -> Result<RoomChangeEvent> {
+        self.inner()?.mark_as_read(ctx, request).await
+    }
+
+    async fn send_message(
+        &self,
+        ctx: RequestContext,
+        request: MessageSendRequest,
+    ) -> Result<MessageSendResponse> {
+        self.inner()?.send_message(ctx, request).await
+    }
+
+    async fn remove_message(
+        &self,
+        ctx: RequestContext,
+        request: MessageRemoveRequest,
+    ) -> Result<()> {
+        self.inner()?.remove_message(ctx, request).await
+    }
+
+    async fn change_message(
+        &self,
+        ctx: RequestContext,
+        request: MessageChangeRequest,
+    ) -> Result<()> {
+        self.inner()?.change_message(ctx, request).await
+    }
+
+    async fn create_reaction(&self, ctx: RequestContext, request: Reaction) -> Result<()> {
+        self.inner()?.create_reaction(ctx, request).await
+    }
+
+    async fn remove_reaction(&self, ctx: RequestContext, request: Reaction) -> Result<()> {
+        self.inner()?.remove_reaction(ctx, request).await
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-fn get_auth_file(data_root_dir: impl AsRef<Path>) -> PathBuf {
-    get_session_dir(data_root_dir).join(AUTH_FILE)
-}
-
+/// Contains session data not shared across multiple different sessions.
 #[derive(Clone)]
-pub struct InitializedData {
-    /// The initialized matrix client.
+pub struct SessionContext {
+    /// The actual matrix client.
     pub client: Client,
-
-    /// The homeserver url.
-    pub homeserver_url: Url,
-    /// The display name of this device.
-    pub device_display_name: String,
-
-    /// The passphrase used to encrypt the session data.
-    pub encryption_passphrase: String,
-    /// The passphrase used to encrypt the database.
-    pub database_passphrase: String,
-
-    /// The absolute path to the root directory where data is stored.
-    pub data_root_dir: PathBuf,
-
     /// Contains the in memory cache.
     pub memory_cache: MemoryCache,
     /// The persistent proto cache storing proto messages for the next application start.
@@ -76,147 +311,24 @@ pub struct InitializedData {
     pub event_manager: EventManager,
 }
 
-impl InitializedData {
-    pub fn get_session_dir(&self) -> PathBuf {
-        get_session_dir(&self.data_root_dir)
-    }
-
-    pub fn get_media_dir(&self) -> PathBuf {
-        get_media_dir(&self.data_root_dir)
-    }
-
-    pub fn get_cache_dir(&self) -> PathBuf {
-        get_cache_dir(&self.data_root_dir)
-    }
-
-    pub fn get_auth_file(&self) -> PathBuf {
-        get_auth_file(&self.data_root_dir)
-    }
-}
-
-#[derive(Default)]
-pub struct MatrixClient {
-    /// The inner matrix client. If `None`, the client has not yet been initialized
-    /// using `Self::initialize`.
-    initialized_data: Option<InitializedData>,
-
-    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
-    /// is called, as this method already retrieves the available idps.
-    cached_idps: Option<Vec<String>>,
-
-    /// The current active verification processes.
-    verification_requests: Vec<VerificationManager>,
-}
-
-impl MatrixClient {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns the client if it has been initialized with `Self::initialize`.
-    /// An error is returned if the client has not yet been initialized.
-    fn get_client(&self) -> Result<&Client> {
-        Ok(&self.get_initialized_data()?.client)
-    }
-
-    /// Returns the initialized data if it has been initialized with `Self::initialize`.
-    /// An error is returned if the client has not yet been initialized.
-    fn get_initialized_data(&self) -> Result<&InitializedData> {
-        let data = self.initialized_data.as_ref().ok_or(Error {
-            r#type: ErrorType::NotInitialized.into(),
-            error_string: Some("The client has not been initialized".to_owned()),
-        })?;
-
-        Ok(data)
-    }
-
-    /// Returns the initialized data if it has been initialized with `Self::initialize`.
-    /// An error is returned if the client has not yet been initialized.
-    fn get_initialized_data_mut(&mut self) -> Result<&mut InitializedData> {
-        let data = self.initialized_data.as_mut().ok_or(Error {
-            r#type: ErrorType::NotInitialized.into(),
-            error_string: Some("The client has not been initialized".to_owned()),
-        })?;
-
-        Ok(data)
-    }
-
-    /// Returns the initialized data, provided it was initialized with `Self::initialize`
-    /// and the client is already logged in. Otherwise, an error is returned.
-    async fn get_initialized_data_logged_in(&self) -> Result<&InitializedData> {
-        let data = self.get_initialized_data()?;
-
-        if !data.client.matrix_auth().logged_in() {
-            return Err(errors::create_error_msg(
-                ErrorType::Authorization,
-                "Authorization required",
-            ));
-        }
-
-        Ok(data)
-    }
-
-    /// Returns the client if it was initialized with `Self::initialize` and logged in with
-    /// either `Self::login_sso` or `Self::login_username_password`.
-    /// An error is returned if the client is not yet initialized or is not currently logged in.
-    async fn get_client_logged_in(&self) -> Result<&Client> {
-        let client = self.get_client()?;
-
-        if !client.matrix_auth().logged_in() {
-            return Err(errors::create_error_msg(
-                ErrorType::Authorization,
-                "Authorization required",
-            ));
-        }
-
-        Ok(client)
-    }
-
-    /// Checks if the client is still logged in.
-    /// This method sends a request to the Matrix server.
-    async fn is_logged_in(&self) -> Result<bool> {
-        let Some(initialized_data) = &self.initialized_data else {
-            return Err(errors::create_error(ErrorType::NotInitialized));
-        };
-
-        let result = initialized_data
-            .client
-            .whoami()
-            .await
-            .map_err(errors::convert_http_error);
-
-        if let Err(err) = result {
-            if err.r#type == ErrorType::Authorization as i32 {
-                return Ok(false);
-            }
-
-            return Err(err);
-        }
-
-        Ok(true)
-    }
-
-    /// Builds the `self.initialized_data` with the given values.
-    async fn initialize_data(
-        &mut self,
+impl SessionContext {
+    pub async fn new(
         ctx: RequestContext,
-        request: InitializationRequest,
-    ) -> Result<&InitializedData> {
-        let homeserver_url = Url::parse(&request.backend_url)
-            .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
-
-        let data_root_dir = PathBuf::from(request.data_root_path);
-
+        homeserver_url: Url,
+        data_root_dir: PathBuf,
+        encryption_secret: String,
+        database_secret: &str,
+    ) -> Result<Self> {
         let client = build_client(
             &homeserver_url,
             &get_session_dir(&data_root_dir),
-            &request.persistent_storage_secret,
+            database_secret,
         )
         .await?;
 
         let proto_cache = ProtoCache::new(
             get_cache_dir(&data_root_dir),
-            request.encryption_secret.clone(),
+            encryption_secret,
         )
         .await;
 
@@ -236,66 +348,151 @@ impl MatrixClient {
             media_manager.clone(),
         );
 
-        let data = InitializedData {
+        Ok(Self {
             client,
-
-            homeserver_url,
-            device_display_name: request.device_display_name,
-
-            encryption_passphrase: request.encryption_secret,
-            database_passphrase: request.persistent_storage_secret,
-
-            data_root_dir,
-
             memory_cache,
             proto_cache,
             media_manager,
             event_manager,
+        })
+    }
+}
+
+struct MatrixClientInner {
+    /// The context of the session.
+    session: RwLock<Arc<SessionContext>>,
+
+    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
+    /// is called, as this method already retrieves the available idps.
+    cached_idps: Mutex<Option<Vec<String>>>,
+    /// The current active verification processes.
+    verification_requests: Mutex<Vec<VerificationManager>>,
+
+    /// The homeserver url.
+    homeserver_url: Url,
+    /// The display name of this device.
+    device_display_name: String,
+    /// The absolute path to the root directory where data is stored.
+    data_root_dir: PathBuf,
+    /// The passphrase used to encrypt the session data.
+    encryption_secret: String,
+    /// The passphrase used to encrypt the database.
+    database_secret: String,
+}
+
+impl MatrixClientInner {
+    pub async fn new(
+        ctx: RequestContext,
+        request: InitializationRequest,
+    ) -> Result<(Self, StatusUpdate)> {
+        let homeserver_url = Url::parse(&request.backend_url)
+            .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
+
+        let data_root_dir = PathBuf::from(&request.data_root_path);
+
+        let session = SessionContext::new(
+            ctx.clone(),
+            homeserver_url.clone(),
+            data_root_dir.clone(),
+            request.encryption_secret.clone(),
+            &request.persistent_storage_secret,
+        ).await?;
+
+        let obj = Self {
+            session: RwLock::new(Arc::new(session)),
+
+            homeserver_url,
+            device_display_name: request.device_display_name,
+            data_root_dir,
+            encryption_secret: request.encryption_secret,
+            database_secret: request.persistent_storage_secret,
+
+            cached_idps: Mutex::new(None),
+            verification_requests: Mutex::new(Vec::new()),
         };
 
-        self.initialized_data = Some(data);
+        if obj.get_auth_file().exists() {
+            match obj.restore_session(ctx).await {
+                Ok(()) => {
+                    return Ok((obj, StatusUpdate {
+                        code: status_update::StatusCode::LoggedIn as i32,
+                    }))
+                }
+                Err(err) => log::error!("Error restoring session: {err:?}"),
+            }
+        }
 
-        #[allow(clippy::unwrap_used)]
-        Ok(self.initialized_data.as_ref().unwrap())
+        let status = StatusUpdate {
+            code: status_update::StatusCode::Connected as i32,
+        };
+
+        Ok((obj, status))
+
+    }
+
+}
+
+impl MatrixClientInner {
+    fn get_session_dir(&self) -> PathBuf {
+        self.data_root_dir.join(SESSION_DIR)
+    }
+
+    fn get_media_dir(&self) -> PathBuf {
+        self.data_root_dir.join(MEDIA_DIR)
+    }
+
+    fn get_cache_dir(&self) -> PathBuf {
+        self.data_root_dir.join(CACHE_DIR)
+    }
+
+    fn get_auth_file(&self) -> PathBuf {
+        self.get_session_dir().join(AUTH_FILE)
+    }
+}
+
+impl MatrixClientInner {
+    fn session(&self) -> Result<Arc<SessionContext>> {
+        let reader = self.session.read().unwrap();
+        Ok((*reader).clone())
+    }
+
+    /// Checks if the client is still logged in.
+    /// This method sends a request to the Matrix server.
+    async fn is_logged_in(&self) -> Result<bool> {
+        let result = self
+            .session()?
+            .client
+            .whoami()
+            .await
+            .map_err(errors::convert_http_error);
+
+        if let Err(err) = result {
+            if err.r#type == ErrorType::Authorization as i32 {
+                return Ok(false);
+            }
+
+            return Err(err);
+        }
+
+        Ok(true)
     }
 
     /// Deletes the persisted session and resets the matrix client.
-    async fn reset_session(&mut self, ctx: RequestContext) -> Result<()> {
+    async fn reset_session(&self, ctx: RequestContext) -> Result<()> {
         log::info!("Resetting session");
 
-        let initialized_data = self.get_initialized_data_mut()?;
+        self.remove_session_data()?;
 
-        remove_session_data(initialized_data)?;
-
-        initialized_data.client = build_client(
-            &initialized_data.homeserver_url,
-            &initialized_data.get_session_dir(),
-            &initialized_data.database_passphrase,
-        )
-        .await?;
-
-        initialized_data.media_manager = MediaManager::new(
-            initialized_data.client.clone(),
-            initialized_data.data_root_dir.clone(),
-            PathBuf::from(MEDIA_DIR),
-        )
-        .await;
-
-        initialized_data.memory_cache =
-            MemoryCache::new(ctx.clone(), initialized_data.media_manager.clone());
-
-        initialized_data.event_manager = EventManager::new(
-            initialized_data.client.clone(),
+        let session = SessionContext::new(
             ctx,
-            initialized_data.memory_cache.clone(),
-            initialized_data.media_manager.clone(),
-        );
+            self.homeserver_url.clone(),
+            self.data_root_dir.clone(),
+            self.encryption_secret.clone(),
+            &self.database_secret,
+        ).await?;
 
-        initialized_data.proto_cache = ProtoCache::new(
-            initialized_data.get_cache_dir(),
-            initialized_data.encryption_passphrase.clone(),
-        )
-        .await;
+        let mut writer = self.session.write().unwrap();
+        *writer = Arc::new(session);
 
         log::info!("Successfully reset session");
 
@@ -304,54 +501,65 @@ impl MatrixClient {
 
     /// Restores the session from the session file.
     async fn restore_session(&self, ctx: RequestContext) -> Result<()> {
-        let initialized_data = self.get_initialized_data()?;
-
-        let client = &initialized_data.client;
-        let session_passphrase = initialized_data.encryption_passphrase.clone();
-        let session_file = initialized_data.get_auth_file();
+        let session_file = self.get_auth_file();
 
         log::debug!("Previous session found in '{session_file:?}'");
 
-        let session = Session::read_from_file(session_file, session_passphrase).await?;
+        let session = Session::read_from_file(session_file, self.encryption_secret.clone()).await?;
 
         log::info!(
             "Restoring session for {}",
             session.user_session.meta.user_id
         );
 
-        client
+        self
+            .session()?
+            .client
             .restore_session(session.user_session.clone())
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        session.sync(ctx, initialized_data.clone()).await?;
+        let session_context = self.session()?;
 
-        log::info!("Successfully restored session as {:?}", client.user_id());
+        session.sync(
+            ctx.clone(),
+            (*session_context).clone(),
+        ).await?;
+
+        log::info!("Successfully restored session as {:?}", session_context.client.user_id());
 
         Ok(())
     }
 
     /// Removes all finished verification requests.
-    fn cleanup_verifications(&mut self) {
-        self.verification_requests.retain(|f| f.is_active());
+    fn cleanup_verifications(&self) {
+        let mut guard = self.verification_requests.lock().unwrap();
+        guard.retain(|f| f.is_active());
     }
 
-    /// Gets the verification manager by its flow id.
-    fn get_verification_manager_mut(&mut self, flow_id: &str) -> Option<&mut VerificationManager> {
-        self.verification_requests
-            .iter_mut()
-            .find(|p| p.flow_id() == flow_id)
+    fn push_verification_request(&self, manager: VerificationManager) {
+        let mut guard = self.verification_requests.lock().unwrap();
+        guard.push(manager);
+    }
+
+    fn cache_idps(&self, idps: Vec<String>) {
+        let mut guard = self.cached_idps.lock().unwrap();
+        *guard = Some(idps);
+    }
+
+    fn get_cached_idps(&self) -> Option<Vec<String>> {
+        self.cached_idps.lock().unwrap().clone()
     }
 
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
     async fn get_matrix_room(&self, room_id: &str) -> Result<matrix_sdk::Room> {
-        let client = self.get_client_logged_in().await?;
-
         let room_id =
             RoomId::parse(room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        let room = client
+        let room = self
+            .session()?
+            .client
             .get_room(&room_id)
             .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
 
@@ -359,56 +567,20 @@ impl MatrixClient {
     }
 }
 
-#[async_trait]
-impl ClientAbstraction for MatrixClient {
-    async fn on_response(&mut self, response: &ResponseContainer) {
-        let Some(content) = &response.content else {
-            log::error!("Received response with no content: {response:?}");
-            return;
-        };
-
-        let Ok(initialized_data) = self.get_initialized_data() else {
-            log::error!("Received response while client is not initialized: {response:?}");
-            return;
-        };
-
-        let InitializedData { proto_cache, .. } = initialized_data;
-
-        proto_cache.cache_response_content(content);
+impl MatrixClientInner {
+    async fn on_response(&self, content: ResponseContent) {
+        match self.session() {
+            Ok(session) => session.proto_cache.cache_response_content(content),
+            Err(err) => log::error!("Unable to cache response content: {err:?}"),
+        }
     }
 
-    async fn initialize(
-        &mut self,
-        ctx: RequestContext,
-        request: InitializationRequest,
-    ) -> Result<StatusUpdate> {
-        if self.initialized_data.is_some() {
-            return Err(errors::create_error(ErrorType::AlreadyInitialized));
-        }
-
-        let initialized_data = self.initialize_data(ctx.clone(), request).await?;
-
-        if initialized_data.get_auth_file().exists() {
-            match self.restore_session(ctx).await {
-                Ok(()) => {
-                    return Ok(StatusUpdate {
-                        code: status_update::StatusCode::LoggedIn as i32,
-                    })
-                }
-                Err(err) => log::error!("Error restoring session: {err:?}"),
-            }
-        }
-
-        Ok(StatusUpdate {
-            code: status_update::StatusCode::Connected as i32,
-        })
-    }
-
-    async fn get_login_flows(&mut self, _ctx: RequestContext) -> Result<LoginFlowsResponse> {
+    async fn get_login_flows(&self, _ctx: RequestContext) -> Result<LoginFlowsResponse> {
         use matrix_sdk::ruma::api::client::session::get_login_types::v3;
         use v3::LoginType as MatrixLoginType;
 
-        let client = self.get_client()?;
+        let session = self.session()?;
+        let SessionContext { client, .. } = session.as_ref();
 
         let login_types = client
             .matrix_auth()
@@ -433,7 +605,7 @@ impl ClientAbstraction for MatrixClient {
                         .map(|f| f.id.to_owned())
                         .collect();
 
-                    self.cached_idps = Some(idps);
+                    self.cache_idps(idps);
 
                     response.push_login_flows(login_flows_response::LoginFlow::Sso)
                 }
@@ -445,13 +617,13 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_identity_providers(
-        &mut self,
+        &self,
         ctx: RequestContext,
     ) -> Result<IdentityProvidersResponse> {
         // Check if the idps have been retrieved before
-        if let Some(idps) = &self.cached_idps {
+        if let Some(idps) = self.get_cached_idps() {
             return Ok(IdentityProvidersResponse {
-                identity_providers: idps.clone(),
+                identity_providers: idps,
             });
         }
 
@@ -463,8 +635,8 @@ impl ClientAbstraction for MatrixClient {
         // If there is still nothing in the cache, no idps are available or single sign-on
         // is not supported
         // by the server. In this case we can just return an empty list.
-        let idps = if let Some(idps) = &self.cached_idps {
-            idps.clone()
+        let idps = if let Some(idps) = self.get_cached_idps() {
+            idps
         } else {
             Vec::new()
         };
@@ -475,7 +647,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn login_username_password(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
@@ -485,29 +657,33 @@ impl ClientAbstraction for MatrixClient {
 
         self.reset_session(ctx.clone()).await?;
 
-        let initialized_data = self.get_initialized_data()?;
+        let session_context = self.session()?;
 
-        initialized_data
+        session_context
             .client
             .matrix_auth()
             .login_username(request.username, &request.password)
-            .initial_device_display_name(&initialized_data.device_display_name)
+            .initial_device_display_name(&self.device_display_name)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
         log::info!(
             "Successfully logged in as {:?}",
-            initialized_data.client.user_id()
+            session_context.client.user_id()
         );
 
         let session = Session::new(
-            &initialized_data.client,
-            initialized_data.get_auth_file(),
-            initialized_data.encryption_passphrase.clone(),
+            &session_context.client,
+            self.get_auth_file(),
+            self.encryption_secret.clone(),
         )?;
 
         session.save().await?;
-        session.sync(ctx.clone(), initialized_data.clone()).await?;
+
+        session.sync(
+            ctx.clone(),
+            (*session_context).clone(),
+        ).await?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -515,7 +691,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn login_sso(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
@@ -525,12 +701,12 @@ impl ClientAbstraction for MatrixClient {
 
         self.reset_session(ctx.clone()).await?;
 
-        let initialized_data = self.get_initialized_data()?;
+        let session_context = self.session()?;
 
         // Create a channel so we can receive the login url from the async closure
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        let mut login_builder = initialized_data
+        let mut login_builder = session_context
             .client
             .matrix_auth()
             .login_sso(|url| async move {
@@ -538,16 +714,16 @@ impl ClientAbstraction for MatrixClient {
                 tx.send(url).expect("Receiver of the login url dropped");
                 Ok(())
             })
-            .initial_device_display_name(&initialized_data.device_display_name);
+            .initial_device_display_name(&self.device_display_name);
 
         if let Some(idp) = request.identity_provider {
             login_builder = login_builder.identity_provider_id(&idp);
         }
 
         // Clone the data so we can move it into the tokio task
-        let initialized_data = initialized_data.clone();
-        let session_passphrase = initialized_data.encryption_passphrase.clone();
-        let session_file = initialized_data.get_auth_file();
+        let session_context = (*session_context).clone();
+        let session_passphrase = self.encryption_secret.clone();
+        let session_file = self.get_auth_file();
 
         // Spawn a tokio task which waits for the successful login in order to send
         // a status update to the application.
@@ -559,11 +735,11 @@ impl ClientAbstraction for MatrixClient {
 
             log::info!(
                 "Successfully logged in as {:?}",
-                initialized_data.client.user_id()
+                session_context.client.user_id()
             );
 
             let Ok(session) =
-                Session::new(&initialized_data.client, session_file, session_passphrase)
+                Session::new(&session_context.client, session_file, session_passphrase)
             else {
                 ctx.send_error(errors::create_unknown("Error creating session"))
                     .await;
@@ -575,7 +751,12 @@ impl ClientAbstraction for MatrixClient {
                 return;
             }
 
-            if let Err(err) = session.sync(ctx.clone(), initialized_data.clone()).await {
+            let result = session.sync(
+                ctx.clone(),
+                session_context
+            ).await;
+
+            if let Err(err) = result {
                 ctx.send_error(err).await;
                 return;
             }
@@ -596,11 +777,12 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn recovery_key_verification(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: RecoveryKeyVerificationRequest,
     ) -> Result<VerificationEndEvent> {
-        let client = self.get_client_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, .. } = session.as_ref();
 
         client
             .encryption()
@@ -616,13 +798,14 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn cross_signing_start(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
         self.cleanup_verifications();
 
-        let client = self.get_client_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown(
@@ -630,7 +813,8 @@ impl ClientAbstraction for MatrixClient {
             ));
         };
 
-        let user_identity = client
+        let user_identity =
+            client
             .encryption()
             .get_user_identity(user_id)
             .await
@@ -649,7 +833,7 @@ impl ClientAbstraction for MatrixClient {
         let verification_flow_id = request.flow_id().to_owned();
         let manager = VerificationManager::from_verification_request(ctx, request);
 
-        self.verification_requests.push(manager);
+        self.push_verification_request(manager);
 
         Ok(CrossSigningStartResponse {
             verification_flow_id,
@@ -657,12 +841,10 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn cross_signing_select_method(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
-        let _ = self.get_client_logged_in().await?;
-
         self.cleanup_verifications();
 
         let CrossSigningMethodSelectedRequest {
@@ -670,7 +852,10 @@ impl ClientAbstraction for MatrixClient {
             selected_method,
         } = request;
 
-        let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
+        let mut guard = self.verification_requests.lock().unwrap();
+        let manager = guard.iter_mut().find(|p| p.flow_id() == verification_flow_id);
+
+        let Some(manager) = manager else {
             return Err(errors::create_error_msg(
                 ErrorType::VerificationFlowNotFound,
                 "Verification flow with the given ID not found",
@@ -687,19 +872,20 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn cross_signing_confirm(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: CrossSigningConfirmRequest,
     ) -> Result<()> {
-        let _ = self.get_client_logged_in().await?;
-
         self.cleanup_verifications();
 
         let CrossSigningConfirmRequest {
             verification_flow_id,
         } = request;
 
-        let Some(manager) = self.get_verification_manager_mut(&verification_flow_id) else {
+        let mut guard = self.verification_requests.lock().unwrap();
+        let manager = guard.iter_mut().find(|p| p.flow_id() == verification_flow_id);
+
+        let Some(manager) = manager else {
             return Err(errors::create_error_msg(
                 ErrorType::VerificationFlowNotFound,
                 "Verification flow with the given ID not found",
@@ -712,25 +898,21 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn abort_verification(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
-        let _ = self.get_client_logged_in().await?;
-
         self.cleanup_verifications();
 
         let VerificationAbortRequest {
             verification_flow_id,
         } = request;
 
-        let position = self
-            .verification_requests
-            .iter()
-            .position(|p| p.flow_id() == verification_flow_id);
+        let mut guard = self.verification_requests.lock().unwrap();
+        let position = guard.iter().position(|p| p.flow_id() == verification_flow_id);
 
         if let Some(index) = position {
-            let manager = self.verification_requests.swap_remove(index);
+            let manager = guard.swap_remove(index);
 
             manager.cancel();
 
@@ -746,31 +928,32 @@ impl ClientAbstraction for MatrixClient {
         }
     }
 
-    async fn get_user(&mut self, ctx: RequestContext, request: UserRequest) -> Result<User> {
-        let initialized_data = self.get_initialized_data_logged_in().await?;
-
+    async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
         let user_id = UserId::parse(request.user_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
             .to_owned();
 
-        let user_manager = UserManager::from_initialized_data(ctx, initialized_data);
+        let session = self.session()?;
+
+        let user_manager = UserManager::from_session(
+            ctx,
+            session.as_ref(),
+        );
+
         user_manager.get_and_sync_user(user_id).await
     }
 
     async fn search_users(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: UserSearchRequest,
     ) -> Result<UserSearchResponse> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
-
         let UserSearchRequest { query, limit } = request;
 
-        let user_list = client
+        let session = self.session()?;
+        let SessionContext { client, media_manager, .. } = session.as_ref();
+
+        let user_list =             client
             .search_users(&query, limit as u64)
             .await
             .map_err(errors::convert_http_error)?;
@@ -791,14 +974,11 @@ impl ClientAbstraction for MatrixClient {
         Ok(UserSearchResponse { user_list: result })
     }
 
-    async fn set_status(&mut self, _ctx: RequestContext, request: UserStatus) -> Result<()> {
+    async fn set_status(&self, _ctx: RequestContext, request: UserStatus) -> Result<()> {
         use matrix_sdk::ruma::api::client::presence::set_presence::v3::Request;
 
-        let InitializedData {
-            client,
-            proto_cache,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, proto_cache, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             debug_assert_or_log!(false, "User ID not set");
@@ -825,14 +1005,15 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_public_rooms(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: PublicRoomListRequest,
     ) -> Result<PublicRoomListResponse> {
         use matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered;
         use ruma_common::directory::Filter;
 
-        let client = self.get_client_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, .. } = session.as_ref();
 
         let PublicRoomListRequest {
             limit,
@@ -850,7 +1031,8 @@ impl ClientAbstraction for MatrixClient {
             filter: filter,
         });
 
-        let result = client
+        let result =
+            client
             .public_rooms_filtered(request)
             .await
             .map_err(errors::convert_http_error)?;
@@ -864,7 +1046,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn invite(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: InvitationRequest,
     ) -> Result<RoomChangeEvent> {
@@ -893,12 +1075,9 @@ impl ClientAbstraction for MatrixClient {
         )
     }
 
-    async fn invitation_reply(&mut self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+    async fn invitation_reply(&self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
+        let session = self.session()?;
+        let SessionContext { client, media_manager, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             log::error!("Error retrieving the user ID of the current user");
@@ -936,17 +1115,21 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_rooms(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: RoomListRequest,
     ) -> Result<RoomListResponse> {
-        let initialized_data = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
 
-        let Some(user_id) = initialized_data.client.user_id() else {
+        let Some(user_id) = session.client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
         };
 
-        let room_manager = rooms::RoomManager::from_initialized_data(ctx, initialized_data);
+        let room_manager = rooms::RoomManager::from_session(
+            ctx,
+            session.as_ref(),
+        );
+
         let room_list = room_manager.get_and_sync_rooms().await?;
 
         let mut result = Vec::new();
@@ -974,15 +1157,12 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn create_group_room(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: RoomCreateGroupRequest,
     ) -> Result<Room> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, media_manager, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1011,7 +1191,8 @@ impl ClientAbstraction for MatrixClient {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         if let Some(avatar_path) = avatar_path {
-            let result = media_manager
+            let result =
+                media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
                 .await
                 .map_err(|_| errors::create_unknown("Error uploading room avatar"));
@@ -1025,15 +1206,12 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn create_direct_room(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: RoomCreateDirectRequest,
     ) -> Result<Room> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, media_manager, .. } = session.as_ref();
 
         let Some(our_user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1065,7 +1243,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn change_room(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: RoomChangeRequest,
     ) -> Result<RoomChangeEvent> {
@@ -1077,7 +1255,9 @@ impl ClientAbstraction for MatrixClient {
             is_favorite,
         } = request;
 
-        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { media_manager, .. } = session.as_ref();
+
         let room = self.get_matrix_room(&room_id).await?;
 
         let mut response = builder::RoomChangeEventBuilder::new(room_id.to_string());
@@ -1123,7 +1303,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn leave_room(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: RoomLeaveRequest,
     ) -> Result<RoomLeftEvent> {
@@ -1140,12 +1320,9 @@ impl ClientAbstraction for MatrixClient {
         })
     }
 
-    async fn join_room(&mut self, _ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
-        let InitializedData {
-            client,
-            media_manager,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+    async fn join_room(&self, _ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
+        let session = self.session()?;
+        let SessionContext { client, media_manager, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1154,7 +1331,8 @@ impl ClientAbstraction for MatrixClient {
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        let room = client
+        let room =
+            client
             .join_room_by_id(&room_id)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
@@ -1162,15 +1340,16 @@ impl ClientAbstraction for MatrixClient {
         Ok(rooms::convert_to_proto(media_manager, room, &user_id).await?)
     }
 
-    async fn knock_room(&mut self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
-        let client = self.get_client_logged_in().await?;
-
+    async fn knock_room(&self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
         let RoomKnockRequest { room_id, message } = request;
+
+        let session = self.session()?;
+        let SessionContext { client, .. } = session.as_ref();
 
         let room_id =
             RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        client
+client
             .knock(room_id.into(), message, Vec::new())
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
@@ -1179,13 +1358,14 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn get_room_messages(
-        &mut self,
+        &self,
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let InitializedData { memory_cache, .. } = self.get_initialized_data_logged_in().await?;
-
         let room = self.get_matrix_room(request.room_id.as_str()).await?;
+
+        let session = self.session()?;
+        let SessionContext { memory_cache, .. } = session.as_ref();
 
         if request.order == Some(MessagesOrder::Forward.into()) {
             return Err(errors::create_unknown(
@@ -1209,7 +1389,8 @@ impl ClientAbstraction for MatrixClient {
             limit,
         };
 
-        let mut stream = memory_cache
+        let mut stream =
+            memory_cache
             .fetch_messages(room, query_options)
             .await
             .map_err(errors::convert_memory_cache_error)?;
@@ -1228,7 +1409,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn mark_as_read(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: RoomMarkAsReadRequest,
     ) -> Result<RoomChangeEvent> {
@@ -1264,13 +1445,11 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn send_message(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
         use message_send_request::Content;
-
-        let InitializedData { media_manager, .. } = self.get_initialized_data_logged_in().await?;
 
         let MessageSendRequest {
             room_id,
@@ -1278,6 +1457,9 @@ impl ClientAbstraction for MatrixClient {
             mentioned_user_ids,
             content,
         } = request;
+
+        let session = self.session()?;
+        let SessionContext { media_manager, .. } = session.as_ref();
 
         let room = self.get_matrix_room(&room_id).await?;
 
@@ -1306,7 +1488,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn remove_message(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: MessageRemoveRequest,
     ) -> Result<()> {
@@ -1328,7 +1510,7 @@ impl ClientAbstraction for MatrixClient {
     }
 
     async fn change_message(
-        &mut self,
+        &self,
         _ctx: RequestContext,
         request: MessageChangeRequest,
     ) -> Result<()> {
@@ -1389,7 +1571,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn create_reaction(&mut self, _ctx: RequestContext, request: Reaction) -> Result<()> {
+    async fn create_reaction(&self, _ctx: RequestContext, request: Reaction) -> Result<()> {
         let Reaction {
             room_id,
             message_id,
@@ -1411,7 +1593,7 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    async fn remove_reaction(&mut self, ctx: RequestContext, request: Reaction) -> Result<()> {
+    async fn remove_reaction(&self, ctx: RequestContext, request: Reaction) -> Result<()> {
         let Reaction {
             room_id,
             message_id,
@@ -1419,11 +1601,8 @@ impl ClientAbstraction for MatrixClient {
             user_id,
         } = request;
 
-        let InitializedData {
-            client,
-            memory_cache,
-            ..
-        } = self.get_initialized_data_logged_in().await?;
+        let session = self.session()?;
+        let SessionContext { client, memory_cache, .. } = session.as_ref();
 
         let room = self.get_matrix_room(&room_id).await?;
 
@@ -1459,8 +1638,14 @@ impl ClientAbstraction for MatrixClient {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn remove_session_data(&self) -> Result<()> {
+        log::info!("Removing session data");
+
+        remove_directory(self.get_session_dir())?;
+        remove_directory(self.get_media_dir())?;
+        remove_directory(self.get_cache_dir())?;
+
+        Ok(())
     }
 }
 
@@ -1489,16 +1674,6 @@ pub async fn build_client(
     Ok(client)
 }
 
-fn remove_session_data(initialized_data: &InitializedData) -> Result<()> {
-    log::info!("Removing session data");
-
-    remove_directory(initialized_data.get_session_dir())?;
-    remove_directory(initialized_data.get_media_dir())?;
-    remove_directory(initialized_data.get_cache_dir())?;
-
-    Ok(())
-}
-
 fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
 
@@ -1516,4 +1691,20 @@ fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn get_session_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(SESSION_DIR)
+}
+
+fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(MEDIA_DIR)
+}
+
+fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    data_root_dir.as_ref().join(CACHE_DIR)
+}
+
+fn get_auth_file(data_root_dir: impl AsRef<Path>) -> PathBuf {
+    get_session_dir(data_root_dir).join(AUTH_FILE)
 }
