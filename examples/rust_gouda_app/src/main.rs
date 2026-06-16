@@ -24,8 +24,8 @@ struct Args {
     #[arg(help = "Path to the socket for receiving responses")]
     pub response_socket: String,
 
-    #[arg(long, default_value = config_default_path(), help="The config file")]
-    pub config_file: String,
+    #[arg(long, default_value = config_default_path(), help="Path to the config file")]
+    pub config: String,
 }
 
 fn main() {
@@ -47,7 +47,7 @@ struct App {
 
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>, args: &Args) -> Self {
-        let config = Config::read_from_file(&args.config_file);
+        let config = Config::read_from_file(&args.config);
 
         let (recv, send) = setup_conn();
 
