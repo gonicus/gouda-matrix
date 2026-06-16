@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::mpsc::{self, Receiver, Sender};
 
@@ -5,6 +6,7 @@ use gouda_proto::chat::{RequestContainer, ResponseContainer, response_container}
 use interprocess::local_socket::RecvHalf;
 use prost::Message;
 
+const MAX_LOGS: usize = 1000;
 const LOG_SPACING: f32 = 10.0;
 const REQUEST_COLOR: egui::Color32 = egui::Color32::LIGHT_BLUE;
 const RESPONSE_COLOR: egui::Color32 = egui::Color32::GREEN;
@@ -17,7 +19,7 @@ pub enum OutputLog {
 
 pub struct OutputWindow {
     receiver: Receiver<OutputLog>,
-    logs: Vec<OutputLog>,
+    logs: VecDeque<OutputLog>,
 
     hide_user_change_events: bool,
     hide_room_change_events: bool,
@@ -39,7 +41,7 @@ impl OutputWindow {
 
         let obj = Self {
             receiver: rx,
-            logs: Vec::new(),
+            logs: VecDeque::new(),
             hide_user_change_events: true,
             hide_room_change_events: true,
         };
@@ -71,13 +73,21 @@ impl OutputWindow {
 
     fn check_for_actions(&mut self) {
         match self.receiver.try_recv() {
-            Ok(action) => self.logs.push(action),
+            Ok(log) => self.add_log(log),
             Err(err) => {
                 if matches!(err, mpsc::TryRecvError::Disconnected) {
                     panic!("Response receiver disconnected");
                 }
             }
         }
+    }
+
+    fn add_log(&mut self, log: OutputLog) {
+        if self.logs.len() >= MAX_LOGS {
+            self.logs.pop_front();
+        }
+
+        self.logs.push_back(log);
     }
 
     fn display_logs(&self, ui: &mut egui::Ui) {
