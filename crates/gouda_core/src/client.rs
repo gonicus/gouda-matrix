@@ -19,7 +19,7 @@ fn not_implemented_error<T>() -> Result<T> {
 pub trait Client: Send + Sync {
     /// Handler called for each response before the response is sent to the application.
     #[allow(unused_variables)]
-    async fn on_response(&self, response: &ResponseContainer) {}
+    async fn on_response(&self, response: ResponseContainer) {}
 
     /// Initializes the client.
     async fn initialize(

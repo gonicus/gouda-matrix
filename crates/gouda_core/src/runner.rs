@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc;
 use tokio::task::JoinError;
 
@@ -29,7 +31,7 @@ impl Runner {
     /// * `client` - The client to use to execute requests from the application
     /// * `reader` - The reader from where requests are received
     /// * `writer` - The writer to where responses and events are send
-    pub fn new(client: Box<dyn Client>, reader: Box<Reader>, writer: Box<Writer>) -> Self {
+    pub fn new(client: Arc<dyn Client>, reader: Box<Reader>, writer: Box<Writer>) -> Self {
         let (executor_tx, executor_rx) = mpsc::channel(EXECUTOR_CHANNEL_CAPACITY);
         let (output_tx, output_rx) = mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
 

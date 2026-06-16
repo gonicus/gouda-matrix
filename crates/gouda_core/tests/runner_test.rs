@@ -2,6 +2,7 @@
 #![allow(clippy::expect_used)]
 
 use std::io;
+use std::sync::Arc;
 
 use gouda_core::test_utils::ClientMock;
 use gouda_core::{Client, Runner};
@@ -60,7 +61,7 @@ async fn setup<T: Client + 'static>(test_client: T) -> Result<TestSetup, std::io
 
     let test_setup = TestSetup {
         runner: Runner::new(
-            Box::new(test_client),
+            Arc::new(test_client),
             Box::new(test_reader),
             Box::new(test_writer),
         ),

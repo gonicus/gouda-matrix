@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::request_container::Content as RequestContent;
 use gouda_proto::chat::response_container::Content as ResponseContent;
@@ -25,7 +27,7 @@ pub enum ExecutorTask {
 /// is then send to the output processor.
 pub struct Executor {
     /// The client to be used to execute incoming tasks.
-    client: Box<dyn Client>,
+    client: Arc<dyn Client>,
     /// Receiver for tasks to be executed.
     task_receiver: Receiver<ExecutorTask>,
     /// Sender for new executor tasks. Used to be cloned when creating
@@ -37,7 +39,7 @@ pub struct Executor {
 
 impl Executor {
     pub fn new(
-        client: Box<dyn Client>,
+        client: Arc<dyn Client>,
         task_receiver: Receiver<ExecutorTask>,
         task_sender: Sender<ExecutorTask>,
         output_sender: Sender<OutputTask>,
@@ -76,6 +78,8 @@ impl Executor {
             // ExecutorTask::Exit is handled by the `Self::run` method
             ExecutorTask::Exit => (),
             ExecutorTask::Request(container) => {
+                let tag = container.tag;
+
                 // This error is unrecoverable as we received invalid data on the input reader.
                 // As the executor runs in a separate tokio task, this will
                 // result in an error returned from the runner.
@@ -84,16 +88,46 @@ impl Executor {
                     .content
                     .expect("Received client container without content");
 
-                self.process_request(container.tag, content).await;
+                let processor = RequestProcessor::new(
+                    self.client.clone(),
+                    self.task_sender.clone(),
+                    self.output_sender.clone(),
+                );
+
+                tokio::spawn(async move {
+                    processor.exec_request(tag, content).await;
+                });
             }
-            ExecutorTask::Response(container) => self.send_response(*container).await,
+            ExecutorTask::Response(container) => {
+                send_response(self.client.clone(), &self.output_sender, *container).await
+            }
+        }
+    }
+}
+
+struct RequestProcessor {
+    client: Arc<dyn Client>,
+    task_sender: Sender<ExecutorTask>,
+    output_sender: Sender<OutputTask>,
+}
+
+impl RequestProcessor {
+    pub fn new(
+        client: Arc<dyn Client>,
+        task_sender: Sender<ExecutorTask>,
+        output_sender: Sender<OutputTask>,
+    ) -> Self {
+        Self {
+            client,
+            task_sender,
+            output_sender,
         }
     }
 
-    async fn process_request(&mut self, tag: u64, content: RequestContent) {
+    pub async fn exec_request(self, tag: u64, request: RequestContent) {
         let ctx = RequestContext::new(tag, self.task_sender.clone());
 
-        match content {
+        match request {
             RequestContent::InitializationRequest(request) => {
                 let result = self.client.initialize(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::StatusUpdate))
@@ -270,7 +304,7 @@ impl Executor {
         }
     }
 
-    async fn send_result(&mut self, tag: u64, content: Result<ResponseContent>) {
+    async fn send_result(self, tag: u64, content: Result<ResponseContent>) {
         let content = match content {
             Ok(c) => Some(c),
             Err(err) => Some(ResponseContent::Error(err)),
@@ -278,27 +312,34 @@ impl Executor {
 
         let container = ResponseContainer { tag, content };
 
-        self.send_response(container).await;
+        send_response(self.client, &self.output_sender, container).await;
     }
+}
 
-    async fn send_response(&mut self, container: ResponseContainer) {
-        log::info!("Preparing response: {container:?}");
+async fn send_response(
+    client: Arc<dyn Client>,
+    sender: &Sender<OutputTask>,
+    container: ResponseContainer,
+) {
+    log::info!("Preparing container: {container:?}");
 
+    let response_handler = container.clone();
+
+    tokio::spawn(async move {
         log::debug!("Calling response event handler on the client");
+        client.on_response(response_handler).await;
+    });
 
-        self.client.on_response(&container).await;
+    log::debug!("Sending response to output processor");
 
-        log::debug!("Sending response to output processor");
-
-        // This error is unrecoverable.
-        // As the executor runs in a separate tokio task, this will
-        // result in an error returned from the runner.
-        #[allow(clippy::expect_used)]
-        self.output_sender
-            .send(OutputTask::Response(Box::new(container)))
-            .await
-            .expect("Error sending message to output processor");
-    }
+    // This error is unrecoverable.
+    // As the executor runs in a separate tokio task, this will
+    // result in an error returned from the runner.
+    #[allow(clippy::expect_used)]
+    sender
+        .send(OutputTask::Response(Box::new(container)))
+        .await
+        .expect("Error sending message to output processor");
 }
 
 #[allow(clippy::unwrap_used)]
@@ -337,7 +378,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -386,7 +427,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -425,7 +466,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -465,7 +506,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -507,7 +548,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -547,7 +588,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -586,7 +627,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -626,7 +667,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -666,7 +707,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -707,7 +748,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -746,7 +787,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -786,7 +827,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -828,7 +869,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -864,14 +905,13 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let client =
-            ClientMock::new().recovery_key_verification_response(Err(response.clone()));
+        let client = ClientMock::new().recovery_key_verification_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -910,7 +950,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -950,7 +990,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -988,7 +1028,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1020,14 +1060,13 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let client =
-            ClientMock::new().cross_signing_select_method_response(Err(response.clone()));
+        let client = ClientMock::new().cross_signing_select_method_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1064,7 +1103,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1101,7 +1140,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1141,7 +1180,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1181,7 +1220,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1223,7 +1262,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1263,7 +1302,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1315,7 +1354,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1355,7 +1394,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1391,7 +1430,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1427,7 +1466,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1473,7 +1512,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1513,7 +1552,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1566,7 +1605,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1606,7 +1645,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1642,7 +1681,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1678,7 +1717,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1751,7 +1790,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1791,7 +1830,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1843,7 +1882,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1883,7 +1922,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1935,7 +1974,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -1975,7 +2014,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2028,7 +2067,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2068,7 +2107,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2109,7 +2148,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2149,7 +2188,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2201,7 +2240,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2241,7 +2280,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2277,7 +2316,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2313,7 +2352,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2349,7 +2388,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2385,7 +2424,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2438,7 +2477,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2478,7 +2517,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2517,7 +2556,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2557,7 +2596,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2593,7 +2632,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2629,7 +2668,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2665,7 +2704,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2701,7 +2740,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2737,7 +2776,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2773,7 +2812,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2809,7 +2848,7 @@ mod tests {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
@@ -2845,7 +2884,7 @@ mod tests {
         let (output_tx, mut output_rx) = mpsc::channel(64);
 
         let executor = Executor::new(
-            Box::new(client),
+            Arc::new(client),
             executor_rx,
             executor_tx.clone(),
             output_tx,
