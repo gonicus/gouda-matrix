@@ -419,8 +419,7 @@ mod tests {
             code: status_update::StatusCode::Connected as i32,
         };
 
-        let mut client = ClientMock::new();
-        client.initialize_response = Ok(response);
+        let mut client = ClientMock::new().initialize_response(Ok(response));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -460,8 +459,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.initialize_response = Err(response.clone());
+        let mut client = ClientMock::new().initialize_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -503,8 +501,7 @@ mod tests {
             ],
         };
 
-        let mut client = ClientMock::new();
-        client.get_login_flows_response = Ok(response.clone());
+        let mut client = ClientMock::new().get_login_flows_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -544,8 +541,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_login_flows_response = Err(response.clone());
+        let mut client = ClientMock::new().get_login_flows_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -584,8 +580,7 @@ mod tests {
             identity_providers: vec!["idp1.example.com".to_owned(), "idp2.example.com".to_owned()],
         };
 
-        let mut client = ClientMock::new();
-        client.get_identity_providers_response = Ok(response.clone());
+        let mut client = ClientMock::new().get_identity_providers_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -625,8 +620,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_identity_providers_response = Err(response.clone());
+        let mut client = ClientMock::new().get_identity_providers_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -666,8 +660,7 @@ mod tests {
             code: status_update::StatusCode::LoggedIn as i32,
         };
 
-        let mut client = ClientMock::new();
-        client.login_username_password_response = Ok(response);
+        let mut client = ClientMock::new().login_username_password_response(Ok(response));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -708,8 +701,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.login_username_password_response = Err(response.clone());
+        let mut client = ClientMock::new().login_username_password_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -748,8 +740,7 @@ mod tests {
             login_url: "https://some.backend".to_owned(),
         };
 
-        let mut client = ClientMock::new();
-        client.login_sso_response = Ok(response.clone());
+        let mut client = ClientMock::new().login_sso_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -789,8 +780,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.login_sso_response = Err(response.clone());
+        let mut client = ClientMock::new().login_sso_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -832,8 +822,7 @@ mod tests {
             result: Some(verification_end_event::Result::Successful(true)),
         };
 
-        let mut client = ClientMock::new();
-        client.recovery_key_verification_response = Ok(response.clone());
+        let mut client = ClientMock::new().recovery_key_verification_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -875,8 +864,8 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.recovery_key_verification_response = Err(response.clone());
+        let mut client =
+            ClientMock::new().recovery_key_verification_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -915,8 +904,7 @@ mod tests {
             verification_flow_id: "flow-1".to_owned(),
         };
 
-        let mut client = ClientMock::new();
-        client.cross_signing_start_response = Ok(response.clone());
+        let mut client = ClientMock::new().cross_signing_start_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -956,8 +944,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.cross_signing_start_response = Err(response.clone());
+        let mut client = ClientMock::new().cross_signing_start_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -995,8 +982,7 @@ mod tests {
             CrossSigningMethodSelectedRequest::default(),
         );
 
-        let mut client = ClientMock::new();
-        client.cross_signing_select_method_response = Ok(());
+        let mut client = ClientMock::new().cross_signing_select_method_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -1034,8 +1020,8 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.cross_signing_select_method_response = Err(response.clone());
+        let mut client =
+            ClientMock::new().cross_signing_select_method_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1072,8 +1058,7 @@ mod tests {
         let request =
             RequestContent::CrossSigningConfirmRequest(CrossSigningConfirmRequest::default());
 
-        let mut client = ClientMock::new();
-        client.cross_signing_confirm_response = Ok(());
+        let mut client = ClientMock::new().cross_signing_confirm_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -1110,8 +1095,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.cross_signing_confirm_response = Err(response.clone());
+        let mut client = ClientMock::new().cross_signing_confirm_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1151,8 +1135,7 @@ mod tests {
             result: None,
         };
 
-        let mut client = ClientMock::new();
-        client.abort_verification_response = Ok(response.clone());
+        let mut client = ClientMock::new().abort_verification_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1192,8 +1175,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.abort_verification_response = Err(response.clone());
+        let mut client = ClientMock::new().abort_verification_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1235,8 +1217,7 @@ mod tests {
             avatar_path: None,
         };
 
-        let mut client = ClientMock::new();
-        client.get_user_response = Ok(response.clone());
+        let mut client = ClientMock::new().get_user_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1276,8 +1257,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_user_response = Err(response.clone());
+        let mut client = ClientMock::new().get_user_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1329,8 +1309,7 @@ mod tests {
             ],
         };
 
-        let mut client = ClientMock::new();
-        client.search_users_response = Ok(response.clone());
+        let mut client = ClientMock::new().search_users_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1370,8 +1349,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.search_users_response = Err(response.clone());
+        let mut client = ClientMock::new().search_users_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1407,8 +1385,7 @@ mod tests {
         // Arrange
         let request = RequestContent::UserStatusSetOwnRequest(UserStatus::default());
 
-        let mut client = ClientMock::new();
-        client.set_status_response = Ok(());
+        let mut client = ClientMock::new().set_status_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -1444,8 +1421,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.set_status_response = Err(response.clone());
+        let mut client = ClientMock::new().set_status_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1491,8 +1467,7 @@ mod tests {
             next_batch: None,
         };
 
-        let mut client = ClientMock::new();
-        client.get_public_rooms_response = Ok(response.clone());
+        let mut client = ClientMock::new().get_public_rooms_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1532,8 +1507,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_public_rooms_response = Err(response.clone());
+        let mut client = ClientMock::new().get_public_rooms_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1586,8 +1560,7 @@ mod tests {
             is_favorite: None,
         };
 
-        let mut client = ClientMock::new();
-        client.invite_response = Ok(response.clone());
+        let mut client = ClientMock::new().invite_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1627,8 +1600,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.invite_response = Err(response.clone());
+        let mut client = ClientMock::new().invite_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1664,8 +1636,7 @@ mod tests {
         // Arrange
         let request = RequestContent::InvitedReply(InvitedReply::default());
 
-        let mut client = ClientMock::new();
-        client.invitation_reply_response = Ok(());
+        let mut client = ClientMock::new().invitation_reply_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -1701,8 +1672,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.invitation_reply_response = Err(response.clone());
+        let mut client = ClientMock::new().invitation_reply_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1775,8 +1745,7 @@ mod tests {
             ],
         };
 
-        let mut client = ClientMock::new();
-        client.get_rooms_response = Ok(response.clone());
+        let mut client = ClientMock::new().get_rooms_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1816,8 +1785,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_rooms_response = Err(response.clone());
+        let mut client = ClientMock::new().get_rooms_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1869,8 +1837,7 @@ mod tests {
             is_favorite: false,
         };
 
-        let mut client = ClientMock::new();
-        client.create_group_room_response = Ok(response.clone());
+        let mut client = ClientMock::new().create_group_room_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1910,8 +1877,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.create_group_room_response = Err(response.clone());
+        let mut client = ClientMock::new().create_group_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -1963,8 +1929,7 @@ mod tests {
             is_favorite: false,
         };
 
-        let mut client = ClientMock::new();
-        client.create_direct_room_response = Ok(response.clone());
+        let mut client = ClientMock::new().create_direct_room_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2004,8 +1969,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.create_direct_room_response = Err(response.clone());
+        let mut client = ClientMock::new().create_direct_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2058,8 +2022,7 @@ mod tests {
             is_favorite: None,
         };
 
-        let mut client = ClientMock::new();
-        client.change_room_response = Ok(response.clone());
+        let mut client = ClientMock::new().change_room_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2099,8 +2062,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.change_room_response = Err(response.clone());
+        let mut client = ClientMock::new().change_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2141,8 +2103,7 @@ mod tests {
             message: None,
         };
 
-        let mut client = ClientMock::new();
-        client.leave_room_response = Ok(response.clone());
+        let mut client = ClientMock::new().leave_room_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2182,8 +2143,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.leave_room_response = Err(response.clone());
+        let mut client = ClientMock::new().leave_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2235,8 +2195,7 @@ mod tests {
             is_favorite: false,
         };
 
-        let mut client = ClientMock::new();
-        client.join_room_response = Ok(response.clone());
+        let mut client = ClientMock::new().join_room_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2276,8 +2235,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.join_room_response = Err(response.clone());
+        let mut client = ClientMock::new().join_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2313,8 +2271,7 @@ mod tests {
         // Arrange
         let request = RequestContent::RoomKnockRequest(RoomKnockRequest::default());
 
-        let mut client = ClientMock::new();
-        client.knock_room_response = Ok(());
+        let mut client = ClientMock::new().knock_room_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2350,8 +2307,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.knock_room_response = Err(response.clone());
+        let mut client = ClientMock::new().knock_room_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2387,8 +2343,7 @@ mod tests {
         // Arrange
         let request = RequestContent::RoomMessagesRequest(RoomMessagesRequest::default());
 
-        let mut client = ClientMock::new();
-        client.get_room_messages_response = Ok(());
+        let mut client = ClientMock::new().get_room_messages_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2424,8 +2379,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.get_room_messages_response = Err(response.clone());
+        let mut client = ClientMock::new().get_room_messages_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2478,8 +2432,7 @@ mod tests {
             is_favorite: None,
         };
 
-        let mut client = ClientMock::new();
-        client.mark_as_read_response = Ok(response.clone());
+        let mut client = ClientMock::new().mark_as_read_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2519,8 +2472,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.mark_as_read_response = Err(response.clone());
+        let mut client = ClientMock::new().mark_as_read_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2559,8 +2511,7 @@ mod tests {
             message_id: "some-message-123".to_owned(),
         };
 
-        let mut client = ClientMock::new();
-        client.send_message_response = Ok(response.clone());
+        let mut client = ClientMock::new().send_message_response(Ok(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2600,8 +2551,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.send_message_response = Err(response.clone());
+        let mut client = ClientMock::new().send_message_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2637,8 +2587,7 @@ mod tests {
         // Arrange
         let request = RequestContent::MessageRemoveRequest(MessageRemoveRequest::default());
 
-        let mut client = ClientMock::new();
-        client.remove_message_response = Ok(());
+        let mut client = ClientMock::new().remove_message_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2674,8 +2623,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.remove_message_response = Err(response.clone());
+        let mut client = ClientMock::new().remove_message_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2711,8 +2659,7 @@ mod tests {
         // Arrange
         let request = RequestContent::MessageChangeRequest(MessageChangeRequest::default());
 
-        let mut client = ClientMock::new();
-        client.change_message_response = Ok(());
+        let mut client = ClientMock::new().change_message_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2748,8 +2695,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.change_message_response = Err(response.clone());
+        let mut client = ClientMock::new().change_message_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2785,8 +2731,7 @@ mod tests {
         // Arrange
         let request = RequestContent::CreateReactionRequest(Reaction::default());
 
-        let mut client = ClientMock::new();
-        client.create_reaction_response = Ok(());
+        let mut client = ClientMock::new().create_reaction_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2822,8 +2767,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.create_reaction_response = Err(response.clone());
+        let mut client = ClientMock::new().create_reaction_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -2859,8 +2803,7 @@ mod tests {
         // Arrange
         let request = RequestContent::RemoveReactionRequest(Reaction::default());
 
-        let mut client = ClientMock::new();
-        client.remove_reaction_response = Ok(());
+        let mut client = ClientMock::new().remove_reaction_response(Ok(()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, output_rx) = mpsc::channel(64);
@@ -2896,8 +2839,7 @@ mod tests {
             error_string: Some("Test error".to_owned()),
         };
 
-        let mut client = ClientMock::new();
-        client.remove_reaction_response = Err(response.clone());
+        let mut client = ClientMock::new().remove_reaction_response(Err(response.clone()));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);

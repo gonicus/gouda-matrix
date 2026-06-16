@@ -130,9 +130,7 @@ async fn test_initialization_request_on_success() {
         code: status_update::StatusCode::LoggedIn as i32,
     };
 
-    let mut client = ClientMock::new();
-    client.initialize_response = Ok(response);
-
+    let mut client = ClientMock::new().initialize_response(Ok(response));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -175,8 +173,7 @@ async fn test_initialization_request_on_error() {
         error_string: Some("mocked error: InvalidUrl".to_string()),
     };
 
-    let mut client = ClientMock::new();
-    client.initialize_response = Err(response.clone());
+    let mut client = ClientMock::new().initialize_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -221,8 +218,7 @@ async fn test_get_login_flows_request_on_success() {
         ],
     };
 
-    let mut client = ClientMock::new();
-    client.get_login_flows_response = Ok(response.clone());
+    let mut client = ClientMock::new().get_login_flows_response(Ok(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -265,8 +261,7 @@ async fn test_get_login_flows_request_on_error() {
         error_string: Some("mocked error: Network".to_string()),
     };
 
-    let mut client = ClientMock::new();
-    client.get_login_flows_response = Err(response.clone());
+    let mut client = ClientMock::new().get_login_flows_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -308,8 +303,7 @@ async fn test_login_username_password_request_on_success() {
         code: status_update::StatusCode::LoggedIn as i32,
     };
 
-    let mut client = ClientMock::new();
-    client.login_username_password_response = Ok(response);
+    let mut client = ClientMock::new().login_username_password_response(Ok(response));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -352,8 +346,7 @@ async fn test_login_username_password_request_on_error() {
         error_string: Some("mocked error: Authorization".to_string()),
     };
 
-    let mut client = ClientMock::new();
-    client.login_username_password_response = Err(response.clone());
+    let mut client = ClientMock::new().login_username_password_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -395,8 +388,7 @@ async fn test_login_sso_request_on_success() {
         login_url: "https://example.org/login".to_string(),
     };
 
-    let mut client = ClientMock::new();
-    client.login_sso_response = Ok(response.clone());
+    let mut client = ClientMock::new().login_sso_response(Ok(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -437,8 +429,7 @@ async fn test_login_sso_request_on_error() {
         error_string: Some("mocked error: Unknown".to_string()),
     };
 
-    let mut client = ClientMock::new();
-    client.login_sso_response = Err(response.clone());
+    let mut client = ClientMock::new().login_sso_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -478,8 +469,7 @@ async fn test_get_identity_providers_request_on_success() {
         identity_providers: vec!["https://example.org".to_string()],
     };
 
-    let mut client = ClientMock::new();
-    client.get_identity_providers_response = Ok(response.clone());
+    let mut client = ClientMock::new().get_identity_providers_response(Ok(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -522,8 +512,7 @@ async fn test_get_identity_providers_request_on_error() {
         error_string: Some("mocked error: Network".to_string()),
     };
 
-    let mut client = ClientMock::new();
-    client.get_identity_providers_response = Err(response.clone());
+    let mut client = ClientMock::new().get_identity_providers_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -564,8 +553,7 @@ async fn test_room_list_request_on_success() {
     let room_list_response = RoomListResponse {
         ..RoomListResponse::default()
     };
-    let mut client = ClientMock::new();
-    client.get_rooms_response = Ok(room_list_response.clone());
+    let mut client = ClientMock::new().get_rooms_response(Ok(room_list_response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -605,8 +593,7 @@ async fn test_room_list_request_on_error() {
         r#type: ErrorType::NotImplemented as i32,
         error_string: Some("mocked error: NotImplemented".to_string()),
     };
-    let mut client = ClientMock::new();
-    client.get_rooms_response = Err(response.clone());
+    let mut client = ClientMock::new().get_rooms_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -645,8 +632,7 @@ async fn test_send_message_request_on_success() {
     let response = MessageSendResponse {
         message_id: "xy".to_string(),
     };
-    let mut client = ClientMock::new();
-    client.send_message_response = Ok(response.clone());
+    let mut client = ClientMock::new().send_message_response(Ok(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
@@ -688,8 +674,7 @@ async fn test_send_message_request_on_error() {
         r#type: ErrorType::NotImplemented as i32,
         error_string: Some("mocked error: NotImplemented".to_string()),
     };
-    let mut client = ClientMock::new();
-    client.send_message_response = Err(response.clone());
+    let mut client = ClientMock::new().send_message_response(Err(response.clone()));
     let mut setup = setup(client).await.expect("test setup failed");
 
     let app_task = tokio::spawn(setup.runner.run());
