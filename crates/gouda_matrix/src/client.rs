@@ -430,31 +430,6 @@ impl MatrixClientInner {
 
         Ok((obj, status))
     }
-}
-
-impl MatrixClientInner {
-    fn get_session_dir(&self) -> PathBuf {
-        self.data_root_dir.join(SESSION_DIR)
-    }
-
-    fn get_media_dir(&self) -> PathBuf {
-        self.data_root_dir.join(MEDIA_DIR)
-    }
-
-    fn get_cache_dir(&self) -> PathBuf {
-        self.data_root_dir.join(CACHE_DIR)
-    }
-
-    fn get_auth_file(&self) -> PathBuf {
-        self.get_session_dir().join(AUTH_FILE)
-    }
-}
-
-impl MatrixClientInner {
-    fn session(&self) -> Result<Arc<SessionContext>> {
-        let reader = self.session.read().unwrap();
-        Ok((*reader).clone())
-    }
 
     /// Checks if the client is still logged in.
     /// This method sends a request to the Matrix server.
@@ -533,24 +508,21 @@ impl MatrixClientInner {
         Ok(())
     }
 
-    /// Removes all finished verification requests.
-    fn cleanup_verifications(&self) {
-        let mut guard = self.verification_requests.lock().unwrap();
-        guard.retain(|f| f.is_active());
-    }
+    /// Removes all data related to the current session.
+    /// Including authentication, cache and media data.
+    /// This method blocks until all data has been removed.
+    /// A new login is required afterwards and the current session context
+    /// should be reset.
+    /// This method intentionally uses the std::fs methods instead of the async tokio::fs
+    /// methods, in order to block until all data has been removed.
+    fn remove_session_data(&self) -> Result<()> {
+        log::info!("Removing session data");
 
-    fn push_verification_request(&self, manager: VerificationManager) {
-        let mut guard = self.verification_requests.lock().unwrap();
-        guard.push(manager);
-    }
+        remove_directory(self.get_session_dir())?;
+        remove_directory(self.get_media_dir())?;
+        remove_directory(self.get_cache_dir())?;
 
-    fn cache_idps(&self, idps: Vec<String>) {
-        let mut guard = self.cached_idps.lock().unwrap();
-        *guard = Some(idps);
-    }
-
-    fn get_cached_idps(&self) -> Option<Vec<String>> {
-        self.cached_idps.lock().unwrap().clone()
+        Ok(())
     }
 
     /// Gets a `matrix_sdk::Room` room by its id.
@@ -567,8 +539,62 @@ impl MatrixClientInner {
 
         Ok(room)
     }
+
+    /// Caches the given identity providers.
+    /// This will overwrite existing ones.
+    fn cache_idps(&self, idps: Vec<String>) {
+        let mut guard = self.cached_idps.lock().unwrap();
+        *guard = Some(idps);
+    }
+
+    /// Gets the currently cached identity providers, if any.
+    fn get_cached_idps(&self) -> Option<Vec<String>> {
+        self.cached_idps.lock().unwrap().clone()
+    }
+
+    /// Gets the absolute path to the directory where session data is stored.
+    fn get_session_dir(&self) -> PathBuf {
+        get_session_dir(&self.data_root_dir)
+    }
+
+    /// Gets the absolute path to the directory where media files are stored.
+    fn get_media_dir(&self) -> PathBuf {
+        get_media_dir(&self.data_root_dir)
+    }
+
+    /// Gets the absolute path to the directory where cached data is stored.
+    fn get_cache_dir(&self) -> PathBuf {
+        get_cache_dir(&self.data_root_dir)
+    }
+
+    /// Gets the absolute path to the file where authentication for the
+    /// current session is stored.
+    /// This includes auth tokens as well as referesh tokens.
+    fn get_auth_file(&self) -> PathBuf {
+        self.get_session_dir().join(AUTH_FILE)
+    }
+
+    /// Gets the session context.
+    /// Only returns an error when the session lock is poisoined.
+    fn session(&self) -> Result<Arc<SessionContext>> {
+        let reader = self.session.read().unwrap();
+        Ok((*reader).clone())
+    }
+
+    /// Pushes a new ongoing verification flow to the managed verification flows.
+    fn push_verification_request(&self, manager: VerificationManager) {
+        let mut guard = self.verification_requests.lock().unwrap();
+        guard.push(manager);
+    }
+
+    /// Removes all finished verification requests.
+    fn cleanup_verifications(&self) {
+        let mut guard = self.verification_requests.lock().unwrap();
+        guard.retain(|f| f.is_active());
+    }
 }
 
+/// Contains the actual client implementation methods.
 impl MatrixClientInner {
     async fn on_response(&self, content: ResponseContent) {
         match self.session() {
@@ -1657,19 +1683,9 @@ impl MatrixClientInner {
 
         Ok(())
     }
-
-    fn remove_session_data(&self) -> Result<()> {
-        log::info!("Removing session data");
-
-        remove_directory(self.get_session_dir())?;
-        remove_directory(self.get_media_dir())?;
-        remove_directory(self.get_cache_dir())?;
-
-        Ok(())
-    }
 }
 
-/// Builds and configures a matrix client.
+/// Builds and configures a new matrix client.
 pub async fn build_client(
     homeserver: &Url,
     session_dir: &Path,
@@ -1694,13 +1710,12 @@ pub async fn build_client(
     Ok(client)
 }
 
+/// Removes the given directory, if it exists.
+/// Returns Ok when the directory does not exist.
 fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
 
     log::info!("Removing directory: {path:?}");
-
-    // The use of the sync fs methods instead of tokio::fs is intended to block
-    // the runtime until all session data has been removed.
 
     if let Err(err) = std::fs::remove_dir_all(path) {
         if err.kind() == std::io::ErrorKind::NotFound {
@@ -1713,18 +1728,17 @@ fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
+/// Gets the path to the session directory, starting from the given data root directory.
 fn get_session_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
     data_root_dir.as_ref().join(SESSION_DIR)
 }
 
+/// Gets the path to the media directory, starting from the given data root directory.
 fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
     data_root_dir.as_ref().join(MEDIA_DIR)
 }
 
+/// Gets the path to the cache directory, starting from the given data root directory.
 fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
     data_root_dir.as_ref().join(CACHE_DIR)
-}
-
-fn get_auth_file(data_root_dir: impl AsRef<Path>) -> PathBuf {
-    get_session_dir(data_root_dir).join(AUTH_FILE)
 }
