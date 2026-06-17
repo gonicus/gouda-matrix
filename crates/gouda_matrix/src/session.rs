@@ -11,7 +11,7 @@ use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-use crate::client::InitializedData;
+use crate::client::SessionContext;
 use crate::memory_cache::MemoryCache;
 use crate::{crypto, errors, user};
 
@@ -82,39 +82,40 @@ impl Session {
         Ok(())
     }
 
+    // TODO: Refactor entire session stuff
+
     /// Performs the initial synchronization followed by an infinite
     /// background synchronization.
     /// This method blocks until the initial sync is finished.
     pub async fn sync(
         mut self,
         mut ctx: RequestContext,
-        initialized_data: InitializedData,
+        session_context: SessionContext,
     ) -> Result<()> {
         subscribe_to_room_keys(
-            initialized_data.client.clone(),
-            initialized_data.memory_cache.clone(),
+            session_context.client.clone(),
+            session_context.memory_cache.clone(),
         );
 
-        self.initial_sync(&mut ctx, &initialized_data).await?;
+        self.initial_sync(&mut ctx, &session_context).await?;
+        self.exec_initial_actions(&ctx, &session_context).await;
 
-        self.exec_initial_actions(&ctx, &initialized_data).await;
-
-        initialized_data
+        session_context
             .event_manager
-            .setup_event_handlers(&initialized_data.client);
+            .setup_event_handlers(&session_context.client);
 
-        self.start_background_sync(ctx, initialized_data).await?;
+        self.start_background_sync(ctx, session_context).await?;
 
         Ok(())
     }
 
     /// Executes all actions required after the initial sync.
-    async fn exec_initial_actions(&self, ctx: &RequestContext, initialized_data: &InitializedData) {
-        let InitializedData {
+    async fn exec_initial_actions(&self, ctx: &RequestContext, session_context: &SessionContext) {
+        let SessionContext {
             client,
             proto_cache,
             ..
-        } = initialized_data;
+        } = session_context;
 
         let Some(user_id) = client.user_id() else {
             log::error!("Unable to retrieve user id after initial sync");
@@ -137,11 +138,11 @@ impl Session {
     async fn initial_sync(
         &mut self,
         ctx: &mut RequestContext,
-        initialized_data: &InitializedData,
+        session_context: &SessionContext,
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
-        self.sync_once(initialized_data)
+        self.sync_once(session_context)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
@@ -149,7 +150,7 @@ impl Session {
         log::debug!("Checking verification status");
 
         send_capabilities_event(ctx).await;
-        send_verification_status_event(ctx, &initialized_data.client).await?;
+        send_verification_status_event(ctx, &session_context.client).await?;
 
         Ok(())
     }
@@ -159,13 +160,16 @@ impl Session {
     async fn start_background_sync(
         mut self,
         ctx: RequestContext,
-        initialized_data: InitializedData,
+        session_context: SessionContext,
     ) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
             loop {
-                let result = self.sync_once(&initialized_data).await;
+                let result = self.sync_once(&session_context).await;
 
-                if let Err(err) = self.handle_sync_result(result, &initialized_data).await {
+                if let Err(err) = self
+                    .handle_sync_result(result, &session_context.client)
+                    .await
+                {
                     log::error!(
                         "Received an unrecoverable error during sync, stopping background sync"
                     );
@@ -179,25 +183,29 @@ impl Session {
         Ok(handle)
     }
 
-    async fn sync_once(&self, initialized_data: &InitializedData) -> matrix_sdk::Result<()> {
+    async fn sync_once(&self, session_context: &SessionContext) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
-        if let Some(token) = &initialized_data.proto_cache.sync_token() {
+        let SessionContext {
+            client,
+            proto_cache,
+            ..
+        } = session_context;
+
+        if let Some(token) = proto_cache.sync_token() {
             sync_settings = sync_settings.token(token);
         }
 
-        if let Some(user_status) = &initialized_data.proto_cache.user_status() {
+        if let Some(user_status) = proto_cache.user_status() {
             let presence_state = user_status.state.try_into().unwrap_or_default();
             let matrix_presence = user::chat_presence_state_to_matrix(presence_state)
                 .unwrap_or(ruma_common::presence::PresenceState::Online);
             sync_settings = sync_settings.set_presence(matrix_presence);
         }
 
-        let response = initialized_data.client.sync_once(sync_settings).await?;
+        let response = client.sync_once(sync_settings).await?;
 
-        initialized_data
-            .proto_cache
-            .set_sync_token(response.next_batch.clone());
+        proto_cache.set_sync_token(response.next_batch.clone());
 
         Ok(())
     }
@@ -205,7 +213,7 @@ impl Session {
     async fn handle_sync_result(
         &mut self,
         result: matrix_sdk::Result<()>,
-        initialized_data: &InitializedData,
+        client: &Client,
     ) -> Result<()> {
         use ruma_common::api::error::ErrorKind;
 
@@ -224,23 +232,21 @@ impl Session {
                 return Err(errors::convert_matrix_sdk_error(err));
             }
 
-            return self.refresh_access_token(initialized_data).await;
+            return self.refresh_access_token(client).await;
         }
 
         Err(errors::convert_matrix_sdk_error(err))
     }
 
-    async fn refresh_access_token(&mut self, initialized_data: &InitializedData) -> Result<()> {
+    async fn refresh_access_token(&mut self, client: &Client) -> Result<()> {
         log::info!("Refreshing access token");
 
-        initialized_data
-            .client
+        client
             .refresh_access_token()
             .await
             .map_err(errors::convert_refresh_token_error)?;
 
-        self.user_session = initialized_data
-            .client
+        self.user_session = client
             .matrix_auth()
             .session()
             .ok_or(errors::create_unknown("msg"))?;

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
 use gouda_core::Runner;
@@ -51,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_recv_unused, send) = connect_socket(&args.response_socket).await?;
 
     let client = MatrixClient::new();
-    let runner = Runner::new(Box::new(client), Box::new(recv), Box::new(send));
+    let runner = Runner::new(Arc::new(client), Box::new(recv), Box::new(send));
 
     runner.run().await.map(|_| ()).map_err(|err| err.into())
 }

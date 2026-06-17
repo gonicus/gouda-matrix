@@ -124,25 +124,25 @@ impl ProtoCache {
     }
 
     /// Caches the specified response content.
-    pub fn cache_response_content(&self, content: &ResponseContent) {
+    pub fn cache_response_content(&self, content: ResponseContent) {
         match content {
             ResponseContent::RoomListResponse(room_list) => {
-                self.cache_rooms(room_list.room_list.clone());
+                self.cache_rooms(room_list.room_list);
             }
             ResponseContent::RoomCreatedEvent(room) => {
-                self.cache_room(room.clone());
+                self.cache_room(room);
             }
             ResponseContent::RoomLeftEvent(event) => {
                 self.remove_room(&event.room_id);
             }
             ResponseContent::RoomChangeEvent(event) => {
-                self.update_room(event.clone());
+                self.update_room(event);
             }
             ResponseContent::UserResponse(user) => {
-                self.cache_user(user.clone());
+                self.cache_user(user);
             }
             ResponseContent::UserChangeEvent(event) => {
-                self.update_user(event.clone());
+                self.update_user(event);
             }
             _ => (),
         }
@@ -923,7 +923,7 @@ mod tests {
             room_list: rooms.clone(),
         });
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_rooms(), Some(rooms));
     }
@@ -940,7 +940,7 @@ mod tests {
 
         let response = ResponseContent::RoomCreatedEvent(room.clone());
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_rooms(), Some(vec![room]));
     }
@@ -962,7 +962,7 @@ mod tests {
 
         *cache.inner.cached_rooms.lock().unwrap() = Some(vec![room.clone()]);
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_rooms(), Some(vec![]));
     }
@@ -988,7 +988,7 @@ mod tests {
             ..Default::default()
         });
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_rooms(), Some(vec![updated_room]));
     }
@@ -1005,7 +1005,7 @@ mod tests {
 
         let response = ResponseContent::UserResponse(user.clone());
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_user("user-1"), Some(user));
     }
@@ -1031,7 +1031,7 @@ mod tests {
             ..Default::default()
         });
 
-        cache.cache_response_content(&response);
+        cache.cache_response_content(response);
 
         assert_eq!(cache.cached_user("user-1"), Some(user_updated));
     }
