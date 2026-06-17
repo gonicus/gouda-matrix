@@ -72,13 +72,8 @@ impl OutputWindow {
     }
 
     fn check_for_actions(&mut self) {
-        match self.receiver.try_recv() {
-            Ok(log) => self.add_log(log),
-            Err(err) => {
-                if matches!(err, mpsc::TryRecvError::Disconnected) {
-                    panic!("Response receiver disconnected");
-                }
-            }
+        while let Ok(log) = self.receiver.try_recv() {
+            self.add_log(log);
         }
     }
 
