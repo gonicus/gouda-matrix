@@ -140,7 +140,9 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
-        self.inner()?.cross_signing_select_method(ctx, request).await
+        self.inner()?
+            .cross_signing_select_method(ctx, request)
+            .await
     }
 
     async fn cross_signing_confirm(
@@ -326,11 +328,7 @@ impl SessionContext {
         )
         .await?;
 
-        let proto_cache = ProtoCache::new(
-            get_cache_dir(&data_root_dir),
-            encryption_secret,
-        )
-        .await;
+        let proto_cache = ProtoCache::new(get_cache_dir(&data_root_dir), encryption_secret).await;
 
         let media_manager = MediaManager::new(
             client.clone(),
@@ -396,7 +394,8 @@ impl MatrixClientInner {
             data_root_dir.clone(),
             request.encryption_secret.clone(),
             &request.persistent_storage_secret,
-        ).await?;
+        )
+        .await?;
 
         let obj = Self {
             session: RwLock::new(Arc::new(session)),
@@ -414,9 +413,12 @@ impl MatrixClientInner {
         if obj.get_auth_file().exists() {
             match obj.restore_session(ctx).await {
                 Ok(()) => {
-                    return Ok((obj, StatusUpdate {
-                        code: status_update::StatusCode::LoggedIn as i32,
-                    }))
+                    return Ok((
+                        obj,
+                        StatusUpdate {
+                            code: status_update::StatusCode::LoggedIn as i32,
+                        },
+                    ))
                 }
                 Err(err) => log::error!("Error restoring session: {err:?}"),
             }
@@ -427,9 +429,7 @@ impl MatrixClientInner {
         };
 
         Ok((obj, status))
-
     }
-
 }
 
 impl MatrixClientInner {
@@ -489,7 +489,8 @@ impl MatrixClientInner {
             self.data_root_dir.clone(),
             self.encryption_secret.clone(),
             &self.database_secret,
-        ).await?;
+        )
+        .await?;
 
         let mut writer = self.session.write().unwrap();
         *writer = Arc::new(session);
@@ -512,8 +513,7 @@ impl MatrixClientInner {
             session.user_session.meta.user_id
         );
 
-        self
-            .session()?
+        self.session()?
             .client
             .restore_session(session.user_session.clone())
             .await
@@ -521,12 +521,14 @@ impl MatrixClientInner {
 
         let session_context = self.session()?;
 
-        session.sync(
-            ctx.clone(),
-            (*session_context).clone(),
-        ).await?;
+        session
+            .sync(ctx.clone(), (*session_context).clone())
+            .await?;
 
-        log::info!("Successfully restored session as {:?}", session_context.client.user_id());
+        log::info!(
+            "Successfully restored session as {:?}",
+            session_context.client.user_id()
+        );
 
         Ok(())
     }
@@ -680,10 +682,9 @@ impl MatrixClientInner {
 
         session.save().await?;
 
-        session.sync(
-            ctx.clone(),
-            (*session_context).clone(),
-        ).await?;
+        session
+            .sync(ctx.clone(), (*session_context).clone())
+            .await?;
 
         Ok(StatusUpdate {
             code: status_update::StatusCode::LoggedIn as i32,
@@ -751,10 +752,7 @@ impl MatrixClientInner {
                 return;
             }
 
-            let result = session.sync(
-                ctx.clone(),
-                session_context
-            ).await;
+            let result = session.sync(ctx.clone(), session_context).await;
 
             if let Err(err) = result {
                 ctx.send_error(err).await;
@@ -813,8 +811,7 @@ impl MatrixClientInner {
             ));
         };
 
-        let user_identity =
-            client
+        let user_identity = client
             .encryption()
             .get_user_identity(user_id)
             .await
@@ -853,7 +850,9 @@ impl MatrixClientInner {
         } = request;
 
         let mut guard = self.verification_requests.lock().unwrap();
-        let manager = guard.iter_mut().find(|p| p.flow_id() == verification_flow_id);
+        let manager = guard
+            .iter_mut()
+            .find(|p| p.flow_id() == verification_flow_id);
 
         let Some(manager) = manager else {
             return Err(errors::create_error_msg(
@@ -883,7 +882,9 @@ impl MatrixClientInner {
         } = request;
 
         let mut guard = self.verification_requests.lock().unwrap();
-        let manager = guard.iter_mut().find(|p| p.flow_id() == verification_flow_id);
+        let manager = guard
+            .iter_mut()
+            .find(|p| p.flow_id() == verification_flow_id);
 
         let Some(manager) = manager else {
             return Err(errors::create_error_msg(
@@ -909,7 +910,9 @@ impl MatrixClientInner {
         } = request;
 
         let mut guard = self.verification_requests.lock().unwrap();
-        let position = guard.iter().position(|p| p.flow_id() == verification_flow_id);
+        let position = guard
+            .iter()
+            .position(|p| p.flow_id() == verification_flow_id);
 
         if let Some(index) = position {
             let manager = guard.swap_remove(index);
@@ -935,10 +938,7 @@ impl MatrixClientInner {
 
         let session = self.session()?;
 
-        let user_manager = UserManager::from_session(
-            ctx,
-            session.as_ref(),
-        );
+        let user_manager = UserManager::from_session(ctx, session.as_ref());
 
         user_manager.get_and_sync_user(user_id).await
     }
@@ -951,9 +951,13 @@ impl MatrixClientInner {
         let UserSearchRequest { query, limit } = request;
 
         let session = self.session()?;
-        let SessionContext { client, media_manager, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            media_manager,
+            ..
+        } = session.as_ref();
 
-        let user_list =             client
+        let user_list = client
             .search_users(&query, limit as u64)
             .await
             .map_err(errors::convert_http_error)?;
@@ -978,7 +982,11 @@ impl MatrixClientInner {
         use matrix_sdk::ruma::api::client::presence::set_presence::v3::Request;
 
         let session = self.session()?;
-        let SessionContext { client, proto_cache, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            proto_cache,
+            ..
+        } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             debug_assert_or_log!(false, "User ID not set");
@@ -1031,8 +1039,7 @@ impl MatrixClientInner {
             filter: filter,
         });
 
-        let result =
-            client
+        let result = client
             .public_rooms_filtered(request)
             .await
             .map_err(errors::convert_http_error)?;
@@ -1077,7 +1084,11 @@ impl MatrixClientInner {
 
     async fn invitation_reply(&self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
         let session = self.session()?;
-        let SessionContext { client, media_manager, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            media_manager,
+            ..
+        } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             log::error!("Error retrieving the user ID of the current user");
@@ -1125,11 +1136,7 @@ impl MatrixClientInner {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
         };
 
-        let room_manager = rooms::RoomManager::from_session(
-            ctx,
-            session.as_ref(),
-        );
-
+        let room_manager = rooms::RoomManager::from_session(ctx, session.as_ref());
         let room_list = room_manager.get_and_sync_rooms().await?;
 
         let mut result = Vec::new();
@@ -1162,7 +1169,11 @@ impl MatrixClientInner {
         request: RoomCreateGroupRequest,
     ) -> Result<Room> {
         let session = self.session()?;
-        let SessionContext { client, media_manager, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            media_manager,
+            ..
+        } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1191,8 +1202,7 @@ impl MatrixClientInner {
             .map_err(errors::convert_matrix_sdk_error)?;
 
         if let Some(avatar_path) = avatar_path {
-            let result =
-                media_manager
+            let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
                 .await
                 .map_err(|_| errors::create_unknown("Error uploading room avatar"));
@@ -1211,7 +1221,11 @@ impl MatrixClientInner {
         request: RoomCreateDirectRequest,
     ) -> Result<Room> {
         let session = self.session()?;
-        let SessionContext { client, media_manager, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            media_manager,
+            ..
+        } = session.as_ref();
 
         let Some(our_user_id) = client.user_id() else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1322,7 +1336,11 @@ impl MatrixClientInner {
 
     async fn join_room(&self, _ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
         let session = self.session()?;
-        let SessionContext { client, media_manager, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            media_manager,
+            ..
+        } = session.as_ref();
 
         let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
             return Err(errors::create_unknown("Unable to retrieve user_id"));
@@ -1331,8 +1349,7 @@ impl MatrixClientInner {
         let room_id = RoomId::parse(&request.room_id)
             .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-        let room =
-            client
+        let room = client
             .join_room_by_id(&room_id)
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
@@ -1349,7 +1366,7 @@ impl MatrixClientInner {
         let room_id =
             RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
-client
+        client
             .knock(room_id.into(), message, Vec::new())
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
@@ -1389,8 +1406,7 @@ client
             limit,
         };
 
-        let mut stream =
-            memory_cache
+        let mut stream = memory_cache
             .fetch_messages(room, query_options)
             .await
             .map_err(errors::convert_memory_cache_error)?;
@@ -1602,7 +1618,11 @@ client
         } = request;
 
         let session = self.session()?;
-        let SessionContext { client, memory_cache, .. } = session.as_ref();
+        let SessionContext {
+            client,
+            memory_cache,
+            ..
+        } = session.as_ref();
 
         let room = self.get_matrix_room(&room_id).await?;
 

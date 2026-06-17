@@ -100,7 +100,9 @@ impl Session {
         self.initial_sync(&mut ctx, &session_context).await?;
         self.exec_initial_actions(&ctx, &session_context).await;
 
-        session_context.event_manager.setup_event_handlers(&session_context.client);
+        session_context
+            .event_manager
+            .setup_event_handlers(&session_context.client);
 
         self.start_background_sync(ctx, session_context).await?;
 
@@ -109,7 +111,11 @@ impl Session {
 
     /// Executes all actions required after the initial sync.
     async fn exec_initial_actions(&self, ctx: &RequestContext, session_context: &SessionContext) {
-        let SessionContext { client, proto_cache, .. } = session_context;
+        let SessionContext {
+            client,
+            proto_cache,
+            ..
+        } = session_context;
 
         let Some(user_id) = client.user_id() else {
             log::error!("Unable to retrieve user id after initial sync");
@@ -132,7 +138,7 @@ impl Session {
     async fn initial_sync(
         &mut self,
         ctx: &mut RequestContext,
-        session_context: &SessionContext
+        session_context: &SessionContext,
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
@@ -154,13 +160,16 @@ impl Session {
     async fn start_background_sync(
         mut self,
         ctx: RequestContext,
-        session_context: SessionContext
+        session_context: SessionContext,
     ) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
             loop {
                 let result = self.sync_once(&session_context).await;
 
-                if let Err(err) = self.handle_sync_result(result, &session_context.client).await {
+                if let Err(err) = self
+                    .handle_sync_result(result, &session_context.client)
+                    .await
+                {
                     log::error!(
                         "Received an unrecoverable error during sync, stopping background sync"
                     );
@@ -177,7 +186,11 @@ impl Session {
     async fn sync_once(&self, session_context: &SessionContext) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
-        let SessionContext { client, proto_cache, ..} = session_context;
+        let SessionContext {
+            client,
+            proto_cache,
+            ..
+        } = session_context;
 
         if let Some(token) = proto_cache.sync_token() {
             sync_settings = sync_settings.token(token);

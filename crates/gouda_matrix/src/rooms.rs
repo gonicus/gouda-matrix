@@ -32,10 +32,7 @@ pub struct RoomManager {
 }
 
 impl RoomManager {
-    pub fn from_session(
-        context: RequestContext,
-        session: &SessionContext,
-    ) -> Self {
+    pub fn from_session(context: RequestContext, session: &SessionContext) -> Self {
         Self {
             context,
             client: session.client.clone(),
