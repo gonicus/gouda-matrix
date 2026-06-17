@@ -34,6 +34,12 @@ const MEDIA_DIR: &str = "media";
 const CACHE_DIR: &str = "cache";
 const AUTH_FILE: &str = "auth";
 
+macro_rules! try_lock {
+    ($lock_result:expr) => {{
+        $lock_result.map_err(|_| errors::create_unknown("lock poisoined"))?
+    }};
+}
+
 pub struct MatrixClient {
     inner: OnceCell<MatrixClientInner>,
 }
@@ -473,7 +479,7 @@ impl MatrixClientInner {
         )
         .await?;
 
-        let mut writer = self.session.write().unwrap();
+        let mut writer = try_lock!(self.session.write());
         *writer = Arc::new(session);
 
         log::info!("Successfully reset session");
@@ -548,14 +554,16 @@ impl MatrixClientInner {
 
     /// Caches the given identity providers.
     /// This will overwrite existing ones.
-    fn cache_idps(&self, idps: Vec<String>) {
-        let mut guard = self.cached_idps.lock().unwrap();
+    fn cache_idps(&self, idps: Vec<String>) -> Result<()> {
+        let mut guard = try_lock!(self.cached_idps.lock());
         *guard = Some(idps);
+        Ok(())
     }
 
     /// Gets the currently cached identity providers, if any.
-    fn get_cached_idps(&self) -> Option<Vec<String>> {
-        self.cached_idps.lock().unwrap().clone()
+    fn get_cached_idps(&self) -> Result<Option<Vec<String>>> {
+        let lock = try_lock!(self.cached_idps.lock());
+        Ok(lock.clone())
     }
 
     /// Gets the absolute path to the directory where session data is stored.
@@ -575,7 +583,7 @@ impl MatrixClientInner {
 
     /// Gets the absolute path to the file where authentication for the
     /// current session is stored.
-    /// This includes auth tokens as well as referesh tokens.
+    /// This includes auth tokens as well as refresh tokens.
     fn get_auth_file(&self) -> PathBuf {
         self.get_session_dir().join(AUTH_FILE)
     }
@@ -583,20 +591,22 @@ impl MatrixClientInner {
     /// Gets the session context.
     /// Only returns an error when the session lock is poisoined.
     fn session(&self) -> Result<Arc<SessionContext>> {
-        let reader = self.session.read().unwrap();
+        let reader = try_lock!(self.session.read());
         Ok((*reader).clone())
     }
 
     /// Pushes a new ongoing verification flow to the managed verification flows.
-    fn push_verification_request(&self, manager: VerificationManager) {
-        let mut guard = self.verification_requests.lock().unwrap();
+    fn push_verification_request(&self, manager: VerificationManager) -> Result<()> {
+        let mut guard = try_lock!(self.verification_requests.lock());
         guard.push(manager);
+        Ok(())
     }
 
     /// Removes all finished verification requests.
-    fn cleanup_verifications(&self) {
-        let mut guard = self.verification_requests.lock().unwrap();
+    fn cleanup_verifications(&self) -> Result<()> {
+        let mut guard = try_lock!(self.verification_requests.lock());
         guard.retain(|f| f.is_active());
+        Ok(())
     }
 }
 
@@ -639,7 +649,7 @@ impl MatrixClientInner {
                         .map(|f| f.id.to_owned())
                         .collect();
 
-                    self.cache_idps(idps);
+                    self.cache_idps(idps)?;
 
                     response.push_login_flows(login_flows_response::LoginFlow::Sso)
                 }
@@ -655,21 +665,19 @@ impl MatrixClientInner {
         ctx: RequestContext,
     ) -> Result<IdentityProvidersResponse> {
         // Check if the idps have been retrieved before
-        if let Some(idps) = self.get_cached_idps() {
+        if let Some(idps) = self.get_cached_idps()? {
             return Ok(IdentityProvidersResponse {
                 identity_providers: idps,
             });
         }
 
         // We can use the `Self::get_login_flows` method to retrieve the idps as it saves
-        // them to the cache.
-        // This method would ultimately only fetch the login flows too.
+        // them to the cache. This method would ultimately only fetch the login flows too.
         let _ = self.get_login_flows(ctx).await?;
 
         // If there is still nothing in the cache, no idps are available or single sign-on
-        // is not supported
-        // by the server. In this case we can just return an empty list.
-        let idps = self.get_cached_idps().unwrap_or_default();
+        // is not supported by the server. In this case we can just return an empty list.
+        let idps = self.get_cached_idps()?.unwrap_or_default();
 
         Ok(IdentityProvidersResponse {
             identity_providers: idps,
@@ -828,7 +836,7 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: CrossSigningStartRequest,
     ) -> Result<CrossSigningStartResponse> {
-        self.cleanup_verifications();
+        self.cleanup_verifications()?;
 
         let session = self.session()?;
         let SessionContext { client, .. } = session.as_ref();
@@ -858,7 +866,7 @@ impl MatrixClientInner {
         let verification_flow_id = request.flow_id().to_owned();
         let manager = VerificationManager::from_verification_request(ctx, request);
 
-        self.push_verification_request(manager);
+        self.push_verification_request(manager)?;
 
         Ok(CrossSigningStartResponse {
             verification_flow_id,
@@ -870,14 +878,14 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> Result<()> {
-        self.cleanup_verifications();
+        self.cleanup_verifications()?;
 
         let CrossSigningMethodSelectedRequest {
             verification_flow_id,
             selected_method,
         } = request;
 
-        let mut guard = self.verification_requests.lock().unwrap();
+        let mut guard = try_lock!(self.verification_requests.lock());
         let manager = guard
             .iter_mut()
             .find(|p| p.flow_id() == verification_flow_id);
@@ -903,13 +911,13 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: CrossSigningConfirmRequest,
     ) -> Result<()> {
-        self.cleanup_verifications();
+        self.cleanup_verifications()?;
 
         let CrossSigningConfirmRequest {
             verification_flow_id,
         } = request;
 
-        let mut guard = self.verification_requests.lock().unwrap();
+        let mut guard = try_lock!(self.verification_requests.lock());
         let manager = guard
             .iter_mut()
             .find(|p| p.flow_id() == verification_flow_id);
@@ -931,13 +939,13 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
-        self.cleanup_verifications();
+        self.cleanup_verifications()?;
 
         let VerificationAbortRequest {
             verification_flow_id,
         } = request;
 
-        let mut guard = self.verification_requests.lock().unwrap();
+        let mut guard = try_lock!(self.verification_requests.lock());
         let position = guard
             .iter()
             .position(|p| p.flow_id() == verification_flow_id);
