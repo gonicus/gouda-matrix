@@ -38,6 +38,12 @@ pub struct MatrixClient {
     inner: OnceCell<MatrixClientInner>,
 }
 
+impl Default for MatrixClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MatrixClient {
     pub fn new() -> Self {
         Self {
@@ -663,11 +669,7 @@ impl MatrixClientInner {
         // If there is still nothing in the cache, no idps are available or single sign-on
         // is not supported
         // by the server. In this case we can just return an empty list.
-        let idps = if let Some(idps) = self.get_cached_idps() {
-            idps
-        } else {
-            Vec::new()
-        };
+        let idps = self.get_cached_idps().unwrap_or_default();
 
         Ok(IdentityProvidersResponse {
             identity_providers: idps,
@@ -1238,7 +1240,7 @@ impl MatrixClientInner {
             }
         }
 
-        Ok(rooms::convert_to_proto(media_manager, room, user_id).await?)
+        rooms::convert_to_proto(media_manager, room, user_id).await
     }
 
     async fn create_direct_room(
@@ -1279,7 +1281,7 @@ impl MatrixClientInner {
             }
         }
 
-        Ok(rooms::convert_to_proto(media_manager, room, our_user_id).await?)
+        rooms::convert_to_proto(media_manager, room, our_user_id).await
     }
 
     async fn change_room(
@@ -1380,7 +1382,7 @@ impl MatrixClientInner {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        Ok(rooms::convert_to_proto(media_manager, room, &user_id).await?)
+        rooms::convert_to_proto(media_manager, room, &user_id).await
     }
 
     async fn knock_room(&self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
