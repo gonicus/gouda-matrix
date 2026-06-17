@@ -45,6 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     setup_logging(&args);
 
+    log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
+
     log::info!("Socket for incoming requests: '{}'", args.request_socket);
     log::info!("Socket for outgoing responses: '{}'", args.response_socket);
 
