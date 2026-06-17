@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use std::sync::Mutex;
 
 use gouda_proto::chat::*;
