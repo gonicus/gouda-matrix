@@ -877,7 +877,7 @@ impl CachedRoom {
 
     /// Caches the given reaction.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn cache_reaction(
+    fn cache_reaction(
         &self,
         message_id: String,
         reaction_id: String,
@@ -899,7 +899,7 @@ impl CachedRoom {
 
     /// Removes the given reaction by id.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
+    fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
         log::debug!("Removing cached reaction by ID {reaction_id:?}");
 
         let Some(message_id) = self.reaction_id_to_message_id(reaction_id)? else {
@@ -933,7 +933,7 @@ impl CachedRoom {
 
     /// Removes the given reaction by user and emoji.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_reaction_by_emoji(
+    fn remove_reaction_by_emoji(
         &self,
         message_id: &str,
         user_id: &str,
