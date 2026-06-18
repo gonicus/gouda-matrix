@@ -68,6 +68,7 @@ pub enum Action {
     ChangeMessage(Box<MessageChangeRequest>),
     CreateReaction(Box<Reaction>),
     RemoveReaction(Box<Reaction>),
+    GetMessage(Box<MessageRequest>),
 }
 
 impl Action {
@@ -109,6 +110,7 @@ impl Action {
             Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
             Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
             Self::RemoveReaction(request) => run_remove_reaction(tag, sender, *request),
+            Self::GetMessage(request) => run_get_message(tag, sender, *request),
         }
     }
 }
@@ -146,6 +148,7 @@ impl InputUi for Action {
             Self::ChangeMessage(request) => request.update(ui),
             Self::CreateReaction(request) => request.update(ui),
             Self::RemoveReaction(request) => request.update(ui),
+            Self::GetMessage(request) => request.update(ui),
         }
     }
 }
@@ -240,3 +243,4 @@ impl_run!(
 );
 impl_run!(run_create_reaction, CreateReactionRequest, Reaction);
 impl_run!(run_remove_reaction, RemoveReactionRequest, Reaction);
+impl_run!(run_get_message, MessageRequest, MessageRequest);

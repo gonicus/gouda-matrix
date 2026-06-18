@@ -138,5 +138,9 @@
     "message_id": "<MESSAGE_ID>",
     "reaction": "🫪",
     "user_id": null
+  },
+  "get-message": {
+    "room_id": "<ROOM_ID>",
+    "message_id": "<MESSAGE_ID>"
   }
 }

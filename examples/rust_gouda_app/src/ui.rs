@@ -449,3 +449,10 @@ impl InputUi for Reaction {
         input_attribute!(self, ui, user_id);
     }
 }
+
+impl InputUi for MessageRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        input_attribute!(self, ui, room_id);
+        input_attribute!(self, ui, message_id);
+    }
+}
