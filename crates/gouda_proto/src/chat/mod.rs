@@ -211,6 +211,52 @@ mod tests {
     }
 
     #[test]
+    fn test_room_change_event_update_into_room_empty_display_name() {
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let mut room = Room::default();
+        room.room_id = "room-1".to_owned();
+        room.display_name = Some("Old Display Name".to_string());
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_room_empty_avatar_path() {
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let mut room = Room::default();
+        room.room_id = "room-1".to_owned();
+        room.avatar_path = Some("old-avatar.png".to_string());
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+
+    #[test]
     fn test_user_change_event_update_into_user() {
         let status = Some(UserStatus {
             state: UserRoomState::Invited.into(),
