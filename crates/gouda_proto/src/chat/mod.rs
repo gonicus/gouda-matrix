@@ -187,7 +187,7 @@ mod tests {
             unread_count: Some(5),
             join_rule: Some(RoomJoinRule::Public.into()),
             is_direct: Some(true),
-            permissions: permissions.clone(),
+            permissions,
             avatar_path: Some("avatar.png".to_string()),
             is_favorite: Some(true),
         };
@@ -206,8 +206,10 @@ mod tests {
             is_favorite: true,
         };
 
-        let mut room = Room::default();
-        room.room_id = "room-1".to_owned();
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            ..Default::default()
+        };
 
         event.update_into_room(&mut room);
 
@@ -228,9 +230,11 @@ mod tests {
             ..Default::default()
         };
 
-        let mut room = Room::default();
-        room.room_id = "room-1".to_owned();
-        room.display_name = Some("Old Display Name".to_string());
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Old Display Name".to_string()),
+            ..Default::default()
+        };
 
         event.update_into_room(&mut room);
 
@@ -251,9 +255,11 @@ mod tests {
             ..Default::default()
         };
 
-        let mut room = Room::default();
-        room.room_id = "room-1".to_owned();
-        room.avatar_path = Some("old-avatar.png".to_string());
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: Some("old-avatar.png".to_string()),
+            ..Default::default()
+        };
 
         event.update_into_room(&mut room);
 
@@ -278,11 +284,13 @@ mod tests {
             user_id: "user-1".to_owned(),
             avatar_path: Some("avatar.png".to_owned()),
             display_name: Some("User 1".to_owned()),
-            status: status,
+            status,
         };
 
-        let mut user = User::default();
-        user.user_id = "user-1".to_owned();
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            ..Default::default()
+        };
 
         event.update_into_user(&mut user);
 
@@ -303,9 +311,11 @@ mod tests {
             ..Default::default()
         };
 
-        let mut user = User::default();
-        user.user_id = "user-1".to_owned();
-        user.display_name = Some("Old Display Name".to_string());
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("Old Display Name".to_string()),
+            ..Default::default()
+        };
 
         event.update_into_user(&mut user);
 
@@ -326,9 +336,11 @@ mod tests {
             ..Default::default()
         };
 
-        let mut user = User::default();
-        user.user_id = "user-1".to_owned();
-        user.avatar_path = Some("old-avatar".to_string());
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("old-avatar".to_string()),
+            ..Default::default()
+        };
 
         event.update_into_user(&mut user);
 

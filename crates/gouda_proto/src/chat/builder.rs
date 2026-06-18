@@ -313,7 +313,7 @@ mod tests {
             typing_user_id_list: None,
             display_name: Some("Room 2".to_owned()),
             unread_count: Some(6),
-            join_rule: Some(RoomJoinRule::Invite.into()),
+            join_rule: Some(RoomJoinRule::Invite),
             is_direct: Some(false),
             permissions: Some(RoomPermissions {
                 can_edit: false,
@@ -391,7 +391,7 @@ mod tests {
             typing_user_id_list: Some(vec!["user-1".to_owned()]),
             display_name: Some("Room 2".to_owned()),
             unread_count: Some(6),
-            join_rule: Some(RoomJoinRule::Invite.into()),
+            join_rule: Some(RoomJoinRule::Invite),
             is_direct: Some(false),
             permissions: Some(RoomPermissions {
                 can_edit: false,
