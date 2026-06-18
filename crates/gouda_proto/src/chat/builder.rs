@@ -260,6 +260,8 @@ impl MessageChangeEventBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test]
@@ -557,6 +559,50 @@ mod tests {
         let builder = UserChangeEventBuilder::new("user-id".to_string());
         let expected = UserChangeEvent {
             user_id: "user-id".to_owned(),
+            ..Default::default()
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_message_change_event_builder_to_proto() {
+        let builder = MessageChangeEventBuilder {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            is_pinned: Some(true),
+            is_encrypted: Some(false),
+            mentioned_user_ids: Some(vec!["user-1".to_owned(), "user-2".to_owned()]),
+            content: Some(message_change_event::Content::Text(MessageContentText {
+                content: "new content".to_owned(),
+            })),
+        };
+
+        let expected = MessageChangeEvent {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            is_pinned: Some(true),
+            is_encrypted: Some(false),
+            has_mentioned_user_ids_changed: true,
+            mentioned_user_ids: vec!["user-1".to_owned(), "user-2".to_owned()],
+            content: Some(message_change_event::Content::Text(MessageContentText {
+                content: "new content".to_owned(),
+            })),
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_message_change_event_builder_to_proto_no_changes() {
+        let builder = MessageChangeEventBuilder::new("room-id".to_owned(), "message-id".to_owned());
+        let expected = MessageChangeEvent {
+            room_id: "room-id".to_owned(),
+            message_id: "message-id".to_owned(),
             ..Default::default()
         };
 
