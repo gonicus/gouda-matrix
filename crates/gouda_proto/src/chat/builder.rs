@@ -15,6 +15,7 @@ pub struct RoomChangeEventBuilder {
     permissions: Option<RoomPermissions>,
     avatar_path: Option<String>,
     is_favourite: Option<bool>,
+    room_settings: Option<RoomSettings>,
 }
 
 impl RoomChangeEventBuilder {
@@ -58,6 +59,10 @@ impl RoomChangeEventBuilder {
 
         if old.is_favorite != new.is_favorite {
             obj = obj.change_is_favourite(new.is_favorite);
+        }
+
+        if old.room_settings != new.room_settings {
+            obj = obj.change_room_settings(new.room_settings.unwrap_or_default());
         }
 
         obj
@@ -108,6 +113,11 @@ impl RoomChangeEventBuilder {
         self
     }
 
+    pub fn change_room_settings(mut self, room_settings: RoomSettings) -> Self {
+        self.room_settings = Some(room_settings);
+        self
+    }
+
     pub fn to_proto(self) -> RoomChangeEvent {
         let mut event = RoomChangeEvent {
             room_id: self.room_id,
@@ -122,6 +132,7 @@ impl RoomChangeEventBuilder {
             permissions: self.permissions,
             avatar_path: self.avatar_path,
             is_favorite: self.is_favourite,
+            room_settings: self.room_settings,
         };
 
         if let Some(user_id_list) = self.user_id_list {

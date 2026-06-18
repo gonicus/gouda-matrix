@@ -172,6 +172,8 @@ pub async fn convert_to_proto(
         .and_then(|e| e.timestamp())
         .map(|t| t.0.into());
 
+    // TODO: Implement Room::room_settings
+
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -184,6 +186,7 @@ pub async fn convert_to_proto(
         latest_message_timestamp,
         avatar_path: media_manager.get_room_avatar_path(&room).await,
         is_favorite: room.is_favourite(),
+        room_settings: Some(RoomSettings::default()),
     })
 }
 

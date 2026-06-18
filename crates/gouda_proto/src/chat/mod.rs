@@ -84,11 +84,9 @@ impl Default for message_change_event::Content {
 impl From<message::Content> for message_change_event::Content {
     fn from(value: message::Content) -> Self {
         match value {
-            message::Content::AudioFile(a) => Self::AudioFile(a),
             message::Content::Image(i) => Self::Image(i),
             message::Content::MembershipChange(c) => Self::MembershipChange(c),
             message::Content::Text(t) => Self::Text(t),
-            message::Content::VideoFile(v) => Self::VideoFile(v),
             message::Content::File(f) => Self::File(f),
         }
     }
@@ -134,6 +132,10 @@ impl RoomChangeEvent {
 
         if let Some(is_favorite) = self.is_favorite {
             room.is_favorite = is_favorite;
+        }
+
+        if let Some(settings) = self.room_settings {
+            room.room_settings = Some(settings);
         }
     }
 }

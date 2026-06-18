@@ -180,6 +180,19 @@ impl RequestProcessor {
                 self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
                     .await;
             }
+            RequestContent::GlobalSettingsRequest(_) => {
+                // TODO: Implement GlobalSettingsRequest
+                self.send_result(
+                    tag,
+                    Err(Error {
+                        r#type: ErrorType::NotImplemented.into(),
+                        error_string: Some(
+                            "MessageRequest is currently not implemented".to_owned(),
+                        ),
+                    }),
+                )
+                .await;
+            }
             RequestContent::UserRequest(request) => {
                 let result = self.client.get_user(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::UserResponse))
@@ -1597,6 +1610,7 @@ mod tests {
             permissions: None,
             avatar_path: None,
             is_favorite: None,
+            room_settings: None,
         };
 
         let client = ClientMock::new().invite_response(Ok(response.clone()));
@@ -1764,6 +1778,7 @@ mod tests {
                     latest_message_timestamp: None,
                     avatar_path: None,
                     is_favorite: false,
+                    room_settings: None,
                 },
                 Room {
                     room_id: "room-2".to_owned(),
@@ -1780,6 +1795,7 @@ mod tests {
                     latest_message_timestamp: None,
                     avatar_path: None,
                     is_favorite: false,
+                    room_settings: None,
                 },
             ],
         };
@@ -1874,6 +1890,7 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: None,
             is_favorite: false,
+            room_settings: None,
         };
 
         let client = ClientMock::new().create_group_room_response(Ok(response.clone()));
@@ -1966,6 +1983,7 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: None,
             is_favorite: false,
+            room_settings: None,
         };
 
         let client = ClientMock::new().create_direct_room_response(Ok(response.clone()));
@@ -2059,6 +2077,7 @@ mod tests {
             permissions: None,
             avatar_path: None,
             is_favorite: None,
+            room_settings: None,
         };
 
         let client = ClientMock::new().change_room_response(Ok(response.clone()));
@@ -2232,6 +2251,7 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: None,
             is_favorite: false,
+            room_settings: None,
         };
 
         let client = ClientMock::new().join_room_response(Ok(response.clone()));
@@ -2469,6 +2489,7 @@ mod tests {
             permissions: None,
             avatar_path: None,
             is_favorite: None,
+            room_settings: None,
         };
 
         let client = ClientMock::new().mark_as_read_response(Ok(response.clone()));

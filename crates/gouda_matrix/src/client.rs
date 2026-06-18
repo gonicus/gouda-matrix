@@ -1530,12 +1530,6 @@ impl MatrixClientInner {
             Content::File(content) => {
                 messages::send_file_message(media_manager, room, related_message_id, content).await
             }
-            Content::AudioFile(content) => {
-                messages::send_audio_message(media_manager, room, related_message_id, content).await
-            }
-            Content::VideoFile(content) => {
-                messages::send_video_message(media_manager, room, related_message_id, content).await
-            }
         }
     }
 
@@ -1601,12 +1595,6 @@ impl MatrixClientInner {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }
             Content::File(_) => {
-                return Err(errors::create_error(ErrorType::NotImplemented));
-            }
-            Content::AudioFile(_) => {
-                return Err(errors::create_error(ErrorType::NotImplemented));
-            }
-            Content::VideoFile(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
             }
         };

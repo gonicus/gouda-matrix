@@ -278,8 +278,6 @@ impl InputUi for message_send_request::Content {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
         };
 
         ui.vertical(|ui| {
@@ -295,8 +293,6 @@ impl InputUi for message_send_request::Content {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -312,8 +308,6 @@ impl InputUi for message_change_event::Content {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
             Self::MembershipChange(_) => "MembershipChange",
         };
 
@@ -331,8 +325,6 @@ impl InputUi for message_change_event::Content {
                 Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
                 Self::MembershipChange(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -348,8 +340,6 @@ impl InputUi for message_change_request::Content {
             Self::Text(_) => "Text",
             Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
         };
 
         ui.vertical(|ui| {
@@ -365,8 +355,6 @@ impl InputUi for message_change_request::Content {
                 Self::Text(content) => content.update(ui),
                 Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -389,20 +377,6 @@ impl InputUi for MessageContentImage {
 }
 
 impl InputUi for MessageContentFile {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, file_path);
-        input_attribute!(self, ui, file_name);
-    }
-}
-
-impl InputUi for MessageContentVideo {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, file_path);
-        input_attribute!(self, ui, file_name);
-    }
-}
-
-impl InputUi for MessageContentAudio {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, file_path);
         input_attribute!(self, ui, file_name);
