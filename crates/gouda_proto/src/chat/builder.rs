@@ -323,4 +323,115 @@ mod tests {
 
         assert_eq!(result, expected);
     }
+
+    #[test]
+    fn test_room_change_event_builder_compare_rooms_empty_display_name() {
+        let old = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Old display name".to_owned()),
+            ..Default::default()
+        };
+
+        let new = Room {
+            room_id: "room-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let expected = RoomChangeEventBuilder {
+            room_id: "room-1".to_string(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let result = RoomChangeEventBuilder::compare_rooms(&old, &new);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_builder_compare_rooms_empty_avatar_path() {
+        let old = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: Some("avatar".to_owned()),
+            ..Default::default()
+        };
+
+        let new = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let expected = RoomChangeEventBuilder {
+            room_id: "room-1".to_string(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let result = RoomChangeEventBuilder::compare_rooms(&old, &new);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_build_to_proto() {
+        let builder = RoomChangeEventBuilder {
+            room_id: "room-1".to_string(),
+            user_id_list: Some(HashMap::from([(
+                "user-2".to_string(),
+                PresenceState::Online.into(),
+            )])),
+            typing_user_id_list: Some(vec!["user-1".to_owned()]),
+            display_name: Some("Room 2".to_owned()),
+            unread_count: Some(6),
+            join_rule: Some(RoomJoinRule::Invite.into()),
+            is_direct: Some(false),
+            permissions: Some(RoomPermissions {
+                can_edit: false,
+                can_invite: true,
+                can_kick: false,
+                can_ban: true,
+            }),
+            avatar_path: Some("avatar-2.png".to_string()),
+            is_favourite: Some(false),
+        };
+
+        let expected = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            has_user_id_list_changed: true,
+            user_id_list: HashMap::from([("user-2".to_string(), PresenceState::Online.into())]),
+            has_typing_user_id_list_changed: true,
+            typing_user_id_list: vec!["user-1".to_owned()],
+            display_name: Some("Room 2".to_owned()),
+            unread_count: Some(6),
+            join_rule: Some(RoomJoinRule::Invite.into()),
+            is_direct: Some(false),
+            permissions: Some(RoomPermissions {
+                can_edit: false,
+                can_invite: true,
+                can_kick: false,
+                can_ban: true,
+            }),
+            avatar_path: Some("avatar-2.png".to_string()),
+            is_favorite: Some(false),
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_build_to_proto_no_changes() {
+        let builder = RoomChangeEventBuilder::new("room-id".to_string());
+        let expected = RoomChangeEvent {
+            room_id: "room-id".to_owned(),
+            ..Default::default()
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
 }
