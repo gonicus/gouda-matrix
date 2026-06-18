@@ -298,23 +298,26 @@ mod tests {
             is_favorite: false,
         };
 
-        let expected = RoomChangeEventBuilder::new("room-1")
-            .change_user_id_list(HashMap::from([(
+        let expected = RoomChangeEventBuilder {
+            room_id: "room-1".to_string(),
+            user_id_list: Some(HashMap::from([(
                 "user-2".to_string(),
                 PresenceState::Online.into(),
-            )]))
-            .change_display_name("Room 2".to_owned())
-            .change_unread_count(6)
-            .change_join_rule(RoomJoinRule::Invite.into())
-            .change_is_direct(false)
-            .change_permissions(RoomPermissions {
+            )])),
+            typing_user_id_list: None,
+            display_name: Some("Room 2".to_owned()),
+            unread_count: Some(6),
+            join_rule: Some(RoomJoinRule::Invite.into()),
+            is_direct: Some(false),
+            permissions: Some(RoomPermissions {
                 can_edit: false,
                 can_invite: true,
                 can_kick: false,
                 can_ban: true,
-            })
-            .change_avatar_path("avatar-2.png".to_string())
-            .change_is_favourite(false);
+            }),
+            avatar_path: Some("avatar-2.png".to_string()),
+            is_favourite: Some(false),
+        };
 
         let result = RoomChangeEventBuilder::compare_rooms(&old, &new);
 
