@@ -162,12 +162,7 @@ impl InputWindow {
                     RemoveReaction,
                     self.config.remove_reaction.clone()
                 );
-                ui_action!(
-                    self,
-                    ui,
-                    GetMessage,
-                    self.config.get_message.clone()
-                );
+                ui_action!(self, ui, GetMessage, self.config.get_message.clone());
             });
     }
 }
