@@ -209,4 +209,33 @@ mod tests {
 
         assert_eq!(room, expected);
     }
+
+    #[test]
+    fn test_user_change_event_update_into_user() {
+        let status = Some(UserStatus {
+            state: UserRoomState::Invited.into(),
+            status_message: Some("hello world!".to_owned()),
+        });
+
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("avatar.png".to_owned()),
+            display_name: Some("User 1".to_owned()),
+            status: status.clone(),
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("avatar.png".to_owned()),
+            display_name: Some("User 1".to_owned()),
+            status: status,
+        };
+
+        let mut user = User::default();
+        user.user_id = "user-1".to_owned();
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
+    }
 }
