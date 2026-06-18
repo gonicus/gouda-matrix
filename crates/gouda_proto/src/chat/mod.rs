@@ -155,5 +155,195 @@ impl UserChangeEvent {
                 user.avatar_path = Some(avatar_path);
             }
         }
+
+        if let Some(status) = self.status {
+            user.status = Some(status);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn test_room_change_event_update_into_room() {
+        let permissions = Some(RoomPermissions {
+            can_edit: true,
+            can_invite: false,
+            can_kick: true,
+            can_ban: false,
+        });
+
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            has_user_id_list_changed: true,
+            has_typing_user_id_list_changed: true,
+            user_id_list: HashMap::from([("user-1".to_string(), PresenceState::Online.into())]),
+            typing_user_id_list: vec!["user-2".to_string()],
+            display_name: Some("Room 1".to_string()),
+            unread_count: Some(5),
+            join_rule: Some(RoomJoinRule::Public.into()),
+            is_direct: Some(true),
+            permissions,
+            avatar_path: Some("avatar.png".to_string()),
+            is_favorite: Some(true),
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            user_id_list: HashMap::from([("user-1".to_string(), PresenceState::Online.into())]),
+            space_id: Vec::new(),
+            unread_count: 5,
+            is_direct: true,
+            join_rule: RoomJoinRule::Public.into(),
+            permissions,
+            latest_message_timestamp: None,
+            avatar_path: Some("avatar.png".to_string()),
+            is_favorite: true,
+        };
+
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            ..Default::default()
+        };
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_room_empty_display_name() {
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Old Display Name".to_string()),
+            ..Default::default()
+        };
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_room_empty_avatar_path() {
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let mut room = Room {
+            room_id: "room-1".to_owned(),
+            avatar_path: Some("old-avatar.png".to_string()),
+            ..Default::default()
+        };
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_update_into_user() {
+        let status = Some(UserStatus {
+            state: UserRoomState::Invited.into(),
+            status_message: Some("hello world!".to_owned()),
+        });
+
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("avatar.png".to_owned()),
+            display_name: Some("User 1".to_owned()),
+            status: status.clone(),
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("avatar.png".to_owned()),
+            display_name: Some("User 1".to_owned()),
+            status,
+        };
+
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            ..Default::default()
+        };
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_user_empty_display_name() {
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("Old Display Name".to_string()),
+            ..Default::default()
+        };
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_user_empty_avatar_path() {
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let mut user = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("old-avatar".to_string()),
+            ..Default::default()
+        };
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
     }
 }
