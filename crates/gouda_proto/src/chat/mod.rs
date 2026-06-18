@@ -157,3 +157,56 @@ impl UserChangeEvent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn test_room_change_event_update_into_room() {
+        let permissions = Some(RoomPermissions {
+            can_edit: true,
+            can_invite: false,
+            can_kick: true,
+            can_ban: false,
+        });
+
+        let event = RoomChangeEvent {
+            room_id: "room-1".to_owned(),
+            has_user_id_list_changed: true,
+            has_typing_user_id_list_changed: true,
+            user_id_list: HashMap::from([("user-1".to_string(), PresenceState::Online.into())]),
+            typing_user_id_list: vec!["user-2".to_string()],
+            display_name: Some("Room 1".to_string()),
+            unread_count: Some(5),
+            join_rule: Some(RoomJoinRule::Public.into()),
+            is_direct: Some(true),
+            permissions: permissions.clone(),
+            avatar_path: Some("avatar.png".to_string()),
+            is_favorite: Some(true),
+        };
+
+        let expected = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            user_id_list: HashMap::from([("user-1".to_string(), PresenceState::Online.into())]),
+            space_id: Vec::new(),
+            unread_count: 5,
+            is_direct: true,
+            join_rule: RoomJoinRule::Public.into(),
+            permissions,
+            latest_message_timestamp: None,
+            avatar_path: Some("avatar.png".to_string()),
+            is_favorite: true,
+        };
+
+        let mut room = Room::default();
+        room.room_id = "room-1".to_owned();
+
+        event.update_into_room(&mut room);
+
+        assert_eq!(room, expected);
+    }
+}
