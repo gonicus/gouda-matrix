@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::*;
 
 /// Builder to easily create a `RoomChangeEvent` with desired changes.
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct RoomChangeEventBuilder {
     room_id: String,
     user_id_list: Option<HashMap<String, i32>>,
@@ -139,7 +139,7 @@ impl RoomChangeEventBuilder {
 }
 
 /// Builder to easily create a `UserChangeEvent` with desired changes.
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct UserChangeEventBuilder {
     user_id: String,
     status: Option<UserStatus>,
@@ -195,7 +195,7 @@ impl UserChangeEventBuilder {
 }
 
 /// Builder to easily create a `MessageChangeEvent` with desired changes.
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct MessageChangeEventBuilder {
     room_id: String,
     message_id: String,
@@ -251,5 +251,65 @@ impl MessageChangeEventBuilder {
         }
 
         event
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_room_change_event_builder_compare_rooms() {
+        let old = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 1".to_owned()),
+            user_id_list: HashMap::from([("user-1".to_string(), PresenceState::Online.into())]),
+            space_id: Vec::new(),
+            unread_count: 5,
+            is_direct: true,
+            join_rule: RoomJoinRule::Public.into(),
+            permissions: Some(RoomPermissions {
+                can_edit: true,
+                can_invite: false,
+                can_kick: true,
+                can_ban: false,
+            }),
+            latest_message_timestamp: None,
+            avatar_path: Some("avatar-1.png".to_string()),
+            is_favorite: true,
+        };
+
+        let new = Room {
+            room_id: "room-1".to_owned(),
+            display_name: Some("Room 2".to_owned()),
+            user_id_list: HashMap::from([("user-2".to_string(), PresenceState::Online.into())]),
+            space_id: Vec::new(),
+            unread_count: 6,
+            is_direct: false,
+            join_rule: RoomJoinRule::Invite.into(),
+            permissions: Some(RoomPermissions {
+                can_edit: false,
+                can_invite: true,
+                can_kick: false,
+                can_ban: true,
+            }),
+            latest_message_timestamp: None,
+            avatar_path: Some("avatar-2.png".to_string()),
+            is_favorite: false,
+        };
+
+        let expected = RoomChangeEventBuilder::new("room-1")
+            .change_user_id_list(HashMap::from([("user-2".to_string(), PresenceState::Online.into())]))
+            .change_display_name("Room 2".to_owned())
+            .change_unread_count(6)
+            .change_join_rule(RoomJoinRule::Invite.into())
+            .change_is_direct(false)
+            .change_permissions(RoomPermissions { can_edit: false, can_invite: true, can_kick: false, can_ban: true })
+            .change_avatar_path("avatar-2.png".to_string())
+            .change_is_favourite(false);
+
+        let result = RoomChangeEventBuilder::compare_rooms(&old, &new);
+
+        assert_eq!(result, expected);
     }
 }
