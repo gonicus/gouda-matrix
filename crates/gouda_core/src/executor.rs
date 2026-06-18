@@ -289,7 +289,8 @@ impl RequestProcessor {
             }
             RequestContent::MessageRequest(request) => {
                 let result = self.client.get_message(ctx, request).await;
-                self.send_result(tag, result.map(ResponseContent::MessageReceivedEvent)).await;
+                self.send_result(tag, result.map(ResponseContent::MessageReceivedEvent))
+                    .await;
             }
         }
     }

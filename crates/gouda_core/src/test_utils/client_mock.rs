@@ -835,7 +835,11 @@ impl Client for ClientMock {
         self.remove_reaction_response.lock().unwrap().clone().into()
     }
 
-    async fn get_message(&self, ctx: RequestContext, _request: MessageRequest) -> crate::Result<Message> {
+    async fn get_message(
+        &self,
+        ctx: RequestContext,
+        _request: MessageRequest,
+    ) -> crate::Result<Message> {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.get_message_call_count.lock().unwrap() += 1;
         self.get_message_response.lock().unwrap().clone().into()
