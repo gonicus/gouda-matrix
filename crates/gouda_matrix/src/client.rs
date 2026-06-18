@@ -305,6 +305,10 @@ impl ClientAbstraction for MatrixClient {
         self.inner()?.remove_reaction(ctx, request).await
     }
 
+    async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
+        self.inner()?.get_message(ctx, request).await
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -370,9 +374,12 @@ impl SessionContext {
 
 struct MatrixClientInner {
     /// The context of the session.
+    /// NOTE: The lock should primarily be used only for reading and cloning the
+    /// inner Arc. Writing to the RwLock should only occur when creating a new [`SessionContext`].
+    /// Use [`method@Self::session`] for acquiring a lock.
     session: RwLock<Arc<SessionContext>>,
 
-    /// Contains cached identity providers. The idps are cached when `Self::get_login_flows`
+    /// Contains cached identity providers. The idps are cached when [`Self::get_login_flows`]
     /// is called, as this method already retrieves the available idps.
     cached_idps: Mutex<Option<Vec<String>>>,
     /// The current active verification processes.
@@ -539,9 +546,9 @@ impl MatrixClientInner {
 
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
-    async fn get_matrix_room(&self, room_id: &str) -> Result<matrix_sdk::Room> {
-        let room_id =
-            RoomId::parse(room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+    async fn get_matrix_room(&self, room_id: impl AsRef<str>) -> Result<matrix_sdk::Room> {
+        let room_id = RoomId::parse(room_id.as_ref())
+            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
 
         let room = self
             .session()?
@@ -1692,6 +1699,57 @@ impl MatrixClientInner {
             .await;
 
         Ok(())
+    }
+
+    async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
+        use memory_cache::{CachedRoom, CachedRoomAction};
+
+        let session = self.session()?;
+        let SessionContext { media_manager, .. } = &*session;
+
+        let MessageRequest {
+            room_id,
+            message_id,
+        } = request;
+
+        let event_id = EventId::parse(message_id)
+            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
+
+        let room = self.get_matrix_room(&room_id).await?;
+
+        let (event, relations) = room
+            .load_or_fetch_event_with_relations(&event_id, None, None)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        let cached_room = CachedRoom::new(ctx, media_manager.clone(), room);
+
+        // First, cache all the relations to the room.
+        for relation in relations {
+            if let Err(err) = cached_room.process_timeline_event(relation).await {
+                log::warn!("Unable to apply relation of requested message: {err}");
+            }
+        }
+
+        // And build the final message afterwards.
+        let result = cached_room
+            .process_timeline_event(event)
+            .await
+            .map_err(|_| errors::create_unknown("Unable to build message from requested event"))?;
+
+        let Some(action) = result else {
+            return Err(errors::create_unknown(
+                "Unable to build message from requested event",
+            ));
+        };
+
+        let CachedRoomAction::Message(message) = action else {
+            return Err(errors::create_unknown(
+                "Unable to build message from requested event",
+            ));
+        };
+
+        Ok(message)
     }
 }
 

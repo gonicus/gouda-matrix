@@ -371,14 +371,14 @@ struct CachedEncryptedEvent {
 
 /// An action that was executed when processing an event.
 #[derive(Debug)]
-enum CachedRoomAction {
+pub enum CachedRoomAction {
     /// A message could be build from the event.
     Message(Message),
     /// A reaction could be build from the event.
     Reaction(ReactionMetadata),
 }
 
-struct CachedRoom {
+pub struct CachedRoom {
     /// The context to use to send update events to the application.
     ctx: RequestContext,
     /// The media manager to use to download message attachments.
@@ -387,10 +387,10 @@ struct CachedRoom {
     room: Room,
 
     /// The messages we have cached.
-    pub messages: Mutex<HashMap<String, CachedMessage>>,
+    messages: Mutex<HashMap<String, CachedMessage>>,
     /// Events that we could not decrypt and that were sent to the application
     /// as an encrypted message.
-    pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
+    encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
 
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
