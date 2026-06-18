@@ -283,6 +283,12 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
+    /// Gets a single message by its ID.
+    #[allow(unused_variables)]
+    async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
+        not_implemented_error()
+    }
+
     /// This method is currently used only for testing purposes to downcast a `dyn Client`.
     /// Implement this method as follows:
     /// ```ignore

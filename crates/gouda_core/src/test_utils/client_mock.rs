@@ -135,6 +135,9 @@ pub struct ClientMock {
 
     remove_reaction_response: Mutex<Result<()>>,
     remove_reaction_call_count: Mutex<u32>,
+
+    get_message_response: Mutex<Result<Message>>,
+    get_message_call_count: Mutex<u32>,
 }
 
 impl ClientMock {
@@ -490,6 +493,17 @@ impl ClientMock {
     pub fn assert_remove_reaction_called_n(&self, n: u32) {
         assert!(*self.remove_reaction_call_count.lock().unwrap() == n);
     }
+
+    /// The response [`Self::get_message`] should return.
+    pub fn get_message_response(mut self, response: crate::Result<Message>) -> Self {
+        self.get_message_response = Mutex::new(response.into());
+        self
+    }
+
+    /// Assert [`Self::get_message`] was called `n` times.
+    pub fn assert_get_message_called_n(&self, n: u32) {
+        assert!(*self.get_message_call_count.lock().unwrap() == n);
+    }
 }
 
 #[async_trait::async_trait]
@@ -819,6 +833,12 @@ impl Client for ClientMock {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.remove_reaction_call_count.lock().unwrap() += 1;
         self.remove_reaction_response.lock().unwrap().clone().into()
+    }
+
+    async fn get_message(&self, ctx: RequestContext, _request: MessageRequest) -> crate::Result<Message> {
+        *self.received_ctx.lock().unwrap() = Some(ctx);
+        *self.get_message_call_count.lock().unwrap() += 1;
+        self.get_message_response.lock().unwrap().clone().into()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
