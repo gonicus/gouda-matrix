@@ -155,6 +155,10 @@ impl UserChangeEvent {
                 user.avatar_path = Some(avatar_path);
             }
         }
+
+        if let Some(status) = self.status {
+            user.status = Some(status);
+        }
     }
 }
 
@@ -279,6 +283,52 @@ mod tests {
 
         let mut user = User::default();
         user.user_id = "user-1".to_owned();
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_user_empty_display_name() {
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let mut user = User::default();
+        user.user_id = "user-1".to_owned();
+        user.display_name = Some("Old Display Name".to_string());
+
+        event.update_into_user(&mut user);
+
+        assert_eq!(user, expected);
+    }
+
+    #[test]
+    fn test_room_change_event_update_into_user_empty_avatar_path() {
+        let event = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let expected = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let mut user = User::default();
+        user.user_id = "user-1".to_owned();
+        user.avatar_path = Some("old-avatar".to_string());
 
         event.update_into_user(&mut user);
 
