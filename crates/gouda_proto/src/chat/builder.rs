@@ -166,6 +166,10 @@ impl UserChangeEventBuilder {
             obj = obj.change_avatar_path(new.avatar_path.clone().unwrap_or_default());
         }
 
+        if old.status != new.status {
+            obj = obj.change_status(new.status.clone().unwrap_or_default());
+        }
+
         obj
     }
 
@@ -375,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn test_room_change_event_build_to_proto() {
+    fn test_room_change_event_builder_to_proto() {
         let builder = RoomChangeEventBuilder {
             room_id: "room-1".to_string(),
             user_id_list: Some(HashMap::from([(
@@ -423,10 +427,136 @@ mod tests {
     }
 
     #[test]
-    fn test_room_change_event_build_to_proto_no_changes() {
+    fn test_room_change_event_builder_to_proto_no_changes() {
         let builder = RoomChangeEventBuilder::new("room-id".to_string());
         let expected = RoomChangeEvent {
             room_id: "room-id".to_owned(),
+            ..Default::default()
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_builder_compare_users() {
+        let old = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 1".to_owned()),
+            avatar_path: Some("avatar-1.png".to_string()),
+            status: Some(UserStatus {
+                state: UserRoomState::Knocked.into(),
+                status_message: Some("hello-world".to_owned()),
+            }),
+        };
+
+        let new = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 2".to_owned()),
+            avatar_path: Some("avatar-2.png".to_string()),
+            status: Some(UserStatus {
+                state: UserRoomState::Knocked.into(),
+                status_message: Some("hello-world 2".to_owned()),
+            }),
+        };
+        let expected = UserChangeEventBuilder {
+            user_id: "user-1".to_string(),
+            display_name: Some("User 2".to_owned()),
+            avatar_path: Some("avatar-2.png".to_string()),
+            status: Some(UserStatus {
+                state: UserRoomState::Knocked.into(),
+                status_message: Some("hello-world 2".to_owned()),
+            }),
+        };
+
+        let result = UserChangeEventBuilder::compare_users(&old, &new);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_builder_compare_users_empty_display_name() {
+        let old = User {
+            user_id: "user-1".to_owned(),
+            display_name: Some("Old display name".to_owned()),
+            ..Default::default()
+        };
+
+        let new = User {
+            user_id: "user-1".to_owned(),
+            display_name: None,
+            ..Default::default()
+        };
+
+        let expected = UserChangeEventBuilder {
+            user_id: "user-1".to_string(),
+            display_name: Some(String::new()),
+            ..Default::default()
+        };
+
+        let result = UserChangeEventBuilder::compare_users(&old, &new);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_builder_compare_users_empty_avatar_path() {
+        let old = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: Some("avatar".to_owned()),
+            ..Default::default()
+        };
+
+        let new = User {
+            user_id: "user-1".to_owned(),
+            avatar_path: None,
+            ..Default::default()
+        };
+
+        let expected = UserChangeEventBuilder {
+            user_id: "user-1".to_string(),
+            avatar_path: Some(String::new()),
+            ..Default::default()
+        };
+
+        let result = UserChangeEventBuilder::compare_users(&old, &new);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_builder_to_proto() {
+        let builder = UserChangeEventBuilder {
+            user_id: "user-1".to_string(),
+            display_name: Some("User 2".to_owned()),
+            avatar_path: Some("avatar-2.png".to_string()),
+            status: Some(UserStatus {
+                state: UserRoomState::Banned.into(),
+                status_message: Some("Hello world".to_owned()),
+            }),
+        };
+
+        let expected = UserChangeEvent {
+            user_id: "user-1".to_owned(),
+            display_name: Some("User 2".to_owned()),
+            avatar_path: Some("avatar-2.png".to_string()),
+            status: Some(UserStatus {
+                state: UserRoomState::Banned.into(),
+                status_message: Some("Hello world".to_owned()),
+            }),
+        };
+
+        let result = builder.to_proto();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_user_change_event_builder_to_proto_no_changes() {
+        let builder = UserChangeEventBuilder::new("user-id".to_string());
+        let expected = UserChangeEvent {
+            user_id: "user-id".to_owned(),
             ..Default::default()
         };
 
