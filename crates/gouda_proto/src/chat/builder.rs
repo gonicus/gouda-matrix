@@ -299,12 +299,20 @@ mod tests {
         };
 
         let expected = RoomChangeEventBuilder::new("room-1")
-            .change_user_id_list(HashMap::from([("user-2".to_string(), PresenceState::Online.into())]))
+            .change_user_id_list(HashMap::from([(
+                "user-2".to_string(),
+                PresenceState::Online.into(),
+            )]))
             .change_display_name("Room 2".to_owned())
             .change_unread_count(6)
             .change_join_rule(RoomJoinRule::Invite.into())
             .change_is_direct(false)
-            .change_permissions(RoomPermissions { can_edit: false, can_invite: true, can_kick: false, can_ban: true })
+            .change_permissions(RoomPermissions {
+                can_edit: false,
+                can_invite: true,
+                can_kick: false,
+                can_ban: true,
+            })
             .change_avatar_path("avatar-2.png".to_string())
             .change_is_favourite(false);
 
