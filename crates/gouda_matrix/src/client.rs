@@ -1496,6 +1496,19 @@ impl MatrixClientInner {
         )
     }
 
+    async fn activate_typing_notice(
+        &self,
+        _ctx: RequestContext,
+        request: RoomTypingRequest,
+    ) -> Result<()> {
+        let RoomTypingRequest { room_id } = request;
+
+        let room = self.get_matrix_room(&room_id).await?;
+        room.typing_notice(true).await.map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
+    }
+
     async fn send_message(
         &self,
         _ctx: RequestContext,
