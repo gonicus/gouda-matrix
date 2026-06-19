@@ -272,6 +272,12 @@ impl InputUi for RoomMarkAsReadRequest {
     }
 }
 
+impl InputUi for RoomTypingRequest {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        input_attribute!(self, ui, room_id);
+    }
+}
+
 impl InputUi for message_send_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {

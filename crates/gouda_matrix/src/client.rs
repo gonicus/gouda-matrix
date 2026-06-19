@@ -1512,7 +1512,9 @@ impl MatrixClientInner {
         let RoomTypingRequest { room_id } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
-        room.typing_notice(true).await.map_err(errors::convert_matrix_sdk_error)?;
+        room.typing_notice(true)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
 
         Ok(())
     }
