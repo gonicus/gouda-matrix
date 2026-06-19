@@ -96,7 +96,7 @@ impl MemoryCache {
     pub async fn fetch_message(
         &self,
         room: Room,
-        event_id: impl Into<OwnedEventId>
+        event_id: impl Into<OwnedEventId>,
     ) -> Result<Message> {
         self.inner.fetch_message(room, event_id.into()).await
     }
@@ -199,11 +199,7 @@ impl MemoryCacheInner {
         Ok(ReceiverStream::new(rx))
     }
 
-    pub async fn fetch_message(
-        &self,
-        room: Room,
-        event_id: OwnedEventId,
-    ) -> Result<Message> {
+    pub async fn fetch_message(&self, room: Room, event_id: OwnedEventId) -> Result<Message> {
         let room = self.get_or_create_room(room)?;
         MessageFetcher::new(room, event_id).run().await
     }
@@ -1186,7 +1182,9 @@ impl MessageFetcher {
     }
 
     pub async fn run(self) -> Result<Message> {
-        let (event, relations) = self.cache.room
+        let (event, relations) = self
+            .cache
+            .room
             .load_or_fetch_event_with_relations(&self.event_id, None, None)
             .await?;
 

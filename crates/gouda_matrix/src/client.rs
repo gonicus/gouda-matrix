@@ -1697,7 +1697,8 @@ impl MatrixClientInner {
 
         let room = self.get_matrix_room(&room_id).await?;
 
-        memory_cache.fetch_message(room, event_id)
+        memory_cache
+            .fetch_message(room, event_id)
             .await
             .map_err(errors::convert_memory_cache_error)
     }
