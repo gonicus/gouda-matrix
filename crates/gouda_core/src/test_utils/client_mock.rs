@@ -666,7 +666,11 @@ impl Client for ClientMock {
     ) -> crate::Result<GlobalSettings> {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.get_global_settings_call_count.lock().unwrap() += 1;
-        self.get_global_settings_response.lock().unwrap().clone().into()
+        self.get_global_settings_response
+            .lock()
+            .unwrap()
+            .clone()
+            .into()
     }
 
     async fn get_user(&self, ctx: RequestContext, _request: UserRequest) -> crate::Result<User> {
@@ -838,7 +842,11 @@ impl Client for ClientMock {
     ) -> crate::Result<()> {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.activate_typing_notice_call_count.lock().unwrap() += 1;
-        self.activate_typing_notice_response.lock().unwrap().clone().into()
+        self.activate_typing_notice_response
+            .lock()
+            .unwrap()
+            .clone()
+            .into()
     }
 
     async fn send_message(
@@ -883,7 +891,11 @@ impl Client for ClientMock {
         self.remove_reaction_response.lock().unwrap().clone().into()
     }
 
-    async fn get_message(&self, ctx: RequestContext, _request: MessageRequest) -> crate::Result<Message> {
+    async fn get_message(
+        &self,
+        ctx: RequestContext,
+        _request: MessageRequest,
+    ) -> crate::Result<Message> {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.get_message_call_count.lock().unwrap() += 1;
         self.get_message_response.lock().unwrap().clone().into()
