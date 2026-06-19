@@ -303,7 +303,7 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
-    /// Gets a single message of a room.
+    /// Gets a single message of a room by it's ID.
     #[allow(unused_variables)]
     async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
         not_implemented_error()

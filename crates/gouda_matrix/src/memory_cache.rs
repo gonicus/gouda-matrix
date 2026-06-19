@@ -47,6 +47,9 @@ pub enum MemoryCacheError {
     #[error("cache lock poisoined")]
     CachePoisoined,
 
+    #[error("unable to assemble a requested message")]
+    UnableToAssembleMessage,
+
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
 }
@@ -87,6 +90,15 @@ impl MemoryCache {
         options: QueryOptions,
     ) -> Result<ReceiverStream<Result<Message>>> {
         self.inner.fetch_messages(room, options).await
+    }
+
+    /// Fetches an assembles a single message of a room.
+    pub async fn fetch_message(
+        &self,
+        room: Room,
+        event_id: impl Into<OwnedEventId>,
+    ) -> Result<Message> {
+        self.inner.fetch_message(room, event_id.into()).await
     }
 
     /// Retries to decrypt previously unencryptable events.
@@ -179,12 +191,17 @@ impl MemoryCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            MessageFetcher::new(room, tx, options.limit, from_token)
+            MessagesFetcher::new(room, tx, options.limit, from_token)
                 .run()
                 .await;
         });
 
         Ok(ReceiverStream::new(rx))
+    }
+
+    pub async fn fetch_message(&self, room: Room, event_id: OwnedEventId) -> Result<Message> {
+        let room = self.get_or_create_room(room)?;
+        MessageFetcher::new(room, event_id).run().await
     }
 
     pub async fn retry_encrypted_events(&self, room_id: String, session_id: String) -> Result<()> {
@@ -387,10 +404,10 @@ struct CachedRoom {
     room: Room,
 
     /// The messages we have cached.
-    pub messages: Mutex<HashMap<String, CachedMessage>>,
+    messages: Mutex<HashMap<String, CachedMessage>>,
     /// Events that we could not decrypt and that were sent to the application
     /// as an encrypted message.
-    pub encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
+    encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
 
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
@@ -877,7 +894,7 @@ impl CachedRoom {
 
     /// Caches the given reaction.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn cache_reaction(
+    fn cache_reaction(
         &self,
         message_id: String,
         reaction_id: String,
@@ -899,7 +916,7 @@ impl CachedRoom {
 
     /// Removes the given reaction by id.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
+    fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
         log::debug!("Removing cached reaction by ID {reaction_id:?}");
 
         let Some(message_id) = self.reaction_id_to_message_id(reaction_id)? else {
@@ -933,7 +950,7 @@ impl CachedRoom {
 
     /// Removes the given reaction by user and emoji.
     /// Only returns an error when the cache lock is poisoined.
-    pub fn remove_reaction_by_emoji(
+    fn remove_reaction_by_emoji(
         &self,
         message_id: &str,
         user_id: &str,
@@ -1017,7 +1034,8 @@ impl CachedRoom {
     }
 }
 
-struct MessageFetcher {
+/// Fetches multiple messages of a room.
+struct MessagesFetcher {
     /// The room to use to fetch messages.
     cache: Arc<CachedRoom>,
 
@@ -1035,7 +1053,7 @@ struct MessageFetcher {
     retrieved_messages: u32,
 }
 
-impl MessageFetcher {
+impl MessagesFetcher {
     pub fn new(
         cache: Arc<CachedRoom>,
         sender: Sender<Result<Message>>,
@@ -1144,6 +1162,49 @@ impl MessageFetcher {
         self.retrieved_messages += 1;
 
         Ok(())
+    }
+}
+
+/// Fetches a single message of a room.
+struct MessageFetcher {
+    /// The room to use to fetch the requested message.
+    cache: Arc<CachedRoom>,
+    /// The message to fetch.
+    event_id: OwnedEventId,
+}
+
+impl MessageFetcher {
+    pub fn new(room: Arc<CachedRoom>, event_id: OwnedEventId) -> Self {
+        Self {
+            cache: room,
+            event_id,
+        }
+    }
+
+    pub async fn run(self) -> Result<Message> {
+        let (event, relations) = self
+            .cache
+            .room
+            .load_or_fetch_event_with_relations(&self.event_id, None, None)
+            .await?;
+
+        // First, cache all relations of the message.
+        for relation in relations {
+            self.cache.process_timeline_event(relation).await?;
+        }
+
+        // And apply the original message event afterwards.
+        let result = self.cache.process_timeline_event(event).await?;
+
+        let Some(action) = result else {
+            return Err(MemoryCacheError::UnableToAssembleMessage);
+        };
+
+        let CachedRoomAction::Message(message) = action else {
+            return Err(MemoryCacheError::UnableToAssembleMessage);
+        };
+
+        Ok(message)
     }
 }
 
