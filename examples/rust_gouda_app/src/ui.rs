@@ -276,7 +276,6 @@ impl InputUi for message_send_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
         };
 
@@ -285,13 +284,11 @@ impl InputUi for message_send_request::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
             }
         });
@@ -306,7 +303,6 @@ impl InputUi for message_change_event::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
             Self::MembershipChange(_) => "MembershipChange",
         };
@@ -316,13 +312,11 @@ impl InputUi for message_change_event::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
                 Self::MembershipChange(content) => content.update(ui),
             }
@@ -338,7 +332,6 @@ impl InputUi for message_change_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
         };
 
@@ -347,13 +340,11 @@ impl InputUi for message_change_request::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
             }
         });
@@ -367,12 +358,6 @@ impl InputUi for message_change_request::Content {
 impl InputUi for MessageContentText {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, content);
-    }
-}
-
-impl InputUi for MessageContentImage {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, image_path);
     }
 }
 

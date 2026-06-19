@@ -294,6 +294,9 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: Some("avatar-1.png".to_string()),
             is_favorite: true,
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::AllMessages.into()),
+            }),
         };
 
         let new = Room {
@@ -313,6 +316,9 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: Some("avatar-2.png".to_string()),
             is_favorite: false,
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::Mute.into()),
+            }),
         };
 
         let expected = RoomChangeEventBuilder {
@@ -334,6 +340,9 @@ mod tests {
             }),
             avatar_path: Some("avatar-2.png".to_string()),
             is_favourite: Some(false),
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::Mute.into()),
+            }),
         };
 
         let result = RoomChangeEventBuilder::compare_rooms(&old, &new);
@@ -412,6 +421,9 @@ mod tests {
             }),
             avatar_path: Some("avatar-2.png".to_string()),
             is_favourite: Some(false),
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::Mute.into()),
+            }),
         };
 
         let expected = RoomChangeEvent {
@@ -432,6 +444,9 @@ mod tests {
             }),
             avatar_path: Some("avatar-2.png".to_string()),
             is_favorite: Some(false),
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::Mute.into()),
+            }),
         };
 
         let result = builder.to_proto();

@@ -272,6 +272,19 @@ impl RequestProcessor {
                 self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
                     .await;
             }
+            RequestContent::RoomTypingRequest(_) => {
+                // TODO: Implement RoomTypingRequest
+                self.send_result(
+                    tag,
+                    Err(Error {
+                        r#type: ErrorType::NotImplemented.into(),
+                        error_string: Some(
+                            "RoomTypingRequest is currently not implemented".to_owned(),
+                        ),
+                    }),
+                )
+                .await;
+            }
             RequestContent::MessageSendRequest(request) => {
                 let result = self.client.send_message(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::MessageSendResponse))

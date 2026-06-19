@@ -84,7 +84,6 @@ impl Default for message_change_event::Content {
 impl From<message::Content> for message_change_event::Content {
     fn from(value: message::Content) -> Self {
         match value {
-            message::Content::Image(i) => Self::Image(i),
             message::Content::MembershipChange(c) => Self::MembershipChange(c),
             message::Content::Text(t) => Self::Text(t),
             message::Content::File(f) => Self::File(f),
@@ -192,6 +191,9 @@ mod tests {
             permissions,
             avatar_path: Some("avatar.png".to_string()),
             is_favorite: Some(true),
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::AllMessages.into()),
+            }),
         };
 
         let expected = Room {
@@ -206,6 +208,9 @@ mod tests {
             latest_message_timestamp: None,
             avatar_path: Some("avatar.png".to_string()),
             is_favorite: true,
+            room_settings: Some(RoomSettings {
+                notification_setting: Some(NotificationSetting::AllMessages.into()),
+            }),
         };
 
         let mut room = Room {

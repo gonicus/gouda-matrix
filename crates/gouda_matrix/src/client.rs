@@ -1524,9 +1524,6 @@ impl MatrixClientInner {
                 messages::send_text_message(room, related_message_id, mentioned_user_ids, content)
                     .await
             }
-            Content::Image(content) => {
-                messages::send_image_message(media_manager, room, related_message_id, content).await
-            }
             Content::File(content) => {
                 messages::send_file_message(media_manager, room, related_message_id, content).await
             }
@@ -1590,9 +1587,6 @@ impl MatrixClientInner {
                 }
 
                 event
-            }
-            Content::Image(_) => {
-                return Err(errors::create_error(ErrorType::NotImplemented));
             }
             Content::File(_) => {
                 return Err(errors::create_error(ErrorType::NotImplemented));
