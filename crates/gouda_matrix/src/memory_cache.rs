@@ -1193,7 +1193,7 @@ impl MessageFetcher {
             self.cache.process_timeline_event(relation).await?;
         }
 
-        // And apply the orginal message event afterwards.
+        // And apply the original message event afterwards.
         let result = self.cache.process_timeline_event(event).await?;
 
         let Some(action) = result else {
