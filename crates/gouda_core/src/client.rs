@@ -111,6 +111,16 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
+    /// Gets the global settings of the user.
+    #[allow(unused_variables)]
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        not_implemented_error()
+    }
+
     /// Gets a single user.
     #[allow(unused_variables)]
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
@@ -241,6 +251,16 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
+    /// Active typing notice for the current user in the specified room.
+    #[allow(unused_variables)]
+    async fn activate_typing_notice(
+        &self,
+        ctx: RequestContext,
+        request: RoomTypingRequest,
+    ) -> Result<()> {
+        not_implemented_error()
+    }
+
     /// Send a message to a room.
     #[allow(unused_variables)]
     async fn send_message(
@@ -283,7 +303,7 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
-    /// Gets a single message by its ID.
+    /// Gets a single message of a room by it's ID.
     #[allow(unused_variables)]
     async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
         not_implemented_error()

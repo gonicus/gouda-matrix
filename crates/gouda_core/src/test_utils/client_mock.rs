@@ -76,6 +76,9 @@ pub struct ClientMock {
     abort_verification_response: Mutex<Result<VerificationEndEvent>>,
     abort_verification_call_count: Mutex<u32>,
 
+    get_global_settings_response: Mutex<Result<GlobalSettings>>,
+    get_global_settings_call_count: Mutex<u32>,
+
     get_user_response: Mutex<Result<User>>,
     get_user_call_count: Mutex<u32>,
 
@@ -120,6 +123,9 @@ pub struct ClientMock {
 
     mark_as_read_response: Mutex<Result<RoomChangeEvent>>,
     mark_as_read_call_count: Mutex<u32>,
+
+    activate_typing_notice_response: Mutex<Result<()>>,
+    activate_typing_notice_call_count: Mutex<u32>,
 
     send_message_response: Mutex<Result<MessageSendResponse>>,
     send_message_call_count: Mutex<u32>,
@@ -269,6 +275,17 @@ impl ClientMock {
     /// Assert [`Self::abort_verification`] was called `n` times.
     pub fn assert_abort_verification_called_n(&self, n: u32) {
         assert!(*self.abort_verification_call_count.lock().unwrap() == n);
+    }
+
+    /// The response [`Self::get_global_settings`] should return.
+    pub fn get_global_settings_response(mut self, response: crate::Result<GlobalSettings>) -> Self {
+        self.get_global_settings_response = Mutex::new(response.into());
+        self
+    }
+
+    /// Assert [`Self::get_global_settings`] was called `n` times.
+    pub fn assert_get_global_settings_called_n(&self, n: u32) {
+        assert!(*self.get_global_settings_call_count.lock().unwrap() == n);
     }
 
     /// The response [`Self::get_user`] should return.
@@ -437,6 +454,17 @@ impl ClientMock {
     /// Assert [`Self::mark_as_read`] was called `n` times.
     pub fn assert_mark_as_read_called_n(&self, n: u32) {
         assert!(*self.mark_as_read_call_count.lock().unwrap() == n);
+    }
+
+    /// The response [`Self::activate_typing_notice`] should return.
+    pub fn activate_typing_notice_response(mut self, response: crate::Result<()>) -> Self {
+        self.activate_typing_notice_response = Mutex::new(response.into());
+        self
+    }
+
+    /// Assert [`Self::activate_typing_notice`] was called `n` times.
+    pub fn assert_activate_typing_notice_called_n(&self, n: u32) {
+        assert!(*self.activate_typing_notice_call_count.lock().unwrap() == n);
     }
 
     /// The response [`Self::send_message`] should return.
@@ -631,6 +659,20 @@ impl Client for ClientMock {
             .into()
     }
 
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        _request: GlobalSettingsRequest,
+    ) -> crate::Result<GlobalSettings> {
+        *self.received_ctx.lock().unwrap() = Some(ctx);
+        *self.get_global_settings_call_count.lock().unwrap() += 1;
+        self.get_global_settings_response
+            .lock()
+            .unwrap()
+            .clone()
+            .into()
+    }
+
     async fn get_user(&self, ctx: RequestContext, _request: UserRequest) -> crate::Result<User> {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.get_user_call_count.lock().unwrap() += 1;
@@ -791,6 +833,20 @@ impl Client for ClientMock {
         *self.received_ctx.lock().unwrap() = Some(ctx);
         *self.mark_as_read_call_count.lock().unwrap() += 1;
         self.mark_as_read_response.lock().unwrap().clone().into()
+    }
+
+    async fn activate_typing_notice(
+        &self,
+        ctx: RequestContext,
+        _request: RoomTypingRequest,
+    ) -> crate::Result<()> {
+        *self.received_ctx.lock().unwrap() = Some(ctx);
+        *self.activate_typing_notice_call_count.lock().unwrap() += 1;
+        self.activate_typing_notice_response
+            .lock()
+            .unwrap()
+            .clone()
+            .into()
     }
 
     async fn send_message(
