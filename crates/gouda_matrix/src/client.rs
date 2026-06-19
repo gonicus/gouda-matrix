@@ -1683,11 +1683,9 @@ impl MatrixClientInner {
         Ok(())
     }
 
-    async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
-        use memory_cache::{CachedRoom, CachedRoomAction};
-
+    async fn get_message(&self, _ctx: RequestContext, request: MessageRequest) -> Result<Message> {
         let session = self.session()?;
-        let SessionContext { media_manager, .. } = &*session;
+        let SessionContext { memory_cache, .. } = &*session;
 
         let MessageRequest {
             room_id,
@@ -1699,39 +1697,9 @@ impl MatrixClientInner {
 
         let room = self.get_matrix_room(&room_id).await?;
 
-        let (event, relations) = room
-            .load_or_fetch_event_with_relations(&event_id, None, None)
+        memory_cache.fetch_message(room, event_id)
             .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
-        let cached_room = CachedRoom::new(ctx, media_manager.clone(), room);
-
-        // First, cache all the relations to the room.
-        for relation in relations {
-            if let Err(err) = cached_room.process_timeline_event(relation).await {
-                log::warn!("Unable to apply relation of requested message: {err}");
-            }
-        }
-
-        // And build the final message afterwards.
-        let result = cached_room
-            .process_timeline_event(event)
-            .await
-            .map_err(|_| errors::create_unknown("Unable to build message from requested event"))?;
-
-        let Some(action) = result else {
-            return Err(errors::create_unknown(
-                "Unable to build message from requested event",
-            ));
-        };
-
-        let CachedRoomAction::Message(message) = action else {
-            return Err(errors::create_unknown(
-                "Unable to build message from requested event",
-            ));
-        };
-
-        Ok(message)
+            .map_err(errors::convert_memory_cache_error)
     }
 }
 
