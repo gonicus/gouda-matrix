@@ -107,6 +107,9 @@
   "mark-as-read": {
     "room_id": "<ROOM_ID>"
   },
+  "activate-typing-notice": {
+    "room_id": "<ROOM_ID>"
+  },
   "send-message": {
     "room_id": "<ROOM_ID>",
     "content": { "Text": {

@@ -147,6 +147,12 @@ impl InputWindow {
                 ui_action!(self, ui, KnockRoom, self.config.knock_room.clone());
                 ui_action!(self, ui, RoomMessages, self.config.room_messages.clone());
                 ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    ActivateTypingNotice,
+                    self.config.activate_typing_notice.clone()
+                );
                 ui_action!(self, ui, SendMessage, self.config.send_message.clone());
                 ui_action!(self, ui, RemoveMessage, self.config.remove_message.clone());
                 ui_action!(self, ui, ChangeMessage, self.config.change_message.clone());

@@ -63,6 +63,7 @@ pub enum Action {
     KnockRoom(Box<RoomKnockRequest>),
     RoomMessages(Box<RoomMessagesRequest>),
     MarkAsRead(Box<RoomMarkAsReadRequest>),
+    ActivateTypingNotice(Box<RoomTypingRequest>),
     SendMessage(Box<MessageSendRequest>),
     RemoveMessage(Box<MessageRemoveRequest>),
     ChangeMessage(Box<MessageChangeRequest>),
@@ -104,6 +105,9 @@ impl Action {
             Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
             Self::RoomMessages(request) => run_room_messages(tag, sender, *request),
             Self::MarkAsRead(request) => run_mark_as_read(tag, sender, *request),
+            Self::ActivateTypingNotice(request) => {
+                run_activate_typing_notice(tag, sender, *request)
+            }
             Self::SendMessage(request) => run_send_message(tag, sender, *request),
             Self::RemoveMessage(request) => run_remove_message(tag, sender, *request),
             Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
@@ -141,6 +145,7 @@ impl InputUi for Action {
             Self::KnockRoom(request) => request.update(ui),
             Self::RoomMessages(request) => request.update(ui),
             Self::MarkAsRead(request) => request.update(ui),
+            Self::ActivateTypingNotice(request) => request.update(ui),
             Self::SendMessage(request) => request.update(ui),
             Self::RemoveMessage(request) => request.update(ui),
             Self::ChangeMessage(request) => request.update(ui),
@@ -226,6 +231,11 @@ impl_run!(
     run_mark_as_read,
     RoomMarkAsReadRequest,
     RoomMarkAsReadRequest
+);
+impl_run!(
+    run_activate_typing_notice,
+    RoomTypingRequest,
+    RoomTypingRequest
 );
 impl_run!(run_send_message, MessageSendRequest, MessageSendRequest);
 impl_run!(

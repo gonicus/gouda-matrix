@@ -273,6 +273,14 @@ impl ClientAbstraction for MatrixClient {
         self.inner()?.mark_as_read(ctx, request).await
     }
 
+    async fn activate_typing_notice(
+        &self,
+        ctx: RequestContext,
+        request: RoomTypingRequest,
+    ) -> Result<()> {
+        self.inner()?.activate_typing_notice(ctx, request).await
+    }
+
     async fn send_message(
         &self,
         ctx: RequestContext,
@@ -1494,6 +1502,21 @@ impl MatrixClientInner {
                 .change_unread_count(0)
                 .to_proto(),
         )
+    }
+
+    async fn activate_typing_notice(
+        &self,
+        _ctx: RequestContext,
+        request: RoomTypingRequest,
+    ) -> Result<()> {
+        let RoomTypingRequest { room_id } = request;
+
+        let room = self.get_matrix_room(&room_id).await?;
+        room.typing_notice(true)
+            .await
+            .map_err(errors::convert_matrix_sdk_error)?;
+
+        Ok(())
     }
 
     async fn send_message(
