@@ -276,10 +276,7 @@ impl InputUi for message_send_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
         };
 
         ui.vertical(|ui| {
@@ -287,16 +284,12 @@ impl InputUi for message_send_request::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -310,10 +303,7 @@ impl InputUi for message_change_event::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
             Self::MembershipChange(_) => "MembershipChange",
         };
 
@@ -322,17 +312,13 @@ impl InputUi for message_change_event::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
                 Self::MembershipChange(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -346,10 +332,7 @@ impl InputUi for message_change_request::Content {
     fn update(&mut self, ui: &mut egui::Ui) {
         let text = match self {
             Self::Text(_) => "Text",
-            Self::Image(_) => "Image",
             Self::File(_) => "File",
-            Self::AudioFile(_) => "Audio",
-            Self::VideoFile(_) => "Video",
         };
 
         ui.vertical(|ui| {
@@ -357,16 +340,12 @@ impl InputUi for message_change_request::Content {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::Text(MessageContentText::default()), "Text");
-                    ui.selectable_value(self, Self::Image(MessageContentImage::default()), "Image");
                     ui.selectable_value(self, Self::File(MessageContentFile::default()), "File");
                 });
 
             match self {
                 Self::Text(content) => content.update(ui),
-                Self::Image(content) => content.update(ui),
                 Self::File(content) => content.update(ui),
-                Self::AudioFile(content) => content.update(ui),
-                Self::VideoFile(content) => content.update(ui),
             }
         });
     }
@@ -382,27 +361,7 @@ impl InputUi for MessageContentText {
     }
 }
 
-impl InputUi for MessageContentImage {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, image_path);
-    }
-}
-
 impl InputUi for MessageContentFile {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, file_path);
-        input_attribute!(self, ui, file_name);
-    }
-}
-
-impl InputUi for MessageContentVideo {
-    fn update(&mut self, ui: &mut egui::Ui) {
-        input_attribute!(self, ui, file_path);
-        input_attribute!(self, ui, file_name);
-    }
-}
-
-impl InputUi for MessageContentAudio {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, file_path);
         input_attribute!(self, ui, file_name);
