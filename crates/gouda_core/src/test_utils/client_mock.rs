@@ -76,6 +76,9 @@ pub struct ClientMock {
     abort_verification_response: Mutex<Result<VerificationEndEvent>>,
     abort_verification_call_count: Mutex<u32>,
 
+    get_global_settings_response: Mutex<Result<GlobalSettings>>,
+    get_global_settings_call_count: Mutex<u32>,
+
     get_user_response: Mutex<Result<User>>,
     get_user_call_count: Mutex<u32>,
 
@@ -266,6 +269,17 @@ impl ClientMock {
     /// Assert [`Self::abort_verification`] was called `n` times.
     pub fn assert_abort_verification_called_n(&self, n: u32) {
         assert!(*self.abort_verification_call_count.lock().unwrap() == n);
+    }
+
+    /// The response [`Self::get_global_settings`] shoud return.
+    pub fn get_global_settings_response(mut self, response: crate::Result<GlobalSettings>) -> Self {
+        self.get_global_settings_response = Mutex::new(response.into());
+        self
+    }
+
+    /// Assert [`Self::get_global_settings`] was called `n` times.
+    pub fn assert_get_global_settings_called_n(&self, n: u32) {
+        assert!(*self.get_global_settings_call_count.lock().unwrap() == n);
     }
 
     /// The response [`Self::get_user`] should return.
@@ -615,6 +629,16 @@ impl Client for ClientMock {
             .unwrap()
             .clone()
             .into()
+    }
+
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        _request: GlobalSettingsRequest,
+    ) -> crate::Result<GlobalSettings> {
+        *self.received_ctx.lock().unwrap() = Some(ctx);
+        *self.get_global_settings_call_count.lock().unwrap() += 1;
+        self.get_global_settings_response.lock().unwrap().clone().into()
     }
 
     async fn get_user(&self, ctx: RequestContext, _request: UserRequest) -> crate::Result<User> {

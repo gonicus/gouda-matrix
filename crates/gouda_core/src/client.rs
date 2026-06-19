@@ -111,6 +111,16 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
+    /// Gets the global settings of the user.
+    #[allow(unused_variables)]
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        not_implemented_error()
+    }
+
     /// Gets a single user.
     #[allow(unused_variables)]
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {

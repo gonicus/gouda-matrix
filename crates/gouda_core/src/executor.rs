@@ -180,18 +180,10 @@ impl RequestProcessor {
                 self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
                     .await;
             }
-            RequestContent::GlobalSettingsRequest(_) => {
-                // TODO: Implement GlobalSettingsRequest
-                self.send_result(
-                    tag,
-                    Err(Error {
-                        r#type: ErrorType::NotImplemented.into(),
-                        error_string: Some(
-                            "MessageRequest is currently not implemented".to_owned(),
-                        ),
-                    }),
-                )
-                .await;
+            RequestContent::GlobalSettingsRequest(request) => {
+                let result = self.client.get_global_settings(ctx, request).await;
+                self.send_result(0, result.map(ResponseContent::GlobalSettingsEvent))
+                    .await;
             }
             RequestContent::UserRequest(request) => {
                 let result = self.client.get_user(ctx, request).await;
@@ -1263,6 +1255,85 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_abort_verification_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(0, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_global_settings_request() {
+        // Arrange
+        let request = RequestContent::GlobalSettingsRequest(GlobalSettingsRequest::default());
+        let response = GlobalSettings {
+            notification_setting: NotificationSetting::AllMessages.into(),
+        };
+
+        let client = ClientMock::new().get_global_settings_response(Ok(response.clone()));
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, mut output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_global_settings_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(0, ResponseContent::GlobalSettingsEvent(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_global_settings_request_err() {
+        // Arrange
+        let request = RequestContent::GlobalSettingsRequest(GlobalSettingsRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock::new().get_global_settings_response(Err(response.clone()));
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, mut output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_global_settings_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
