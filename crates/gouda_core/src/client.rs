@@ -251,6 +251,16 @@ pub trait Client: Send + Sync {
         not_implemented_error()
     }
 
+    /// Active typing notice for the current user in the specified room.
+    #[allow(unused_variables)]
+    async fn activate_typing_notice(
+        &self,
+        ctx: RequestContext,
+        request: RoomTypingRequest,
+    ) -> Result<()> {
+        not_implemented_error()
+    }
+
     /// Send a message to a room.
     #[allow(unused_variables)]
     async fn send_message(

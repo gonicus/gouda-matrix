@@ -264,18 +264,11 @@ impl RequestProcessor {
                 self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
                     .await;
             }
-            RequestContent::RoomTypingRequest(_) => {
-                // TODO: Implement RoomTypingRequest
-                self.send_result(
-                    tag,
-                    Err(Error {
-                        r#type: ErrorType::NotImplemented.into(),
-                        error_string: Some(
-                            "RoomTypingRequest is currently not implemented".to_owned(),
-                        ),
-                    }),
-                )
-                .await;
+            RequestContent::RoomTypingRequest(request) => {
+                let result = self.client.activate_typing_notice(ctx, request).await;
+                if let Err(err) = result {
+                    self.send_result(tag, Err(err)).await;
+                }
             }
             RequestContent::MessageSendRequest(request) => {
                 let result = self.client.send_message(ctx, request).await;
@@ -2639,6 +2632,78 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_mark_as_read_called_n(1);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(2, ResponseContent::Error(response))
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_typing_request() {
+        // Arrange
+        let request = RequestContent::RoomTypingRequest(RoomTypingRequest::default());
+
+        let client = ClientMock::new().activate_typing_notice_response(Ok(()));
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_activate_typing_notice_called_n(1);
+
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_room_typing_request_err() {
+        // Arrange
+        let request = RequestContent::RoomTypingRequest(RoomTypingRequest::default());
+        let response = Error {
+            r#type: ErrorType::Unknown as i32,
+            error_string: Some("Test error".to_owned()),
+        };
+
+        let client = ClientMock::new().activate_typing_notice_response(Err(response.clone()));
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, mut output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(2, request))
+            .unwrap();
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor.run().await.unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_activate_typing_notice_called_n(1);
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
