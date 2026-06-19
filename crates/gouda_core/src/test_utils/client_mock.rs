@@ -277,7 +277,7 @@ impl ClientMock {
         assert!(*self.abort_verification_call_count.lock().unwrap() == n);
     }
 
-    /// The response [`Self::get_global_settings`] shoud return.
+    /// The response [`Self::get_global_settings`] should return.
     pub fn get_global_settings_response(mut self, response: crate::Result<GlobalSettings>) -> Self {
         self.get_global_settings_response = Mutex::new(response.into());
         self

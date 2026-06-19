@@ -1255,7 +1255,7 @@ mod tests {
             notification_setting: NotificationSetting::AllMessages.into(),
         };
 
-        let client = ClientMock::new().get_global_settings_response(Ok(response.clone()));
+        let client = ClientMock::new().get_global_settings_response(Ok(response));
 
         let (executor_tx, executor_rx) = mpsc::channel(64);
         let (output_tx, mut output_rx) = mpsc::channel(64);
