@@ -1,7 +1,7 @@
 id: de.gonicus.gonnect.plugin.Matrix
 runtime: de.gonicus.gonnect
 runtime-version: 'stable'
-branch: "2"
+branch: "3"
 
 sdk: org.kde.Sdk//6.10
 sdk-extensions:
