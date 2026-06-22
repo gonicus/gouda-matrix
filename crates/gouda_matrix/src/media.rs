@@ -30,7 +30,7 @@ macro_rules! log_avatar_result {
     ($result:expr, $object:literal) => {
         if let Err(err) = &$result {
             if matches!(err, MediaError::NotFound) {
-                log::info!(concat!($object, " does not have an avatar"));
+                log::debug!(concat!($object, " does not have an avatar"));
             } else {
                 log::error!("Error downloading avatar: {err}");
             }
@@ -125,7 +125,7 @@ impl MediaManager {
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the room.
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
-        log::debug!("Receiving avatar for room: {}", room.room_id());
+        log::info!("Receiving avatar for room: {}", room.room_id());
         self.inner.get_room_avatar_path(room).await
     }
 
@@ -427,7 +427,7 @@ where
     pub async fn upload(&mut self, src: impl Into<PathBuf>) -> Result<String> {
         let src = self.data_root_dir.join(src.into());
 
-        log::debug!("Uploading asset: {src:?}");
+        log::info!("Uploading asset: {src:?}");
 
         let upload = self.asset.upload(src.clone()).await?;
 

@@ -467,7 +467,7 @@ impl CachedRoom {
         &self,
         event: DecryptedRoomEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing decrypted event");
+        log::trace!("Processing decrypted event");
 
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
@@ -485,7 +485,7 @@ impl CachedRoom {
         event: Raw<AnySyncTimelineEvent>,
         utd_info: UnableToDecryptInfo,
     ) -> Result<Option<CachedRoomAction>> {
-        log::error!("Unable to decrypt event {event:?}: {utd_info:?}");
+        log::warn!("Unable to decrypt event {event:?}: {utd_info:?}");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
@@ -531,7 +531,7 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing raw AnySyncTimelineEvent");
+        log::trace!("Processing raw AnySyncTimelineEvent");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
@@ -550,7 +550,7 @@ impl CachedRoom {
         &self,
         event: AnyTimelineEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing AnyTimelineEvent");
+        log::trace!("Processing AnyTimelineEvent");
 
         match event {
             AnyTimelineEvent::MessageLike(event) => {
@@ -564,7 +564,7 @@ impl CachedRoom {
         &self,
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing AnyMessageLikeEvent");
+        log::trace!("Processing AnyMessageLikeEvent");
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -630,7 +630,7 @@ impl CachedRoom {
         &self,
         _event: RoomRedactionEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Ignoring RoomRedactionEvent");
+        log::trace!("Ignoring RoomRedactionEvent");
 
         // TODO: Process the redaction event and remove the appropriate event from the cache
         //   This is only relevant when the same messages are requested multiple times, which
@@ -670,7 +670,7 @@ impl CachedRoom {
     }
 
     fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<CachedRoomAction>> {
-        log::debug!("Processing AnyStateEvent");
+        log::trace!("Processing AnyStateEvent");
 
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
