@@ -523,14 +523,14 @@ impl MatrixClientInner {
 
         let session_context = self.session()?;
 
-        session
-            .sync(ctx.clone(), (*session_context).clone())
-            .await?;
-
         log::info!(
             "Successfully restored session as {:?}",
             session_context.client.user_id()
         );
+
+        session
+            .sync(ctx.clone(), (*session_context).clone())
+            .await?;
 
         Ok(())
     }

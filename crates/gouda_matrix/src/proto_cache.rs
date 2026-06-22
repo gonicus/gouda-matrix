@@ -313,7 +313,7 @@ impl ProtoCacheInner {
         let decrypted = crypto::decrypt_file(&self.info_file, &self.passphrase).await?;
         let storage: Info = serde_json::from_slice(&decrypted)?;
 
-        log::info!("Successfully read cache info");
+        log::debug!("Successfully read cache info");
 
         let mut guard = self.info.lock()?;
         *guard = storage;
@@ -328,7 +328,7 @@ impl ProtoCacheInner {
         let encoded = crypto::decrypt_file(&self.rooms_file, &self.passphrase).await?;
         let decoded = decode_proto_messages::<Room>(&encoded)?;
 
-        log::info!("Successfully read cached rooms");
+        log::debug!("Successfully read cached rooms");
 
         let mut guard = self.cached_rooms.lock()?;
         *guard = Some(decoded);
@@ -343,7 +343,7 @@ impl ProtoCacheInner {
         let encoded = crypto::decrypt_file(&self.users_file, &self.passphrase).await?;
         let decoded = decode_proto_messages::<User>(&encoded)?;
 
-        log::info!("Successfully read cached users");
+        log::debug!("Successfully read cached users");
 
         let mut guard = self.cached_users.lock()?;
         *guard = Some(decoded);
@@ -384,7 +384,7 @@ impl ProtoCacheInner {
             let guard = self.cached_rooms.lock()?;
 
             let Some(rooms) = guard.as_ref() else {
-                log::info!("No rooms to cache, nothing to do");
+                log::debug!("No rooms to cache, nothing to do");
                 return Ok(());
             };
 
@@ -403,7 +403,7 @@ impl ProtoCacheInner {
             let guard = self.cached_users.lock()?;
 
             let Some(users) = guard.as_ref() else {
-                log::info!("No users to cache, nothing to do");
+                log::debug!("No users to cache, nothing to do");
                 return Ok(());
             };
 
@@ -425,7 +425,7 @@ impl ProtoCacheInner {
 
         crypto::encrypt_to_file(&self.info_file, &self.passphrase, serialized).await?;
 
-        log::info!("Successfully persisted cache info");
+        log::debug!("Successfully persisted cache info");
 
         Ok(())
     }
@@ -562,6 +562,7 @@ fn decode_proto_messages<T: prost::Message + Default>(mut encoded: &[u8]) -> Res
         let bytes = encoded[..8]
             .try_into()
             .map_err(|_| ProtoCacheError::Unknown)?;
+
         let size = u64::from_le_bytes(bytes) as usize;
         encoded = &encoded[8..];
 

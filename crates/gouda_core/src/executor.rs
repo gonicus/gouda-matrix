@@ -321,11 +321,11 @@ impl RequestProcessor {
 async fn send_response(
     client: Arc<dyn Client>,
     sender: &Sender<OutputTask>,
-    container: ResponseContainer,
+    response: ResponseContainer,
 ) {
-    log::info!("Preparing container: {container:?}");
+    log::debug!("Preparing response: {response:?}");
 
-    let response_handler = container.clone();
+    let response_handler = response.clone();
 
     tokio::spawn(async move {
         log::debug!("Calling response event handler on the client");
@@ -339,7 +339,7 @@ async fn send_response(
     // result in an error returned from the runner.
     #[allow(clippy::expect_used)]
     sender
-        .send(OutputTask::Response(Box::new(container)))
+        .send(OutputTask::Response(Box::new(response)))
         .await
         .expect("Error sending message to output processor");
 }

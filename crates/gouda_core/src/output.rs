@@ -66,7 +66,7 @@ impl OutputProcessor {
     }
 
     async fn write_response(&mut self, response: ResponseContainer) {
-        log::debug!("Writing proto message...");
+        log::info!("Writing response conatiner: {response:?}");
 
         let serialized = response.encode_to_vec();
         let size = serialized.len().to_le_bytes().to_vec();

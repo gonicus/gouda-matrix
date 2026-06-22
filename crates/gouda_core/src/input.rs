@@ -68,7 +68,7 @@ impl InputProcessor {
             }
         };
 
-        log::debug!("Read request: {request:?}");
+        log::info!("Read request: {request:?}");
         log::debug!("Sending event to executor");
 
         let result = self
