@@ -153,7 +153,6 @@ pub async fn convert_to_proto(
     };
 
     let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        // u32::try_from(room.unread_notification_counts().notification_count).unwrap_or(u32::MAX);
 
     let members = get_members(&room).await?;
 
