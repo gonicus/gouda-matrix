@@ -8,21 +8,15 @@ pub fn get_unix_timestamp_seconds() -> u64 {
         .as_secs()
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ComparisonResult<T>
-where
-    T: PartialEq,
-{
+#[derive(Debug, Clone)]
+pub struct ComparisonResult<T> {
     pub new: Vec<T>,
     /// (old, new)
     pub updated: Vec<(T, T)>,
     pub deleted: Vec<T>,
 }
 
-impl<T> ComparisonResult<T>
-where
-    T: PartialEq,
-{
+impl<T> ComparisonResult<T> {
     pub fn new() -> Self {
         Self {
             new: Vec::new(),
@@ -32,13 +26,30 @@ where
     }
 }
 
+pub fn compare_lists_partial_eq<T>(
+    old: &[T],
+    new: &[T],
+    same_item: impl Fn(&T, &T) -> bool,
+) -> ComparisonResult<T>
+where
+    T: PartialEq + Clone
+{
+    compare_lists(
+        old,
+        new,
+        same_item,
+        |a, b| a == b,
+    )
+}
+
 pub fn compare_lists<T>(
     old: &[T],
     new: &[T],
-    matches: impl Fn(&T, &T) -> bool,
+    same_item: impl Fn(&T, &T) -> bool,
+    data_matches: impl Fn(&T, &T) -> bool,
 ) -> ComparisonResult<T>
 where
-    T: PartialEq + Clone,
+    T: Clone
 {
     let mut result = ComparisonResult::new();
     let mut matched_old_indices = Vec::new();
@@ -47,11 +58,11 @@ where
         let mut found_match = false;
 
         for (old_index, old_item) in old.iter().enumerate() {
-            if matches(old_item, new_item) {
+            if same_item(old_item, new_item) {
                 found_match = true;
                 matched_old_indices.push(old_index);
 
-                if old_item != new_item {
+                if data_matches(old_item, new_item) {
                     result.updated.push((old_item.clone(), new_item.clone()));
                 }
 
@@ -97,7 +108,7 @@ mod tests {
         let old = vec![1, 2, 3];
         let new = vec![1, 2, 3];
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, Vec::<i32>::new());
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -109,7 +120,7 @@ mod tests {
         let old = vec![1, 2, 3];
         let new = vec![4, 5];
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, vec![4, 5]);
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -121,7 +132,7 @@ mod tests {
         let old = vec![Item::new(1, "alice"), Item::new(2, "bob")];
         let new = vec![Item::new(1, "alice_updated"), Item::new(2, "bob")];
 
-        let result = compare_lists(&old, &new, |a, b| a.id == b.id);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a.id == b.id);
 
         assert_eq!(result.new, vec![]);
         assert_eq!(
@@ -136,7 +147,7 @@ mod tests {
         let old = vec![1, 2, 3, 4];
         let new = vec![2, 4, 5, 6];
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, vec![5, 6]);
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -148,7 +159,7 @@ mod tests {
         let old = vec![];
         let new = vec![1, 2, 3];
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, vec![1, 2, 3]);
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -160,7 +171,7 @@ mod tests {
         let old = vec![1, 2, 3];
         let new = vec![];
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, Vec::<i32>::new());
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -172,7 +183,7 @@ mod tests {
         let old = Vec::<i32>::new();
         let new = Vec::<i32>::new();
 
-        let result = compare_lists(&old, &new, |a, b| a == b);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a == b);
 
         assert_eq!(result.new, Vec::<i32>::new());
         assert_eq!(result.updated, Vec::<(i32, i32)>::new());
@@ -184,7 +195,7 @@ mod tests {
         let old = vec![Item::new(1, "alice"), Item::new(2, "bob")];
         let new = vec![Item::new(1, "alice_updated"), Item::new(3, "max")];
 
-        let result = compare_lists(&old, &new, |a, b| a.id == b.id);
+        let result = compare_lists_partial_eq(&old, &new, |a, b| a.id == b.id);
 
         assert_eq!(result.new, vec![Item::new(3, "max")]);
         assert_eq!(

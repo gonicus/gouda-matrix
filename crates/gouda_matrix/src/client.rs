@@ -998,7 +998,7 @@ impl MatrixClientInner {
         let session = self.session()?;
         let SessionContext { client, .. } = &*session;
 
-        let notification_mode = notifications::compose_notification_setting(client).await;
+        let notification_mode = notifications::compose_global_notification_settings(client).await;
 
         let settings = GlobalSettings {
             notification_setting: notification_mode.into(),

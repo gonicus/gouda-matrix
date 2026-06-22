@@ -5,7 +5,8 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent, Reaction,
+    message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent,
+    NotificationSetting, Reaction,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -118,12 +119,15 @@ impl MemoryCache {
         }
     }
 
+    /// Caches a reaction to a message inside the specified room.
     pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) {
         if let Err(err) = self.inner.cache_reaction(room, event) {
             log::error!("Error caching reaction: {err}");
         }
     }
 
+    /// Removes a previously cached reaction by it's ID.
+    /// Returns metadata of the removed reaction.
     pub fn remove_reaction_by_id(
         &self,
         room_id: impl AsRef<str>,
@@ -139,6 +143,8 @@ impl MemoryCache {
         })
     }
 
+    /// Removes a previously cached reaction by it's user ID and emoji.
+    /// Returns the metadata of the removed reaction.
     pub fn remove_reaction_by_emoji(
         &self,
         room_id: impl AsRef<str>,
@@ -158,11 +164,23 @@ impl MemoryCache {
             None
         })
     }
+
+    /// Caches the given notification settings.
+    pub fn cache_notification_settings(&self, settings: CachedNotificationSettings) -> Result<()> {
+        self.inner.cache_notification_settings(settings)
+    }
+
+    /// Gets the cached notification settings, if previously cached.
+    pub fn get_notification_settings(&self) -> Result<Option<CachedNotificationSettings>> {
+        self.inner.get_cached_notification_settings()
+    }
 }
 
 struct MemoryCacheInner {
     ctx: RequestContext,
     media_manager: MediaManager,
+
+    cached_notification_settings: Mutex<Option<CachedNotificationSettings>>,
     cached_rooms: Mutex<HashMap<String, Arc<CachedRoom>>>,
 }
 
@@ -171,6 +189,8 @@ impl MemoryCacheInner {
         Self {
             ctx,
             media_manager,
+
+            cached_notification_settings: Mutex::new(None),
             cached_rooms: Mutex::new(HashMap::new()),
         }
     }
@@ -262,6 +282,17 @@ impl MemoryCacheInner {
         cached_room.remove_reaction_by_emoji(message_id, user_id, emoji)
     }
 
+    pub fn cache_notification_settings(&self, settings: CachedNotificationSettings) -> Result<()> {
+        let mut guard = self.cached_notification_settings.lock()?;
+        *guard = Some(settings);
+        Ok(())
+    }
+
+    pub fn get_cached_notification_settings(&self) -> Result<Option<CachedNotificationSettings>> {
+        let guard = self.cached_notification_settings.lock()?;
+        Ok(guard.clone())
+    }
+
     fn get_room(&self, room_id: &str) -> Result<Option<Arc<CachedRoom>>> {
         Ok(self.cached_rooms.lock()?.get(room_id).cloned())
     }
@@ -313,6 +344,17 @@ impl ReactionMetadata {
             room_id,
         }
     }
+}
+
+/// Contains the cached notfication settings.
+#[derive(Debug, Clone)]
+pub struct CachedNotificationSettings {
+    /// The global notification settings.
+    pub global_settings: NotificationSetting,
+    /// The notification settings specific to a room.
+    /// If a room is not included, the room uses global settings.
+    /// The key of the hashmap is the ID of the room.
+    pub room_settings: HashMap<String, NotificationSetting>,
 }
 
 #[derive(Debug, Clone)]
