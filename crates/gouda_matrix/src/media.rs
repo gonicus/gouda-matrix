@@ -125,7 +125,7 @@ impl MediaManager {
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the room.
     pub async fn get_room_avatar_path(&self, room: &Room) -> Option<String> {
-        log::debug!("Receiving avatar for room: {}", room.room_id());
+        log::info!("Receiving avatar for room: {}", room.room_id());
         self.inner.get_room_avatar_path(room).await
     }
 
@@ -150,7 +150,7 @@ impl MediaManager {
         avatar_path: impl AsRef<Path>,
     ) -> Result<String> {
         let src = avatar_path.as_ref();
-        log::debug!("Uploading room avatar {src:?} to room {}", room.room_id());
+        log::info!("Uploading room avatar {src:?} to room {}", room.room_id());
         self.inner.upload_room_avatar(room, src).await
     }
 
@@ -160,7 +160,7 @@ impl MediaManager {
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the user.
     pub async fn get_user_avatar_path(&self, user_id: OwnedUserId) -> Option<String> {
-        log::debug!("Receiving avatar for user: {user_id}");
+        log::info!("Receiving avatar for user: {user_id}");
         self.inner.get_user_avatar_path(user_id).await
     }
 
@@ -170,7 +170,7 @@ impl MediaManager {
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the user.
     pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
-        log::debug!("Receiving avatar for user: {}", &user.user_id);
+        log::info!("Receiving avatar for user: {}", &user.user_id);
         self.inner
             .get_user_avatar_path(user.user_id.to_owned())
             .await
@@ -196,7 +196,7 @@ impl MediaManager {
         related_event: Option<OwnedEventId>,
     ) -> Result<String> {
         let src = attachment_path.as_ref();
-        log::debug!("Sending room attachment {src:?} to room {}", room.room_id());
+        log::info!("Sending room attachment {src:?} to room {}", room.room_id());
         self.inner
             .send_room_attachment(room, src, file_name, related_event)
             .await
@@ -221,7 +221,7 @@ impl MediaManager {
         content: &C,
         file_name: Option<&str>,
     ) -> Result<String> {
-        log::debug!(
+        log::info!(
             "Downloading media event content from room: {}",
             room.room_id()
         );
