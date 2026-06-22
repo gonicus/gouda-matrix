@@ -6,7 +6,6 @@ use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
@@ -22,7 +21,7 @@ use crate::client::SessionContext;
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
 use crate::utils::ComparisonResult;
-use crate::{errors, user, utils};
+use crate::{errors, notifications, user, utils};
 
 #[derive(Clone)]
 pub struct RoomManager {
@@ -226,23 +225,11 @@ async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
     let notification = room
         .notification_mode()
         .await
-        .map(matrix_notification_mode_to_chat_notification_settings)
+        .map(notifications::matrix_notification_mode_to_chat_notification_settings)
         .map(|f| f.into());
 
     RoomSettings {
         notification_setting: notification,
-    }
-}
-
-pub fn matrix_notification_mode_to_chat_notification_settings(
-    notification_mode: RoomNotificationMode,
-) -> NotificationSetting {
-    match notification_mode {
-        RoomNotificationMode::AllMessages => NotificationSetting::AllMessages,
-        RoomNotificationMode::Mute => NotificationSetting::Mute,
-        RoomNotificationMode::MentionsAndKeywordsOnly => {
-            NotificationSetting::MentionsAndKeywordsOnly
-        }
     }
 }
 

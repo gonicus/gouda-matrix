@@ -27,7 +27,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, messages, notifications, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -998,17 +998,10 @@ impl MatrixClientInner {
         let session = self.session()?;
         let SessionContext { client, .. } = &*session;
 
-        let notification_mode = client
-            .notification_settings()
-            .await
-            .get_default_room_notification_mode(true.into(), true.into())
-            .await;
-
-        let notifications =
-            rooms::matrix_notification_mode_to_chat_notification_settings(notification_mode);
+        let notification_mode = notifications::compose_notification_setting(client).await;
 
         let settings = GlobalSettings {
-            notification_setting: notifications.into(),
+            notification_setting: notification_mode.into(),
         };
 
         Ok(settings)
