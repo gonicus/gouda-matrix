@@ -161,6 +161,10 @@ impl InputUi for VerificationAbortRequest {
     }
 }
 
+impl InputUi for GlobalSettingsRequest {
+    fn update(&mut self, _ui: &mut egui::Ui) {}
+}
+
 impl InputUi for UserRequest {
     fn update(&mut self, ui: &mut egui::Ui) {
         input_attribute!(self, ui, user_id);
