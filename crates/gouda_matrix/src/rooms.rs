@@ -6,6 +6,7 @@ use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
@@ -171,8 +172,6 @@ pub async fn convert_to_proto(
         .and_then(|e| e.timestamp())
         .map(|t| t.0.into());
 
-    // TODO: Implement Room::room_settings
-
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -185,7 +184,7 @@ pub async fn convert_to_proto(
         latest_message_timestamp,
         avatar_path: media_manager.get_room_avatar_path(&room).await,
         is_favorite: room.is_favourite(),
-        room_settings: Some(RoomSettings::default()),
+        room_settings: Some(get_settings(&room).await),
     })
 }
 
@@ -221,6 +220,24 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
         can_kick: room_power_levels.user_can_kick(user_id),
         can_ban: room_power_levels.user_can_ban(user_id),
     })
+}
+
+async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
+    let notification = room.notification_mode().await
+        .map(matrix_notification_mode_to_chat_notification_settings)
+        .map(|f| f.into());
+
+    RoomSettings {
+        notification_setting: notification,
+    }
+}
+
+fn matrix_notification_mode_to_chat_notification_settings(notification_mode: RoomNotificationMode) -> NotificationSetting {
+    match notification_mode {
+        RoomNotificationMode::AllMessages => NotificationSetting::AllMessages,
+        RoomNotificationMode::Mute => NotificationSetting::Mute,
+        RoomNotificationMode::MentionsAndKeywordsOnly => NotificationSetting::MentionsAndKeywordsOnly,
+    }
 }
 
 async fn get_latest_event(room: &matrix_sdk::Room) -> Option<TimelineEvent> {
