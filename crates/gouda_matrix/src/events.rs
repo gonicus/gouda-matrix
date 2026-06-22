@@ -23,8 +23,7 @@ use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
-    AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
-    AnySyncTimelineEvent, AnyTimelineEvent,
+    AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
@@ -439,49 +438,50 @@ impl EventExecutor {
         };
     }
 
-    async fn redact_any_timeline_event(&mut self, room: Room, event: Raw<AnyTimelineEvent>) {
+    async fn redact_any_timeline_event(
+        &mut self,
+        room: Room,
+        redacted_event: Raw<AnyTimelineEvent>,
+    ) {
         let redacted_event =
-            unwrap_or_log_return!(event.deserialize(), "Error deserializing event");
+            unwrap_or_log_return!(redacted_event.deserialize(), "Error deserializing event");
 
         let AnyTimelineEvent::MessageLike(event) = redacted_event else {
             log::debug!("Ignoring event as it is not message like");
             return;
         };
 
-        match event {
-            AnyMessageLikeEvent::Reaction(event) => {
-                self.redact_reaction(room, event.event_id().as_str()).await;
-            }
-            AnyMessageLikeEvent::RoomEncrypted(event) => {
-                // TODO: This doesn't necessarily have to be a text message event.
-                self.redact_room_message(room, event.event_id().to_string())
-                    .await;
-            }
-            _ => {
-                log::debug!("Ignoring event as it is not implemented: {event:?}");
-            }
-        }
+        self.redact_any_message_like_event(room, event).await;
     }
 
     async fn redact_any_sync_timeline_event(
         &mut self,
         room: Room,
-        event: Raw<AnySyncTimelineEvent>,
+        redacted_event: Raw<AnySyncTimelineEvent>,
     ) {
         let redacted_event =
-            unwrap_or_log_return!(event.deserialize(), "Error deserializing event");
+            unwrap_or_log_return!(redacted_event.deserialize(), "Error deserializing event");
 
         let AnySyncTimelineEvent::MessageLike(event) = redacted_event else {
             log::debug!("Ignoring event as it is not message like");
             return;
         };
 
+        let event = event.into_full_event(room.room_id().to_owned());
+
+        self.redact_any_message_like_event(room, event).await;
+    }
+
+    async fn redact_any_message_like_event(&mut self, room: Room, event: AnyMessageLikeEvent) {
         match event {
-            AnySyncMessageLikeEvent::Reaction(event) => {
+            AnyMessageLikeEvent::Reaction(event) => {
                 self.redact_reaction(room, event.event_id().as_str()).await;
             }
-            AnySyncMessageLikeEvent::RoomEncrypted(event) => {
-                // TODO: This doesn't necessarily have to be a text message event.
+            AnyMessageLikeEvent::RoomEncrypted(event) => {
+                self.redact_room_message(room, event.event_id().to_string())
+                    .await;
+            }
+            AnyMessageLikeEvent::RoomMessage(event) => {
                 self.redact_room_message(room, event.event_id().to_string())
                     .await;
             }
