@@ -46,3 +46,13 @@ impl Config {
         serde_json::from_str(&json).expect("Error parsing config file")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        Config::read_from_file("./config.json");
+    }
+}
