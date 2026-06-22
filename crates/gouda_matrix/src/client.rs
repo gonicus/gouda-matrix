@@ -173,6 +173,14 @@ impl ClientAbstraction for MatrixClient {
         self.inner()?.abort_verification(ctx, request).await
     }
 
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        self.inner()?.get_global_settings(ctx, request).await
+    }
+
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
         self.inner()?.get_user(ctx, request).await
     }
