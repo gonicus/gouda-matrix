@@ -223,7 +223,9 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
 }
 
 async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
-    let notification = room.notification_mode().await
+    let notification = room
+        .notification_mode()
+        .await
         .map(matrix_notification_mode_to_chat_notification_settings)
         .map(|f| f.into());
 
@@ -232,11 +234,15 @@ async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-fn matrix_notification_mode_to_chat_notification_settings(notification_mode: RoomNotificationMode) -> NotificationSetting {
+pub fn matrix_notification_mode_to_chat_notification_settings(
+    notification_mode: RoomNotificationMode,
+) -> NotificationSetting {
     match notification_mode {
         RoomNotificationMode::AllMessages => NotificationSetting::AllMessages,
         RoomNotificationMode::Mute => NotificationSetting::Mute,
-        RoomNotificationMode::MentionsAndKeywordsOnly => NotificationSetting::MentionsAndKeywordsOnly,
+        RoomNotificationMode::MentionsAndKeywordsOnly => {
+            NotificationSetting::MentionsAndKeywordsOnly
+        }
     }
 }
 

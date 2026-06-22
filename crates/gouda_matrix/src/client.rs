@@ -982,6 +982,30 @@ impl MatrixClientInner {
         }
     }
 
+    async fn get_global_settings(
+        &self,
+        _ctx: RequestContext,
+        _request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        let session = self.session()?;
+        let SessionContext { client, .. } = &*session;
+
+        let notification_mode = client
+            .notification_settings()
+            .await
+            .get_default_room_notification_mode(true.into(), true.into())
+            .await;
+
+        let notifications =
+            rooms::matrix_notification_mode_to_chat_notification_settings(notification_mode);
+
+        let settings = GlobalSettings {
+            notification_setting: notifications.into(),
+        };
+
+        Ok(settings)
+    }
+
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
         let user_id = UserId::parse(request.user_id)
             .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
