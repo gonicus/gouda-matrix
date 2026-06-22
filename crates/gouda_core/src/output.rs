@@ -66,7 +66,7 @@ impl OutputProcessor {
     }
 
     async fn write_response(&mut self, response: ResponseContainer) {
-        log::info!("Writing response conatiner: {response:?}");
+        log::info!("Writing response container: {response:?}");
 
         let serialized = response.encode_to_vec();
         let size = serialized.len().to_le_bytes().to_vec();
