@@ -32,14 +32,9 @@ pub fn compare_lists_partial_eq<T>(
     same_item: impl Fn(&T, &T) -> bool,
 ) -> ComparisonResult<T>
 where
-    T: PartialEq + Clone
+    T: PartialEq + Clone,
 {
-    compare_lists(
-        old,
-        new,
-        same_item,
-        |a, b| a == b,
-    )
+    compare_lists(old, new, same_item, |a, b| a == b)
 }
 
 pub fn compare_lists<T>(
@@ -49,7 +44,7 @@ pub fn compare_lists<T>(
     data_matches: impl Fn(&T, &T) -> bool,
 ) -> ComparisonResult<T>
 where
-    T: Clone
+    T: Clone,
 {
     let mut result = ComparisonResult::new();
     let mut matched_old_indices = Vec::new();

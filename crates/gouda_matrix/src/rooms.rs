@@ -98,7 +98,8 @@ impl RoomManager {
             };
 
             let cached = self.proto_cache.cached_rooms().unwrap_or_default();
-            let result = utils::compare_lists_partial_eq(&cached, &fetched, |a, b| a.room_id == b.room_id);
+            let result =
+                utils::compare_lists_partial_eq(&cached, &fetched, |a, b| a.room_id == b.room_id);
             self.process_comparison_result(result).await;
 
             // We don't have to manually overwrite the cache here, as the events send to

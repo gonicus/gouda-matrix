@@ -19,8 +19,14 @@ pub async fn subscibe_to_notification_settings_changes(client: Client, memory_ca
     tokio::spawn(async move {
         let mut receiver = client.notification_settings().await.subscribe_to_changes();
 
-        while let Ok(()) = receiver.recv().await {
-            handle_notification_settings_change(&client, &memory_cache).await;
+        loop {
+            match receiver.recv().await {
+                Ok(()) => handle_notification_settings_change(&client, &memory_cache).await,
+                Err(err) => {
+                    log::error!("Error retrieving notification settings changes: {err}");
+                    break;
+                }
+            }
         }
     });
 }
