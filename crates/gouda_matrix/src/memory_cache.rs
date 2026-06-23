@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
     message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent,
-    NotificationSetting, Reaction,
+    NotificationSetting, Reaction, Room,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -20,7 +20,7 @@ use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
     OriginalMessageLikeEvent,
 };
-use matrix_sdk::Room;
+use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
@@ -84,10 +84,15 @@ impl MemoryCache {
         }
     }
 
+    /// Caches the given response content.
+    pub async fn cache_response_content(&self, content: &ResponseContent) -> Result<()> {
+        self.inner.cache_response_content(&content).await
+    }
+
     /// Fetches the assembled messages from the room with the given options.
     pub async fn fetch_messages(
         &self,
-        room: Room,
+        room: MatrixRoom,
         options: QueryOptions,
     ) -> Result<ReceiverStream<Result<Message>>> {
         self.inner.fetch_messages(room, options).await
@@ -96,7 +101,7 @@ impl MemoryCache {
     /// Fetches an assembles a single message of a room.
     pub async fn fetch_message(
         &self,
-        room: Room,
+        room: MatrixRoom,
         event_id: impl Into<OwnedEventId>,
     ) -> Result<Message> {
         self.inner.fetch_message(room, event_id.into()).await
@@ -120,7 +125,7 @@ impl MemoryCache {
     }
 
     /// Caches a reaction to a message inside the specified room.
-    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) {
+    pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) {
         if let Err(err) = self.inner.cache_reaction(room, event) {
             log::error!("Error caching reaction: {err}");
         }
@@ -174,6 +179,11 @@ impl MemoryCache {
     pub fn get_notification_settings(&self) -> Result<Option<CachedNotificationSettings>> {
         self.inner.get_cached_notification_settings()
     }
+
+    /// Sets the unread count of the given room.
+    pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
+        self.inner.set_room_unread_count(room, unread_count)
+    }
 }
 
 struct MemoryCacheInner {
@@ -195,9 +205,24 @@ impl MemoryCacheInner {
         }
     }
 
+    pub async fn cache_response_content(&self, content: &ResponseContent) -> Result<()> {
+        match content {
+            ResponseContent::MessageReceivedEvent(message) => {
+                self.cache_proto_message(message).await
+            }
+            ResponseContent::RoomListResponse(response) => {
+                self.cache_proto_room_list(&response.room_list)
+            }
+            ResponseContent::RoomCreatedEvent(room) => {
+                self.cache_proto_room(room)
+            }
+            _ => Ok(()),
+        }
+    }
+
     pub async fn fetch_messages(
         &self,
-        room: Room,
+        room: MatrixRoom,
         options: QueryOptions,
     ) -> Result<ReceiverStream<Result<Message>>> {
         let from_token = if let Some(message_id) = options.from_message_id {
@@ -219,7 +244,7 @@ impl MemoryCacheInner {
         Ok(ReceiverStream::new(rx))
     }
 
-    pub async fn fetch_message(&self, room: Room, event_id: OwnedEventId) -> Result<Message> {
+    pub async fn fetch_message(&self, room: MatrixRoom, event_id: OwnedEventId) -> Result<Message> {
         let room = self.get_or_create_room(room)?;
         MessageFetcher::new(room, event_id).run().await
     }
@@ -240,7 +265,7 @@ impl MemoryCacheInner {
         Ok(())
     }
 
-    pub fn cache_reaction(&self, room: Room, event: OriginalSyncReactionEvent) -> Result<()> {
+    pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
         let cached_room = self.get_or_create_room(room)?;
 
         let message_id = event.content.relates_to.event_id.to_string();
@@ -293,11 +318,54 @@ impl MemoryCacheInner {
         Ok(guard.clone())
     }
 
+    pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
+        let room = self.get_or_create_room(room)?;
+        let mut guard = room.unread_count.lock()?;
+        *guard = unread_count;
+        Ok(())
+    }
+
+    async fn cache_proto_message(&self, event: &Message) -> Result<()> {
+        let Some(room) = self.get_room(&event.room_id)? else {
+            return Ok(());
+        };
+
+        let new_count = {
+            let mut guard = room.unread_count.lock()?;
+            *guard += 1;
+            *guard
+        };
+
+        self.notify_app_about_room_unread_count(&event.room_id, new_count)
+            .await;
+
+        Ok(())
+    }
+
+    fn cache_proto_room_list(&self, list: &[Room]) -> Result<()> {
+        for room in list {
+            self.cache_proto_room(room)?;
+        }
+
+        Ok(())
+    }
+
+    fn cache_proto_room(&self, room: &Room) -> Result<()> {
+        let Some(cached_room) = self.get_room(&room.room_id)? else {
+            return Ok(());
+        };
+
+        let mut guard = cached_room.unread_count.lock()?;
+        *guard = room.unread_count;
+
+        Ok(())
+    }
+
     fn get_room(&self, room_id: &str) -> Result<Option<Arc<CachedRoom>>> {
         Ok(self.cached_rooms.lock()?.get(room_id).cloned())
     }
 
-    fn get_or_create_room(&self, room: Room) -> Result<Arc<CachedRoom>> {
+    fn get_or_create_room(&self, room: MatrixRoom) -> Result<Arc<CachedRoom>> {
         let mut guard = self.cached_rooms.lock()?;
 
         let room = guard
@@ -308,12 +376,22 @@ impl MemoryCacheInner {
         Ok(room)
     }
 
-    fn build_room(&self, room: Room) -> Arc<CachedRoom> {
+    fn build_room(&self, room: MatrixRoom) -> Arc<CachedRoom> {
         Arc::new(CachedRoom::new(
             self.ctx.clone(),
             self.media_manager.clone(),
             room,
         ))
+    }
+
+    async fn notify_app_about_room_unread_count(&self, room_id: &str, unread_count: u32) {
+        let proto = RoomChangeEventBuilder::new(room_id)
+            .change_unread_count(unread_count)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 }
 
@@ -443,13 +521,15 @@ struct CachedRoom {
     /// The media manager to use to download message attachments.
     media_manager: MediaManager,
     /// The room we work with.
-    room: Room,
+    room: MatrixRoom,
 
     /// The messages we have cached.
     messages: Mutex<HashMap<String, CachedMessage>>,
     /// Events that we could not decrypt and that were sent to the application
     /// as an encrypted message.
     encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
+    /// The current unread count of the room.
+    unread_count: Mutex<u32>,
 
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
@@ -457,7 +537,7 @@ struct CachedRoom {
 }
 
 impl CachedRoom {
-    pub fn new(ctx: RequestContext, media_manager: MediaManager, room: Room) -> Self {
+    pub fn new(ctx: RequestContext, media_manager: MediaManager, room: MatrixRoom) -> Self {
         Self {
             ctx,
             media_manager,
@@ -465,6 +545,7 @@ impl CachedRoom {
 
             messages: Mutex::new(HashMap::new()),
             encrypted_events: Mutex::new(HashMap::new()),
+            unread_count: Mutex::new(0),
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
         }
@@ -1251,7 +1332,10 @@ impl MessageFetcher {
 }
 
 /// Retrieves the correct pagination token to start pagination from the specified event.
-async fn resolve_event_for_pagination(room: &Room, event_id: &EventId) -> Result<Option<String>> {
+async fn resolve_event_for_pagination(
+    room: &MatrixRoom,
+    event_id: &EventId,
+) -> Result<Option<String>> {
     let response = room
         .event_with_context(event_id, true, js_int::uint!(0), None)
         .await?;

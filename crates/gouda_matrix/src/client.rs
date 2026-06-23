@@ -637,7 +637,13 @@ impl MatrixClientInner {
 impl MatrixClientInner {
     async fn on_response(&self, content: ResponseContent) {
         match self.session() {
-            Ok(session) => session.proto_cache.cache_response_content(content),
+            Ok(session) => {
+                if let Err(err) = session.memory_cache.cache_response_content(&content).await {
+                    log::error!("Unable to cache response content in memory cache: {err}");
+                };
+
+                session.proto_cache.cache_response_content(content);
+            }
             Err(err) => log::error!("Unable to cache response content: {err:?}"),
         }
     }
@@ -1508,6 +1514,9 @@ impl MatrixClientInner {
         use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
         use matrix_sdk::ruma::events::receipt::ReceiptThread;
 
+        let session = self.session()?;
+        let SessionContext { memory_cache, .. } = &*session;
+
         let room = self.get_matrix_room(&request.room_id).await?;
         let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
@@ -1529,11 +1538,15 @@ impl MatrixClientInner {
             .await
             .map_err(errors::convert_matrix_sdk_error)?;
 
-        Ok(
-            builder::RoomChangeEventBuilder::new(request.room_id.clone())
-                .change_unread_count(0)
-                .to_proto(),
-        )
+        if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
+            log::error!("Unable to update cached unread count for room: {err}");
+        }
+
+        let proto = builder::RoomChangeEventBuilder::new(request.room_id.clone())
+            .change_unread_count(0)
+            .to_proto();
+
+        Ok(proto)
     }
 
     async fn activate_typing_notice(
