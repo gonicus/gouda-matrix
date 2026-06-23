@@ -240,7 +240,7 @@ fn convert_client_build_error(err: Box<matrix_sdk::ClientBuildError>) -> ChatErr
 
     log::error!("Received ClientBuildError: {err:?}");
 
-    match err {
+    match *err {
         ClientBuildError::Http(err) => convert_http_error(err),
         ClientBuildError::AutoDiscovery(err) => chat_err!(Network, err),
         _ => chat_err!(Unknown, err),
