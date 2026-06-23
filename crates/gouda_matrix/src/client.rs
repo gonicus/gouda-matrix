@@ -369,7 +369,7 @@ impl SessionContext {
         )
         .await;
 
-        let memory_cache = MemoryCache::new(ctx.clone(), media_manager.clone());
+        let memory_cache = MemoryCache::new(ctx.clone(), client.clone(), media_manager.clone());
 
         let event_manager = EventManager::new(
             client.clone(),

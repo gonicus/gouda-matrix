@@ -20,10 +20,10 @@ use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
     OriginalMessageLikeEvent,
 };
-use matrix_sdk::Room as MatrixRoom;
+use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{EventId, OwnedEventId};
+use ruma_common::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -76,8 +76,8 @@ pub struct MemoryCache {
 }
 
 impl MemoryCache {
-    pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
-        let inner = MemoryCacheInner::new(ctx, media_manager);
+    pub fn new(ctx: RequestContext, client: Client, media_manager: MediaManager) -> Self {
+        let inner = MemoryCacheInner::new(ctx, client, media_manager);
 
         Self {
             inner: Arc::new(inner),
@@ -188,6 +188,7 @@ impl MemoryCache {
 
 struct MemoryCacheInner {
     ctx: RequestContext,
+    client: Client,
     media_manager: MediaManager,
 
     cached_notification_settings: Mutex<Option<CachedNotificationSettings>>,
@@ -195,9 +196,10 @@ struct MemoryCacheInner {
 }
 
 impl MemoryCacheInner {
-    pub fn new(ctx: RequestContext, media_manager: MediaManager) -> Self {
+    pub fn new(ctx: RequestContext, client: Client, media_manager: MediaManager) -> Self {
         Self {
             ctx,
+            client,
             media_manager,
 
             cached_notification_settings: Mutex::new(None),
@@ -213,9 +215,7 @@ impl MemoryCacheInner {
             ResponseContent::RoomListResponse(response) => {
                 self.cache_proto_room_list(&response.room_list)
             }
-            ResponseContent::RoomCreatedEvent(room) => {
-                self.cache_proto_room(room)
-            }
+            ResponseContent::RoomCreatedEvent(room) => self.cache_proto_room(room),
             _ => Ok(()),
         }
     }
@@ -326,15 +326,26 @@ impl MemoryCacheInner {
     }
 
     async fn cache_proto_message(&self, event: &Message) -> Result<()> {
+        log::debug!("Caching proto message: {event:?}");
+
         let Some(room) = self.get_room(&event.room_id)? else {
+            log::debug!("Room has not been cached before, nothing to do");
             return Ok(());
         };
+
+        let user_id = self.client.user_id().map(|f| f.as_str());
+        if Some(event.sender_id.as_str()) == user_id {
+            log::debug!("Message is send by our own user, no changes to unread count needed");
+            return Ok(());
+        }
 
         let new_count = {
             let mut guard = room.unread_count.lock()?;
             *guard += 1;
             *guard
         };
+
+        log::debug!("Updated room unread count to: {new_count}");
 
         self.notify_app_about_room_unread_count(&event.room_id, new_count)
             .await;
@@ -343,7 +354,10 @@ impl MemoryCacheInner {
     }
 
     fn cache_proto_room_list(&self, list: &[Room]) -> Result<()> {
+        log::debug!("Caching room list: {list:?}");
+
         for room in list {
+            log::debug!("Caching room: {}", room.room_id);
             self.cache_proto_room(room)?;
         }
 
@@ -351,9 +365,12 @@ impl MemoryCacheInner {
     }
 
     fn cache_proto_room(&self, room: &Room) -> Result<()> {
-        let Some(cached_room) = self.get_room(&room.room_id)? else {
+        let Some(matrix_room) = self.get_matrix_room(&room.room_id) else {
+            log::error!("Unable to find corresponding matrix room");
             return Ok(());
         };
+
+        let cached_room = self.get_or_create_room(matrix_room)?;
 
         let mut guard = cached_room.unread_count.lock()?;
         *guard = room.unread_count;
@@ -384,7 +401,14 @@ impl MemoryCacheInner {
         ))
     }
 
+    fn get_matrix_room(&self, room_id: &str) -> Option<MatrixRoom> {
+        let room_id = OwnedRoomId::try_from(room_id).ok()?;
+        self.client.get_room(&room_id)
+    }
+
     async fn notify_app_about_room_unread_count(&self, room_id: &str, unread_count: u32) {
+        log::debug!("Notifying app about new unread count {unread_count} for room {room_id:?}");
+
         let proto = RoomChangeEventBuilder::new(room_id)
             .change_unread_count(unread_count)
             .to_proto();
