@@ -8,6 +8,7 @@ mod macros;
 mod media;
 mod memory_cache;
 mod messages;
+mod notifications;
 mod proto_cache;
 mod rooms;
 mod sas;

@@ -33,7 +33,8 @@
   "abort-verification": {
     "verification_flow_id": "<VERIFICATION_FLOW_ID>"
   },
-  "user": {
+  "get-global-settings": { },
+  "get-user": {
     "user_id": "<USER_ID>"
   },
   "user-search": {

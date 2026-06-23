@@ -21,7 +21,7 @@ use crate::client::SessionContext;
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
 use crate::utils::ComparisonResult;
-use crate::{errors, user, utils};
+use crate::{errors, notifications, user, utils};
 
 #[derive(Clone)]
 pub struct RoomManager {
@@ -98,7 +98,8 @@ impl RoomManager {
             };
 
             let cached = self.proto_cache.cached_rooms().unwrap_or_default();
-            let result = utils::compare_lists(&cached, &fetched, |a, b| a.room_id == b.room_id);
+            let result =
+                utils::compare_lists_partial_eq(&cached, &fetched, |a, b| a.room_id == b.room_id);
             self.process_comparison_result(result).await;
 
             // We don't have to manually overwrite the cache here, as the events send to
@@ -171,8 +172,6 @@ pub async fn convert_to_proto(
         .and_then(|e| e.timestamp())
         .map(|t| t.0.into());
 
-    // TODO: Implement Room::room_settings
-
     Ok(Room {
         room_id: room.room_id().to_string(),
         display_name,
@@ -185,7 +184,7 @@ pub async fn convert_to_proto(
         latest_message_timestamp,
         avatar_path: media_manager.get_room_avatar_path(&room).await,
         is_favorite: room.is_favourite(),
-        room_settings: Some(RoomSettings::default()),
+        room_settings: Some(get_settings(&room).await),
     })
 }
 
@@ -221,6 +220,18 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
         can_kick: room_power_levels.user_can_kick(user_id),
         can_ban: room_power_levels.user_can_ban(user_id),
     })
+}
+
+async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
+    let notification = room
+        .notification_mode()
+        .await
+        .map(notifications::matrix_notification_mode_to_chat_notification_settings)
+        .map(|f| f.into());
+
+    RoomSettings {
+        notification_setting: notification,
+    }
 }
 
 async fn get_latest_event(room: &matrix_sdk::Room) -> Option<TimelineEvent> {

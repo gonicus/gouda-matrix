@@ -27,7 +27,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, messages, rooms, user};
+use crate::{debug_assert_or_log, errors, messages, notifications, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -171,6 +171,14 @@ impl ClientAbstraction for MatrixClient {
         request: VerificationAbortRequest,
     ) -> Result<VerificationEndEvent> {
         self.inner()?.abort_verification(ctx, request).await
+    }
+
+    async fn get_global_settings(
+        &self,
+        ctx: RequestContext,
+        request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        self.inner()?.get_global_settings(ctx, request).await
     }
 
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
@@ -980,6 +988,23 @@ impl MatrixClientInner {
                 "Verification flow with the given ID not found",
             ))
         }
+    }
+
+    async fn get_global_settings(
+        &self,
+        _ctx: RequestContext,
+        _request: GlobalSettingsRequest,
+    ) -> Result<GlobalSettings> {
+        let session = self.session()?;
+        let SessionContext { client, .. } = &*session;
+
+        let notification_mode = notifications::compose_global_notification_settings(client).await;
+
+        let settings = GlobalSettings {
+            notification_setting: notification_mode.into(),
+        };
+
+        Ok(settings)
     }
 
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
