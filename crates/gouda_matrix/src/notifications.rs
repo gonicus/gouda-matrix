@@ -1,110 +1,136 @@
 use std::collections::HashMap;
 
+use gouda_core::RequestContext;
 use gouda_proto::chat::NotificationSetting;
 use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::Client;
 use ruma_common::RoomId;
 
+use crate::client::SessionContext;
 use crate::memory_cache::{CachedNotificationSettings, MemoryCache};
 use crate::utils;
 
-pub async fn subscibe_to_notification_settings_changes(client: Client, memory_cache: MemoryCache) {
-    log::debug!("Subscribing to notifications setting changes");
+pub struct NotificationManager {
+    context: RequestContext,
+    client: Client,
+    memory_cache: MemoryCache,
+}
 
-    let initial = load_notification_settings(&client).await;
-    if let Err(err) = memory_cache.cache_notification_settings(initial) {
-        log::error!("Unable to cache initial notification settings: {err}");
+impl NotificationManager {
+    pub fn from_session(context: RequestContext, session: &SessionContext) -> Self {
+        Self {
+            context,
+            client: session.client.clone(),
+            memory_cache: session.memory_cache.clone(),
+        }
     }
 
-    tokio::spawn(async move {
-        let mut receiver = client.notification_settings().await.subscribe_to_changes();
+    pub async fn subscibe_to_changes(self) {
+        log::debug!("Subscribing to notification settings changes");
 
-        loop {
-            match receiver.recv().await {
-                Ok(()) => handle_notification_settings_change(&client, &memory_cache).await,
-                Err(err) => {
-                    log::error!("Error retrieving notification settings changes: {err}");
-                    break;
+        let initial = self.load_notification_settings().await;
+        if let Err(err) = self.memory_cache.cache_notification_settings(initial) {
+            log::error!("Unable to cache initial notification settings: {err}");
+        }
+
+        tokio::spawn(async move {
+            let mut receiver = self
+                .client
+                .notification_settings()
+                .await
+                .subscribe_to_changes();
+
+            loop {
+                match receiver.recv().await {
+                    Ok(()) => self.handle_notification_settings_change().await,
+                    Err(err) => {
+                        log::error!("Error retrieving notification settings changes: {err}");
+                        break;
+                    }
                 }
             }
+        });
+    }
+
+    async fn load_notification_settings(&self) -> CachedNotificationSettings {
+        log::info!("Loading notification settings");
+
+        let global_settings = compose_global_notification_settings(&self.client).await;
+
+        log::debug!("Global settings: {global_settings:?}");
+
+        let settings = self.client.notification_settings().await;
+
+        let mut room_settings = HashMap::new();
+
+        for room_id_str in settings.get_rooms_with_user_defined_rules(None).await {
+            let Ok(room_id) = RoomId::parse(room_id_str.clone()) else {
+                continue;
+            };
+
+            let room_rule = settings
+                .get_user_defined_room_notification_mode(&room_id)
+                .await;
+            let Some(room_rule) = room_rule else {
+                continue;
+            };
+
+            log::debug!("Room notification settings {room_id}: {room_rule:?}");
+
+            let converted = matrix_notification_mode_to_chat_notification_settings(room_rule);
+
+            room_settings.insert(room_id_str, converted);
         }
-    });
-}
 
-async fn load_notification_settings(client: &Client) -> CachedNotificationSettings {
-    log::info!("Loading notification settings");
+        CachedNotificationSettings {
+            global_settings,
+            room_settings,
+        }
+    }
 
-    let global_settings = compose_global_notification_settings(client).await;
+    async fn handle_notification_settings_change(&self) {
+        log::info!("Handling notification settings change");
 
-    log::debug!("Global settings: {global_settings:?}");
+        let old = self
+            .memory_cache
+            .get_notification_settings()
+            .unwrap()
+            .unwrap();
+        let new = self.load_notification_settings().await;
 
-    let settings = client.notification_settings().await;
-
-    let mut room_settings = HashMap::new();
-
-    for room_id_str in settings.get_rooms_with_user_defined_rules(None).await {
-        let Ok(room_id) = RoomId::parse(room_id_str.clone()) else {
-            continue;
+        if let Err(err) = self.memory_cache.cache_notification_settings(new.clone()) {
+            log::error!("Unable to cache new notification settings: {err}");
         };
 
-        let room_rule = settings
-            .get_user_defined_room_notification_mode(&room_id)
-            .await;
-        let Some(room_rule) = room_rule else {
-            continue;
-        };
+        log::debug!("Old settings: {old:?}");
+        log::debug!("New settings: {new:?}");
 
-        log::debug!("Room notification settings {room_id}: {room_rule:?}");
+        let old_room_settings: Vec<(String, NotificationSetting)> =
+            old.room_settings.into_iter().collect();
 
-        let converted = matrix_notification_mode_to_chat_notification_settings(room_rule);
+        let new_room_settings: Vec<(String, NotificationSetting)> =
+            new.room_settings.into_iter().collect();
 
-        room_settings.insert(room_id_str, converted);
-    }
+        let result = utils::compare_lists(
+            &old_room_settings,
+            &new_room_settings,
+            |(a, _), (b, _)| a == b,
+            |(_, a), (_, b)| a == b,
+        );
 
-    CachedNotificationSettings {
-        global_settings,
-        room_settings,
-    }
-}
+        log::debug!("Room settings comparison result: {result:?}");
 
-async fn handle_notification_settings_change(client: &Client, memory_cache: &MemoryCache) {
-    log::info!("Handling notification settings change");
+        for new in result.new {
+            // TODO: Send update vent to application
+        }
 
-    let old = memory_cache.get_notification_settings().unwrap().unwrap();
-    let new = load_notification_settings(client).await;
+        for removed in result.deleted {
+            // TODO: Send update vent to application
+        }
 
-    if let Err(err) = memory_cache.cache_notification_settings(new.clone()) {
-        log::error!("Unable to cache new notification settings: {err}");
-    };
-
-    log::debug!("Old settings: {old:?}");
-    log::debug!("New settings: {new:?}");
-
-    let old_room_settings: Vec<(String, NotificationSetting)> =
-        old.room_settings.into_iter().collect();
-
-    let new_room_settings: Vec<(String, NotificationSetting)> =
-        new.room_settings.into_iter().collect();
-
-    let result = utils::compare_lists(
-        &old_room_settings,
-        &new_room_settings,
-        |(a, _), (b, _)| a == b,
-        |(_, a), (_, b)| a == b,
-    );
-
-    log::debug!("Room settings comparison result: {result:?}");
-
-    for new in result.new {
-        // TODO: Send update vent to application
-    }
-
-    for removed in result.deleted {
-        // TODO: Send update vent to application
-    }
-
-    for updated in result.updated {
-        // TODO: Send update vent to application
+        for updated in result.updated {
+            // TODO: Send update vent to application
+        }
     }
 }
 

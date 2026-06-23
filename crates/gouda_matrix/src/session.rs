@@ -13,7 +13,8 @@ use tokio::task::JoinHandle;
 
 use crate::client::SessionContext;
 use crate::memory_cache::MemoryCache;
-use crate::{crypto, errors, notifications, user};
+use crate::notifications::NotificationManager;
+use crate::{crypto, errors, user};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -97,11 +98,8 @@ impl Session {
             session_context.memory_cache.clone(),
         );
 
-        notifications::subscibe_to_notification_settings_changes(
-            session_context.client.clone(),
-            session_context.memory_cache.clone(),
-        )
-        .await;
+        NotificationManager::from_session(ctx.clone(), &session_context)
+            .subscibe_to_changes().await;
 
         self.initial_sync(&mut ctx, &session_context).await?;
         self.exec_initial_actions(&ctx, &session_context).await;
