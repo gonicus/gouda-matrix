@@ -13,9 +13,9 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 
 /// The default log level for our own crates.
-const LOG_LEVEL_DEFAULT: &str = "INFO";
+const LOG_LEVEL_DEFAULT: &str = "WARN";
 /// The default log file to use.
-const LOG_FILE_DEFAULT: &str = "matrix_client.log";
+const LOG_FILE_DEFAULT: &str = "gouda_client.log";
 
 /// The log level for all other crates.
 const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
