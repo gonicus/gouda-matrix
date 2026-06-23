@@ -86,7 +86,7 @@ impl MemoryCache {
 
     /// Caches the given response content.
     pub async fn cache_response_content(&self, content: &ResponseContent) -> Result<()> {
-        self.inner.cache_response_content(&content).await
+        self.inner.cache_response_content(content).await
     }
 
     /// Fetches the assembled messages from the room with the given options.
