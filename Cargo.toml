@@ -35,7 +35,6 @@ js_int = "0.2.2"
 matrix-sdk = { version = "0.18.0", features = [
   "sso-login", "markdown", "bundled-sqlite"
 ] }
-matrix-sdk-base = { version = "0.18.0", default-features = false }
 matrix-sdk-crypto = { version = "0.18.0", default-features = false }
 matrix-sdk-common = { version = "0.18.0", default-features = false }
 ruma-common = "0.19"

@@ -23,7 +23,6 @@ async-trait.workspace = true
 
 js_int.workspace = true
 matrix-sdk.workspace = true
-matrix-sdk-base.workspace = true
 matrix-sdk-crypto.workspace = true
 ruma-common.workspace = true
 url.workspace = true
