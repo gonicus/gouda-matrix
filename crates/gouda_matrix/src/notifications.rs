@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::NotificationSetting;
+use gouda_proto::chat::builder::RoomChangeEventBuilder;
+use gouda_proto::chat::response_container::Content as ResponseContent;
+use gouda_proto::chat::{GlobalSettings, NotificationSetting, RoomSettings};
 use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::Client;
 use ruma_common::RoomId;
@@ -96,6 +98,7 @@ impl NotificationManager {
             .get_notification_settings()
             .unwrap()
             .unwrap();
+
         let new = self.load_notification_settings().await;
 
         if let Err(err) = self.memory_cache.cache_notification_settings(new.clone()) {
@@ -105,32 +108,65 @@ impl NotificationManager {
         log::debug!("Old settings: {old:?}");
         log::debug!("New settings: {new:?}");
 
+        if old.global_settings != new.global_settings {
+            self.send_global_update_event(new.global_settings).await;
+        }
+
         let old_room_settings: Vec<(String, NotificationSetting)> =
             old.room_settings.into_iter().collect();
 
         let new_room_settings: Vec<(String, NotificationSetting)> =
             new.room_settings.into_iter().collect();
 
-        let result = utils::compare_lists(
-            &old_room_settings,
-            &new_room_settings,
-            |(a, _), (b, _)| a == b,
-            |(_, a), (_, b)| a == b,
-        );
+        self.compare_room_changes(old_room_settings, new_room_settings)
+            .await;
+    }
+
+    async fn send_global_update_event(&self, new: NotificationSetting) {
+        let event = GlobalSettings {
+            notification_setting: new.into(),
+        };
+
+        self.context
+            .send_event(ResponseContent::GlobalSettingsEvent(event))
+            .await;
+    }
+
+    async fn compare_room_changes(
+        &self,
+        old: Vec<(String, NotificationSetting)>,
+        new: Vec<(String, NotificationSetting)>,
+    ) {
+        let result =
+            utils::compare_lists(&old, &new, |(a, _), (b, _)| a == b, |(_, a), (_, b)| a == b);
 
         log::debug!("Room settings comparison result: {result:?}");
 
-        for new in result.new {
-            // TODO: Send update vent to application
+        for (room_id, settings) in result.new {
+            self.send_room_update_event(room_id, Some(settings)).await;
         }
 
-        for removed in result.deleted {
-            // TODO: Send update vent to application
+        for (room_id, _) in result.deleted {
+            self.send_room_update_event(room_id, None).await;
         }
 
-        for updated in result.updated {
-            // TODO: Send update vent to application
+        for (_, (room_id, settings)) in result.updated {
+            self.send_room_update_event(room_id, Some(settings)).await;
         }
+    }
+
+    async fn send_room_update_event(&self, room_id: String, settings: Option<NotificationSetting>) {
+        let room_settings = RoomSettings {
+            notification_setting: settings.map(|f| f.into()),
+        };
+
+        let event = RoomChangeEventBuilder::new(room_id)
+            .change_room_settings(room_settings)
+            .to_proto();
+
+        self.context
+            .send_event(ResponseContent::RoomChangeEvent(event))
+            .await;
     }
 }
 
