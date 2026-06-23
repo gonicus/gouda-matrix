@@ -62,47 +62,47 @@ pub enum Error {
     #[allow(clippy::enum_variant_names)]
     InternalError(Cow<'static, str>),
 
-    #[error("media error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MediaError(#[from] crate::media::MediaError),
 
-    #[error("memory cache error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MemoryCacheError(#[from] crate::memory_cache::MemoryCacheError),
 
-    #[error("matrix sdk error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkError(#[from] matrix_sdk::Error),
 
-    #[error("matrix sdk client build error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkClientBuildError(Box<matrix_sdk::ClientBuildError>),
 
-    #[error("matrix sdk http error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkHttpError(#[from] matrix_sdk::HttpError),
 
-    #[error("matrix sdk edit error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkEditError(#[from] matrix_sdk::room::edit::EditError),
 
-    #[error("matrix sdk recovery error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkRecoveryError(#[from] matrix_sdk::encryption::recovery::RecoveryError),
 
-    #[error("matrix sdk store error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkStoreError(#[from] matrix_sdk::StoreError),
 
-    #[error("matrix sdk crypto store error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkCryptoStoreError(#[from] matrix_sdk_crypto::CryptoStoreError),
 
-    #[error("matrix sdk refresh token error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkRefreshTokenError(#[from] matrix_sdk::RefreshTokenError),
 
-    #[error("matrix sdk request verification error: {0}")]
+    #[error(transparent)]
     #[allow(clippy::enum_variant_names)]
     MatrixSdkRequestVerificationError(
         #[from] matrix_sdk::encryption::identities::RequestVerificationError,
