@@ -300,10 +300,6 @@ fn convert_store_error(err: matrix_sdk::StoreError) -> ChatError {
     chat_err!(Unknown, err)
 }
 
-fn convert_id_parse_error(err: matrix_sdk::IdParseError) -> ChatError {
-    chat_err!(InvalidUserId, err)
-}
-
 fn convert_edit_error(err: matrix_sdk::room::edit::EditError) -> ChatError {
     log::error!("Received EditError: {err:?}");
     chat_err!(Unknown, err)
