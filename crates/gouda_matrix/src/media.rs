@@ -15,8 +15,9 @@ use ruma_common::{EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedUserId};
 use thiserror::Error;
 use tokio::fs;
 
+use crate::error::chat_err;
 use crate::{
-    debug_assert_or_log, errors, unwrap_or_log_return, unwrap_or_log_return_err,
+    debug_assert_or_log, unwrap_or_log_return, unwrap_or_log_return_err,
     unwrap_or_log_return_option, user, utils,
 };
 
@@ -55,12 +56,12 @@ pub enum MediaError {
     #[error("the requested operation is not allowed")]
     NotAllowed,
 
+    #[error("unable to get the avatar uri of the requested user")]
+    UnableToGetAvatarUri,
+
     // This error is most likely a bug in the code!
     #[error("the id of the asset is not specified")]
     AssetIdNotSpecified,
-
-    #[error("chat error")]
-    ChatError(#[from] gouda_proto::chat::Error),
 
     #[error("io error")]
     Io(#[from] std::io::Error),
@@ -72,15 +73,10 @@ pub enum MediaError {
     MatrixError(#[from] matrix_sdk::Error),
 }
 
-pub fn convert_error(err: MediaError) -> ChatError {
-    // TODO: Improve error handling
-    errors::create_unknown(err.to_string())
-}
-
 impl From<MediaError> for ChatError {
     // TODO: Improve error handling
     fn from(value: MediaError) -> ChatError {
-        errors::create_unknown(value.to_string())
+        chat_err!(Unknown, value)
     }
 }
 
@@ -854,7 +850,7 @@ impl UserAvatarAsset {
             self.avatar_uri = Some(uri.clone());
         }
 
-        result.map_err(MediaError::from)
+        result.map_err(|_| MediaError::UnableToGetAvatarUri)
     }
 }
 

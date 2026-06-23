@@ -1988,7 +1988,6 @@ dependencies = [
  "log",
  "log4rs",
  "matrix-sdk",
- "matrix-sdk-base",
  "matrix-sdk-crypto",
  "mime",
  "mime_guess",

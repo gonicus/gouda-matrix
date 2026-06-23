@@ -1,5 +1,4 @@
-use gouda_core::{RequestContext, Result};
-use gouda_proto::chat::error::ErrorType;
+use gouda_core::RequestContext;
 use gouda_proto::chat::message_content_membership_change::MembershipChange;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
@@ -11,9 +10,9 @@ use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
 
 use crate::client::SessionContext;
+use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
-use crate::{errors, unwrap_or_log_return_err};
 
 #[derive(Clone)]
 pub struct UserManager {
@@ -64,7 +63,7 @@ impl UserManager {
             .account()
             .fetch_user_profile_of(user_id)
             .await
-            .map_err(|_| errors::create_error(ErrorType::UserNotFound))?;
+            .map_err(|_| Error::UserNotFound)?;
 
         let display_name = profile.get_static::<DisplayName>().unwrap_or_default();
 
@@ -189,18 +188,16 @@ pub async fn fetch_avatar_uri(
         }
     }
 
-    let result = result.map_err(errors::convert_matrix_sdk_error);
+    let result = result?;
 
-    match unwrap_or_log_return_err!(result, "Error retrieving user avatar uri") {
+    match result {
         Some(uri) => {
             if let ProfileFieldValue::AvatarUrl(url) = uri {
                 log::debug!("Successfully received avatar URL from user profile");
                 Ok(Some(url))
             } else {
                 log::error!("Received unexpected profile field value");
-                Err(errors::create_unknown(
-                    "received unexpected profile field value",
-                ))
+                Err(Error::internal("received unexpected profile field value"))
             }
         }
         None => Ok(None),
@@ -220,9 +217,8 @@ pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatu
 
     let request = get_presence::v3::Request::new(user_id.to_owned());
 
-    let response = client.send(request).await.map_err(|err| {
-        log::error!("Error retrieving presence state for user {user_id}: {err}");
-        errors::convert_http_error(err)
+    let response = client.send(request).await.inspect_err(|err| {
+        log::error!("Error retrieving presence state for user {user_id}: {err}")
     })?;
 
     Ok(UserStatus {
