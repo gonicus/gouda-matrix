@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gouda_core::{RequestContext, Result};
+use gouda_core::RequestContext;
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
@@ -18,6 +18,7 @@ use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
 use crate::client::SessionContext;
+use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
 use crate::utils::ComparisonResult;
@@ -66,7 +67,7 @@ impl RoomManager {
         log::debug!("Fetching all known rooms from matrix server");
 
         let Some(user_id) = self.client.user_id() else {
-            return Err(errors::create_error(ErrorType::Authorization));
+            return Err(Error::Authorization);
         };
 
         let mut result = Vec::new();
@@ -160,9 +161,7 @@ pub async fn convert_to_proto(
     let is_direct = if members.len() > 2 {
         false
     } else {
-        room.is_direct()
-            .await
-            .map_err(errors::convert_store_error)?
+        room.is_direct().await?
     };
 
     let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
@@ -189,10 +188,7 @@ pub async fn convert_to_proto(
 }
 
 pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
-    let members = room
-        .members(matrix_sdk::RoomMemberships::all())
-        .await
-        .map_err(errors::convert_matrix_sdk_error)?;
+    let members = room.members(matrix_sdk::RoomMemberships::all()).await?;
 
     let mut result: HashMap<String, i32> = HashMap::new();
 
@@ -339,15 +335,14 @@ pub async fn update_room_join_rule(room: &matrix_sdk::Room, join_rule: RoomJoinR
 
     room.privacy_settings()
         .update_join_rule(join_rule.clone())
-        .await
-        .map_err(errors::convert_matrix_sdk_error)?;
+        .await?;
 
     let visibility = matrix_join_rule_to_visibility(join_rule);
 
     room.privacy_settings()
         .update_room_visibility(visibility)
         .await
-        .map_err(errors::convert_matrix_sdk_error)
+        .map_err(|err| err.into())
 }
 
 /// Converts a chunk of public rooms received from the matrix sdk to a chunk of public rooms
@@ -406,14 +401,12 @@ pub async fn wait_for_state_events(
             .await
             .map_err(|_| {
                 log::error!("Reached timeout waiting for requested events");
-                errors::create_error(ErrorType::Timeout)
+                Error::Timeout
             })?;
 
         let Some(event) = result else {
             log::error!("Did not receive every requested event");
-            return Err(errors::create_unknown(
-                "Did not receive every requested event",
-            ));
+            return Err(Error::internal("Did not receive every requested event"));
         };
 
         log::debug!("Received event: {:?}", event);

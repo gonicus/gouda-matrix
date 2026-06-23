@@ -1,4 +1,3 @@
-use gouda_core::Result;
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
@@ -7,6 +6,7 @@ use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
 
+use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::{errors, media};
 
@@ -171,7 +171,7 @@ pub fn proto_mentions_to_matrix_mentions(mentioned_user_ids: &[String]) -> Resul
         .map(|f| {
             UserId::parse(f)
                 .map(|f| f.to_owned())
-                .map_err(|_| errors::create_error(ErrorType::InvalidUserId))
+                .map_err(|_| Error::InvalidUserId)
         })
         .collect::<Result<Vec<OwnedUserId>>>()?;
 
@@ -201,10 +201,7 @@ pub async fn send_text_message(
         event = event.add_mentions(mentions);
     }
 
-    let re = room
-        .send(event)
-        .await
-        .map_err(errors::convert_matrix_sdk_error)?;
+    let re = room.send(event).await?;
 
     Ok(MessageSendResponse {
         message_id: re.response.event_id.to_string(),
@@ -226,8 +223,7 @@ pub async fn send_file_message(
             content.file_name,
             related_message_id,
         )
-        .await
-        .map_err(media::convert_error)?;
+        .await?;
 
     Ok(MessageSendResponse { message_id })
 }
@@ -263,8 +259,7 @@ fn convert_related_message_id(related_message_id: Option<String>) -> Result<Opti
         return Ok(None);
     };
 
-    let event_id = EventId::parse(related_message_id)
-        .map_err(|_| errors::create_error(error::ErrorType::InvalidMessageId))?;
+    let event_id = EventId::parse(related_message_id).map_err(|_| Error::InvalidMessageId)?;
 
     Ok(Some(event_id))
 }
@@ -273,18 +268,15 @@ async fn generate_reply_metadata(
     room: &Room,
     related_message_id: &str,
 ) -> Result<CustomReplyMetadata> {
-    let event_id = EventId::parse(related_message_id)
-        .map_err(|_| errors::create_error(error::ErrorType::InvalidMessageId))?;
+    let event_id = EventId::parse(related_message_id).map_err(|_| Error::InvalidMessageId)?;
 
     let event = room
         .event(&event_id, None)
         .await
-        .map_err(|_| errors::create_error(ErrorType::MessageNotFound))?;
+        .map_err(|_| Error::MessageNotFound)?;
 
     let Some(event_id) = event.event_id() else {
-        return Err(errors::create_unknown(
-            "Related message does not have an event id",
-        ));
+        return Err(Error::internal("Related message does not have an event id"));
     };
 
     let sender_id = sender_id_from_timeline_event(&event)?;
@@ -297,7 +289,7 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
         TimelineEventKind::PlainText { event } => {
             let event = event
                 .deserialize()
-                .map_err(|_| errors::create_unknown("Error deserializing related message"))?;
+                .map_err(|_| Error::internal("Error deserializing related message"))?;
 
             Ok(event.sender().to_owned())
         }
@@ -305,11 +297,11 @@ fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
             let event = event
                 .event
                 .deserialize()
-                .map_err(|_| errors::create_unknown("Error deserializing related message"))?;
+                .map_err(|_| Error::internal("Error deserializing related message"))?;
 
             Ok(event.sender().to_owned())
         }
-        _ => Err(errors::create_unknown(
+        _ => Err(Error::internal(
             "Related event is not plaintext or decrypted",
         )),
     }

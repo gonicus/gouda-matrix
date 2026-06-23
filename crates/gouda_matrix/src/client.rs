@@ -3,8 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use gouda_core::{Client as ClientAbstraction, RequestContext, Result};
-use gouda_proto::chat::error::ErrorType;
+use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
@@ -20,6 +19,7 @@ use tokio::sync::OnceCell;
 use tokio_stream::StreamExt;
 use url::Url;
 
+use crate::error::{Error, Result};
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::memory_cache::{self, MemoryCache};
@@ -27,7 +27,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{debug_assert_or_log, errors, messages, notifications, rooms, user};
+use crate::{errors, messages, notifications, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -36,7 +36,7 @@ const AUTH_FILE: &str = "auth";
 
 macro_rules! try_lock {
     ($lock_result:expr) => {{
-        $lock_result.map_err(|_| errors::create_unknown("lock poisoined"))?
+        $lock_result.map_err(|_| Error::internal("lock poisoined"))?
     }};
 }
 
@@ -59,10 +59,7 @@ impl MatrixClient {
 
     fn inner(&self) -> Result<&MatrixClientInner> {
         let Some(inner) = self.inner.get() else {
-            return Err(errors::create_error_msg(
-                ErrorType::NotInitialized,
-                "The client is not initialized",
-            ));
+            return Err(Error::NotInitialized);
         };
 
         Ok(inner)
@@ -75,9 +72,9 @@ impl ClientAbstraction for MatrixClient {
         &self,
         ctx: RequestContext,
         request: InitializationRequest,
-    ) -> Result<StatusUpdate> {
+    ) -> gouda_core::Result<StatusUpdate> {
         if self.inner.initialized() {
-            return Err(errors::create_error(ErrorType::AlreadyInitialized));
+            return Err(Error::AlreadyInitialized.into());
         }
 
         let (client, result) = MatrixClientInner::new(ctx, request).await?;
@@ -104,225 +101,347 @@ impl ClientAbstraction for MatrixClient {
         inner.on_response(content).await;
     }
 
-    async fn get_login_flows(&self, ctx: RequestContext) -> Result<LoginFlowsResponse> {
-        self.inner()?.get_login_flows(ctx).await
+    async fn get_login_flows(&self, ctx: RequestContext) -> gouda_core::Result<LoginFlowsResponse> {
+        self.inner()?
+            .get_login_flows(ctx)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn get_identity_providers(
         &self,
         ctx: RequestContext,
-    ) -> Result<IdentityProvidersResponse> {
-        self.inner()?.get_identity_providers(ctx).await
+    ) -> gouda_core::Result<IdentityProvidersResponse> {
+        self.inner()?
+            .get_identity_providers(ctx)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn login_username_password(
         &self,
         ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
-    ) -> Result<StatusUpdate> {
-        self.inner()?.login_username_password(ctx, request).await
+    ) -> gouda_core::Result<StatusUpdate> {
+        self.inner()?
+            .login_username_password(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn login_sso(
         &self,
         ctx: RequestContext,
         request: LoginSsoRequest,
-    ) -> Result<LoginSsoResponse> {
-        self.inner()?.login_sso(ctx, request).await
+    ) -> gouda_core::Result<LoginSsoResponse> {
+        self.inner()?
+            .login_sso(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn recovery_key_verification(
         &self,
         ctx: RequestContext,
         request: RecoveryKeyVerificationRequest,
-    ) -> Result<VerificationEndEvent> {
-        self.inner()?.recovery_key_verification(ctx, request).await
+    ) -> gouda_core::Result<VerificationEndEvent> {
+        self.inner()?
+            .recovery_key_verification(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn cross_signing_start(
         &self,
         ctx: RequestContext,
         request: CrossSigningStartRequest,
-    ) -> Result<CrossSigningStartResponse> {
-        self.inner()?.cross_signing_start(ctx, request).await
+    ) -> gouda_core::Result<CrossSigningStartResponse> {
+        self.inner()?
+            .cross_signing_start(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn cross_signing_select_method(
         &self,
         ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
-    ) -> Result<()> {
+    ) -> gouda_core::Result<()> {
         self.inner()?
             .cross_signing_select_method(ctx, request)
             .await
+            .map_err(|err| err.into())
     }
 
     async fn cross_signing_confirm(
         &self,
         ctx: RequestContext,
         request: CrossSigningConfirmRequest,
-    ) -> Result<()> {
-        self.inner()?.cross_signing_confirm(ctx, request).await
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .cross_signing_confirm(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn abort_verification(
         &self,
         ctx: RequestContext,
         request: VerificationAbortRequest,
-    ) -> Result<VerificationEndEvent> {
-        self.inner()?.abort_verification(ctx, request).await
+    ) -> gouda_core::Result<VerificationEndEvent> {
+        self.inner()?
+            .abort_verification(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn get_global_settings(
         &self,
         ctx: RequestContext,
         request: GlobalSettingsRequest,
-    ) -> Result<GlobalSettings> {
-        self.inner()?.get_global_settings(ctx, request).await
+    ) -> gouda_core::Result<GlobalSettings> {
+        self.inner()?
+            .get_global_settings(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
-        self.inner()?.get_user(ctx, request).await
+    async fn get_user(
+        &self,
+        ctx: RequestContext,
+        request: UserRequest,
+    ) -> gouda_core::Result<User> {
+        self.inner()?
+            .get_user(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn search_users(
         &self,
         ctx: RequestContext,
         request: UserSearchRequest,
-    ) -> Result<UserSearchResponse> {
-        self.inner()?.search_users(ctx, request).await
+    ) -> gouda_core::Result<UserSearchResponse> {
+        self.inner()?
+            .search_users(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn set_status(&self, ctx: RequestContext, request: UserStatus) -> Result<()> {
-        self.inner()?.set_status(ctx, request).await
+    async fn set_status(&self, ctx: RequestContext, request: UserStatus) -> gouda_core::Result<()> {
+        self.inner()?
+            .set_status(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn get_public_rooms(
         &self,
         ctx: RequestContext,
         request: PublicRoomListRequest,
-    ) -> Result<PublicRoomListResponse> {
-        self.inner()?.get_public_rooms(ctx, request).await
+    ) -> gouda_core::Result<PublicRoomListResponse> {
+        self.inner()?
+            .get_public_rooms(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn invite(
         &self,
         ctx: RequestContext,
         request: InvitationRequest,
-    ) -> Result<RoomChangeEvent> {
-        self.inner()?.invite(ctx, request).await
+    ) -> gouda_core::Result<RoomChangeEvent> {
+        self.inner()?
+            .invite(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn invitation_reply(&self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
-        self.inner()?.invitation_reply(ctx, request).await
+    async fn invitation_reply(
+        &self,
+        ctx: RequestContext,
+        request: InvitedReply,
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .invitation_reply(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn get_rooms(
         &self,
         ctx: RequestContext,
         request: RoomListRequest,
-    ) -> Result<RoomListResponse> {
-        self.inner()?.get_rooms(ctx, request).await
+    ) -> gouda_core::Result<RoomListResponse> {
+        self.inner()?
+            .get_rooms(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn create_group_room(
         &self,
         ctx: RequestContext,
         request: RoomCreateGroupRequest,
-    ) -> Result<Room> {
-        self.inner()?.create_group_room(ctx, request).await
+    ) -> gouda_core::Result<Room> {
+        self.inner()?
+            .create_group_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn create_direct_room(
         &self,
         ctx: RequestContext,
         request: RoomCreateDirectRequest,
-    ) -> Result<Room> {
-        self.inner()?.create_direct_room(ctx, request).await
+    ) -> gouda_core::Result<Room> {
+        self.inner()?
+            .create_direct_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn change_room(
         &self,
         ctx: RequestContext,
         request: RoomChangeRequest,
-    ) -> Result<RoomChangeEvent> {
-        self.inner()?.change_room(ctx, request).await
+    ) -> gouda_core::Result<RoomChangeEvent> {
+        self.inner()?
+            .change_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn leave_room(
         &self,
         ctx: RequestContext,
         request: RoomLeaveRequest,
-    ) -> Result<RoomLeftEvent> {
-        self.inner()?.leave_room(ctx, request).await
+    ) -> gouda_core::Result<RoomLeftEvent> {
+        self.inner()?
+            .leave_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn join_room(&self, ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
-        self.inner()?.join_room(ctx, request).await
+    async fn join_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomJoinRequest,
+    ) -> gouda_core::Result<Room> {
+        self.inner()?
+            .join_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn knock_room(&self, ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
-        self.inner()?.knock_room(ctx, request).await
+    async fn knock_room(
+        &self,
+        ctx: RequestContext,
+        request: RoomKnockRequest,
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .knock_room(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn get_room_messages(
         &self,
         ctx: RequestContext,
         request: RoomMessagesRequest,
-    ) -> Result<()> {
-        self.inner()?.get_room_messages(ctx, request).await
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .get_room_messages(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn mark_as_read(
         &self,
         ctx: RequestContext,
         request: RoomMarkAsReadRequest,
-    ) -> Result<RoomChangeEvent> {
-        self.inner()?.mark_as_read(ctx, request).await
+    ) -> gouda_core::Result<RoomChangeEvent> {
+        self.inner()?
+            .mark_as_read(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn activate_typing_notice(
         &self,
         ctx: RequestContext,
         request: RoomTypingRequest,
-    ) -> Result<()> {
-        self.inner()?.activate_typing_notice(ctx, request).await
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .activate_typing_notice(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn send_message(
         &self,
         ctx: RequestContext,
         request: MessageSendRequest,
-    ) -> Result<MessageSendResponse> {
-        self.inner()?.send_message(ctx, request).await
+    ) -> gouda_core::Result<MessageSendResponse> {
+        self.inner()?
+            .send_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn remove_message(
         &self,
         ctx: RequestContext,
         request: MessageRemoveRequest,
-    ) -> Result<()> {
-        self.inner()?.remove_message(ctx, request).await
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .remove_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     async fn change_message(
         &self,
         ctx: RequestContext,
         request: MessageChangeRequest,
-    ) -> Result<()> {
-        self.inner()?.change_message(ctx, request).await
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .change_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn create_reaction(&self, ctx: RequestContext, request: Reaction) -> Result<()> {
-        self.inner()?.create_reaction(ctx, request).await
+    async fn create_reaction(
+        &self,
+        ctx: RequestContext,
+        request: Reaction,
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .create_reaction(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn remove_reaction(&self, ctx: RequestContext, request: Reaction) -> Result<()> {
-        self.inner()?.remove_reaction(ctx, request).await
+    async fn remove_reaction(
+        &self,
+        ctx: RequestContext,
+        request: Reaction,
+    ) -> gouda_core::Result<()> {
+        self.inner()?
+            .remove_reaction(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
-    async fn get_message(&self, ctx: RequestContext, request: MessageRequest) -> Result<Message> {
-        self.inner()?.get_message(ctx, request).await
+    async fn get_message(
+        &self,
+        ctx: RequestContext,
+        request: MessageRequest,
+    ) -> gouda_core::Result<Message> {
+        self.inner()?
+            .get_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -418,9 +537,7 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: InitializationRequest,
     ) -> Result<(Self, StatusUpdate)> {
-        let homeserver_url = Url::parse(&request.backend_url)
-            .map_err(|err| errors::create_error_msg(ErrorType::InvalidUrl, err))?;
-
+        let homeserver_url = Url::parse(&request.backend_url).map_err(|_| Error::InvalidUrl)?;
         let data_root_dir = PathBuf::from(&request.data_root_path);
 
         let session = SessionContext::new(
@@ -466,25 +583,9 @@ impl MatrixClientInner {
         Ok((obj, status))
     }
 
-    /// Checks if the client is still logged in.
-    /// This method sends a request to the Matrix server.
-    async fn is_logged_in(&self) -> Result<bool> {
-        let result = self
-            .session()?
-            .client
-            .whoami()
-            .await
-            .map_err(errors::convert_http_error);
-
-        if let Err(err) = result {
-            if err.r#type == ErrorType::Authorization as i32 {
-                return Ok(false);
-            }
-
-            return Err(err);
-        }
-
-        Ok(true)
+    /// Checks if the client is currently logged in.
+    fn is_logged_in(&self) -> Result<bool> {
+        Ok(self.session()?.client.user_id().is_some())
     }
 
     /// Deletes the persisted session and resets the matrix client.
@@ -526,8 +627,7 @@ impl MatrixClientInner {
         self.session()?
             .client
             .restore_session(session.user_session.clone())
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .await?;
 
         let session_context = self.session()?;
 
@@ -563,14 +663,13 @@ impl MatrixClientInner {
     /// Gets a `matrix_sdk::Room` room by its id.
     /// Returns an `Err` when the room was not found or the ID is invalid.
     async fn get_matrix_room(&self, room_id: impl AsRef<str>) -> Result<matrix_sdk::Room> {
-        let room_id = RoomId::parse(room_id.as_ref())
-            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+        let room_id = RoomId::parse(room_id.as_ref()).map_err(|_| Error::InvalidRoomId)?;
 
         let room = self
             .session()?
             .client
             .get_room(&room_id)
-            .ok_or(errors::create_error(ErrorType::RoomNotFound))?;
+            .ok_or(Error::RoomNotFound)?;
 
         Ok(room)
     }
@@ -655,11 +754,7 @@ impl MatrixClientInner {
         let session = self.session()?;
         let SessionContext { client, .. } = session.as_ref();
 
-        let login_types = client
-            .matrix_auth()
-            .get_login_types()
-            .await
-            .map_err(|err| errors::create_error_msg(ErrorType::Network, err))?;
+        let login_types = client.matrix_auth().get_login_types().await?;
 
         let mut response = LoginFlowsResponse::default();
 
@@ -718,8 +813,8 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
     ) -> Result<StatusUpdate> {
-        if self.is_logged_in().await? {
-            return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
+        if self.is_logged_in()? {
+            return Err(Error::AlreadyLoggedIn);
         }
 
         self.reset_session(ctx.clone()).await?;
@@ -731,8 +826,7 @@ impl MatrixClientInner {
             .matrix_auth()
             .login_username(request.username, &request.password)
             .initial_device_display_name(&self.device_display_name)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .await?;
 
         log::info!(
             "Successfully logged in as {:?}",
@@ -761,8 +855,8 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: LoginSsoRequest,
     ) -> Result<LoginSsoResponse> {
-        if self.is_logged_in().await? {
-            return Err(errors::create_error(ErrorType::AlreadyLoggedIn));
+        if self.is_logged_in()? {
+            return Err(Error::AlreadyLoggedIn);
         }
 
         self.reset_session(ctx.clone()).await?;
@@ -813,14 +907,14 @@ impl MatrixClientInner {
             };
 
             if let Err(err) = session.save().await {
-                ctx.send_error(err).await;
+                ctx.send_error(err.into()).await;
                 return;
             }
 
             let result = session.sync(ctx.clone(), session_context).await;
 
             if let Err(err) = result {
-                ctx.send_error(err).await;
+                ctx.send_error(err.into()).await;
                 return;
             }
 
@@ -832,9 +926,9 @@ impl MatrixClientInner {
 
         // Wait until the asynchronous closure sends the received login URL, so
         // we can return it to the application.
-        let login_url = rx.await.map_err(|_| {
-            errors::create_unknown("InternalError: Sender of the login url dropped")
-        })?;
+        let login_url = rx
+            .await
+            .map_err(|_| Error::internal("Sender of the login url dropped"))?;
 
         Ok(LoginSsoResponse { login_url })
     }
@@ -851,8 +945,7 @@ impl MatrixClientInner {
             .encryption()
             .recovery()
             .recover(&request.recovery_key)
-            .await
-            .map_err(errors::convert_recovery_error)?;
+            .await?;
 
         Ok(VerificationEndEvent {
             verification_flow_id: None,
@@ -871,26 +964,20 @@ impl MatrixClientInner {
         let SessionContext { client, .. } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
-            return Err(errors::create_unknown(
-                "InternalError: Client not logged in",
-            ));
+            return Err(Error::NotLoggedIn);
         };
 
         let user_identity = client
             .encryption()
             .get_user_identity(user_id)
-            .await
-            .map_err(errors::convert_crypto_store_error)?
-            .ok_or(errors::create_unknown(
-                "InternalError: User identity not found",
-            ))?;
+            .await?
+            .ok_or(Error::internal("User identity of our own user not found"))?;
 
         let methods = verification::cross_signing_methods_to_matrix(request.supported_methods);
 
         let request = user_identity
             .request_verification_with_methods(methods)
-            .await
-            .map_err(errors::convert_request_verification_error)?;
+            .await?;
 
         let verification_flow_id = request.flow_id().to_owned();
         let manager = VerificationManager::from_verification_request(ctx, request);
@@ -920,14 +1007,11 @@ impl MatrixClientInner {
             .find(|p| p.flow_id() == verification_flow_id);
 
         let Some(manager) = manager else {
-            return Err(errors::create_error_msg(
-                ErrorType::VerificationFlowNotFound,
-                "Verification flow with the given ID not found",
-            ));
+            return Err(Error::VerificationFlowNotFound);
         };
 
         let Ok(method) = CrossSigningMethod::try_from(selected_method) else {
-            return Err(errors::create_unknown("Unsupported cross signing method"));
+            return Err(Error::UnsupportedCrossSigningMethod);
         };
 
         manager.select_method(method);
@@ -952,10 +1036,7 @@ impl MatrixClientInner {
             .find(|p| p.flow_id() == verification_flow_id);
 
         let Some(manager) = manager else {
-            return Err(errors::create_error_msg(
-                ErrorType::VerificationFlowNotFound,
-                "Verification flow with the given ID not found",
-            ));
+            return Err(Error::VerificationFlowNotFound);
         };
 
         manager.confirm();
@@ -989,10 +1070,7 @@ impl MatrixClientInner {
                 result: Some(verification_end_event::Result::Successful(false)),
             })
         } else {
-            Err(errors::create_error_msg(
-                ErrorType::VerificationFlowNotFound,
-                "Verification flow with the given ID not found",
-            ))
+            Err(Error::VerificationFlowNotFound)
         }
     }
 
@@ -1015,7 +1093,7 @@ impl MatrixClientInner {
 
     async fn get_user(&self, ctx: RequestContext, request: UserRequest) -> Result<User> {
         let user_id = UserId::parse(request.user_id)
-            .map_err(|_| errors::create_error(ErrorType::InvalidUserId))?
+            .map_err(|_| Error::InvalidUserId)?
             .to_owned();
 
         let session = self.session()?;
@@ -1039,11 +1117,7 @@ impl MatrixClientInner {
             ..
         } = session.as_ref();
 
-        let user_list = client
-            .search_users(&query, limit as u64)
-            .await
-            .map_err(errors::convert_http_error)?;
-
+        let user_list = client.search_users(&query, limit as u64).await?;
         let mut result = Vec::new();
 
         for user in user_list.results {
@@ -1071,24 +1145,19 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
-            debug_assert_or_log!(false, "User ID not set");
-            return Err(errors::create_unknown("User ID not set"));
+            return Err(Error::NotLoggedIn);
         };
 
         let presence_state = user::chat_presence_state_to_matrix(request.state());
 
         let Some(state) = presence_state else {
-            return Err(errors::create_unknown("Invalid presence state"));
+            return Err(Error::internal("Invalid presence state"));
         };
 
         let mut matrix_request = Request::new(user_id.to_owned(), state);
         matrix_request.status_msg = request.status_message.clone();
 
-        client
-            .send(matrix_request)
-            .await
-            .map_err(errors::convert_http_error)?;
-
+        client.send(matrix_request).await?;
         proto_cache.set_user_status(request);
 
         Ok(())
@@ -1121,11 +1190,7 @@ impl MatrixClientInner {
             filter: filter,
         });
 
-        let result = client
-            .public_rooms_filtered(request)
-            .await
-            .map_err(errors::convert_http_error)?;
-
+        let result = client.public_rooms_filtered(request).await?;
         let rooms = rooms::convert_public_rooms_chunk(result.chunk);
 
         Ok(PublicRoomListResponse {
@@ -1144,7 +1209,7 @@ impl MatrixClientInner {
         let invitees: Vec<OwnedUserId> = request
             .invitees
             .into_iter()
-            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
+            .map(|id| UserId::parse(&id).map_err(|_| Error::InvalidUserId))
             .collect::<Result<Vec<OwnedUserId>>>()?;
 
         for invite in invitees {
@@ -1173,10 +1238,7 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
-            log::error!("Error retrieving the user ID of the current user");
-            return Err(errors::create_unknown(
-                "Error retrieving the user ID of the current user",
-            ));
+            return Err(Error::NotLoggedIn);
         };
 
         let InvitedReply { room_id, accepted } = request;
@@ -1184,19 +1246,12 @@ impl MatrixClientInner {
         let room = self.get_matrix_room(&room_id).await?;
 
         if !accepted {
-            room.leave()
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
+            room.leave().await?;
             log::info!("Successfully declined invitation for room: {room_id:?}");
-
             return Ok(());
         }
 
-        room.join()
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
+        room.join().await?;
         log::info!("Successfully accepted invitation for room: {room_id:?}");
 
         let proto = rooms::convert_to_proto(media_manager, room, user_id).await?;
@@ -1215,7 +1270,7 @@ impl MatrixClientInner {
         let session = self.session()?;
 
         let Some(user_id) = session.client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
+            return Err(Error::NotLoggedIn);
         };
 
         let room_manager = rooms::RoomManager::from_session(ctx, session.as_ref());
@@ -1258,7 +1313,7 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let Some(user_id) = client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
+            return Err(Error::NotLoggedIn);
         };
 
         let RoomCreateGroupRequest {
@@ -1269,19 +1324,16 @@ impl MatrixClientInner {
         } = request;
 
         let join_rule = RoomJoinRule::try_from(join_rule)
-            .map_err(|_| errors::create_unknown("Invalid RoomJoinRule"))?;
+            .map_err(|_| Error::internal("Invalid RoomJoinRule"))?;
 
         let invitees: Vec<OwnedUserId> = invitees
             .into_iter()
-            .map(|id| UserId::parse(&id).map_err(errors::convert_id_parse_error))
+            .map(|id| UserId::parse(&id).map_err(|_| Error::InvalidUserId))
             .collect::<Result<Vec<OwnedUserId>>>()?;
 
         let room_request = rooms::create_room_request(display_name.clone(), invitees, join_rule);
 
-        let room = client
-            .create_room(room_request)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        let room = client.create_room(room_request).await?;
 
         if let Some(avatar_path) = avatar_path {
             let result = media_manager
@@ -1310,19 +1362,15 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let Some(our_user_id) = client.user_id() else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
+            return Err(Error::NotLoggedIn);
         };
 
-        let invitee_user_id =
-            UserId::parse(&request.invitee).map_err(errors::convert_id_parse_error)?;
+        let invitee_user_id = UserId::parse(&request.invitee).map_err(|_| Error::InvalidUserId)?;
 
         let room_request =
             rooms::create_dm_room_request(request.display_name.clone(), invitee_user_id.to_owned());
 
-        let room = client
-            .create_room(room_request)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        let room = client.create_room(room_request).await?;
 
         if let Some(avatar_path) = request.avatar_path {
             let result = media_manager
@@ -1359,16 +1407,13 @@ impl MatrixClientInner {
         let mut response = builder::RoomChangeEventBuilder::new(room_id.to_string());
 
         if let Some(display_name) = display_name {
-            room.set_name(display_name.clone())
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
+            room.set_name(display_name.clone()).await?;
             response = response.change_display_name(display_name);
         }
 
         if let Some(join_rule) = join_rule {
             let join_rule = RoomJoinRule::try_from(join_rule)
-                .map_err(|_| errors::create_unknown("Invalid JoinRule"))?;
+                .map_err(|_| Error::internal("Invalid JoinRule"))?;
 
             rooms::update_room_join_rule(&room, join_rule).await?;
             response = response.change_join_rule(join_rule);
@@ -1378,7 +1423,7 @@ impl MatrixClientInner {
             let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(&avatar_path))
                 .await
-                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
+                .map_err(|err| err.into());
 
             if let Err(err) = result {
                 ctx.send_error(err).await;
@@ -1388,10 +1433,7 @@ impl MatrixClientInner {
         }
 
         if let Some(is_favourite) = is_favorite {
-            room.set_is_favourite(is_favourite, None)
-                .await
-                .map_err(errors::convert_matrix_sdk_error)?;
-
+            room.set_is_favourite(is_favourite, None).await?;
             response = response.change_is_favourite(is_favourite);
         }
 
@@ -1405,9 +1447,7 @@ impl MatrixClientInner {
     ) -> Result<RoomLeftEvent> {
         let room = self.get_matrix_room(&request.room_id).await?;
 
-        room.leave()
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        room.leave().await?;
 
         Ok(RoomLeftEvent {
             room_id: request.room_id,
@@ -1425,17 +1465,12 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
-            return Err(errors::create_unknown("Unable to retrieve user_id"));
+            return Err(Error::NotLoggedIn);
         };
 
-        let room_id = RoomId::parse(&request.room_id)
-            .map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
+        let room_id = RoomId::parse(&request.room_id).map_err(|_| Error::RoomNotFound)?;
 
-        let room = client
-            .join_room_by_id(&room_id)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
-
+        let room = client.join_room_by_id(&room_id).await?;
         rooms::convert_to_proto(media_manager, room, &user_id).await
     }
 
@@ -1445,13 +1480,8 @@ impl MatrixClientInner {
         let session = self.session()?;
         let SessionContext { client, .. } = session.as_ref();
 
-        let room_id =
-            RoomId::parse(&room_id).map_err(|_| errors::create_error(ErrorType::RoomNotFound))?;
-
-        client
-            .knock(room_id.into(), message, Vec::new())
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        let room_id = RoomId::parse(&room_id).map_err(|_| Error::RoomNotFound)?;
+        client.knock(room_id.into(), message, Vec::new()).await?;
 
         Ok(())
     }
@@ -1467,7 +1497,7 @@ impl MatrixClientInner {
         let SessionContext { memory_cache, .. } = session.as_ref();
 
         if request.order == Some(MessagesOrder::Forward.into()) {
-            return Err(errors::create_unknown(
+            return Err(Error::internal(
                 "MessagesOrder::Forward is currently not supported",
             ));
         }
@@ -1477,10 +1507,7 @@ impl MatrixClientInner {
         let from_message_id = request
             .from_message_id
             .as_ref()
-            .map(|v| {
-                OwnedEventId::from_str(v)
-                    .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))
-            })
+            .map(|v| OwnedEventId::from_str(v).map_err(|_| Error::InvalidMessageId))
             .transpose()?;
 
         let query_options = memory_cache::QueryOptions {
@@ -1488,16 +1515,12 @@ impl MatrixClientInner {
             limit,
         };
 
-        let mut stream = memory_cache
-            .fetch_messages(room, query_options)
-            .await
-            .map_err(errors::convert_memory_cache_error)?;
+        let mut stream = memory_cache.fetch_messages(room, query_options).await?;
 
         let multipart_response = ctx.begin_multipart_response();
 
         while let Some(result) = stream.next().await {
-            let message = result.map_err(errors::convert_memory_cache_error)?;
-
+            let message = result?;
             multipart_response
                 .send_item(ResponseContent::MessageReceivedEvent(message))
                 .await;
@@ -1520,23 +1543,17 @@ impl MatrixClientInner {
         let room = self.get_matrix_room(&request.room_id).await?;
         let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
-        let messages = room
-            .messages(options)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        let messages = room.messages(options).await?;
 
         let event = messages
             .chunk
             .first()
-            .ok_or(errors::create_unknown("No event found"))?;
+            .ok_or(Error::internal("No event found"))?;
 
-        let event_id = event
-            .event_id()
-            .ok_or(errors::create_unknown("Invalid event ID"))?;
+        let event_id = event.event_id().ok_or(Error::InvalidMessageId)?;
 
         room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+            .await?;
 
         if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
             log::error!("Unable to update cached unread count for room: {err}");
@@ -1557,9 +1574,7 @@ impl MatrixClientInner {
         let RoomTypingRequest { room_id } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
-        room.typing_notice(true)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        room.typing_notice(true).await?;
 
         Ok(())
     }
@@ -1584,7 +1599,7 @@ impl MatrixClientInner {
         let room = self.get_matrix_room(&room_id).await?;
 
         let Some(content) = content else {
-            return Err(errors::create_unknown("Message content not set"));
+            return Err(Error::internal("Message content not set"));
         };
 
         match content {
@@ -1609,13 +1624,8 @@ impl MatrixClientInner {
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
-
-        let event_id = EventId::parse(message_id)
-            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
-
-        room.redact(&event_id, None, None)
-            .await
-            .map_err(errors::convert_http_error)?;
+        let event_id = EventId::parse(message_id).map_err(|_| Error::InvalidMessageId)?;
+        room.redact(&event_id, None, None).await?;
 
         Ok(())
     }
@@ -1636,12 +1646,10 @@ impl MatrixClientInner {
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
-
-        let event_id = EventId::parse(message_id)
-            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
+        let event_id = EventId::parse(message_id).map_err(|_| Error::InvalidMessageId)?;
 
         let Some(content) = content else {
-            return Err(errors::create_unknown("Message content not set"));
+            return Err(Error::internal("Message content not set"));
         };
 
         let content = match content {
@@ -1657,18 +1665,15 @@ impl MatrixClientInner {
                 event
             }
             Content::File(_) => {
-                return Err(errors::create_error(ErrorType::NotImplemented));
+                return Err(Error::NotImplemented);
             }
         };
 
         let event = room
             .make_edit_event(&event_id, EditedContent::RoomMessage(content))
-            .await
-            .map_err(errors::convert_edit_error)?;
+            .await?;
 
-        room.send(event)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        room.send(event).await?;
 
         Ok(())
     }
@@ -1683,14 +1688,10 @@ impl MatrixClientInner {
 
         let room = self.get_matrix_room(&room_id).await?;
 
-        let message_id = OwnedEventId::try_from(message_id)
-            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
-
+        let message_id = OwnedEventId::try_from(message_id).map_err(|_| Error::InvalidMessageId)?;
         let event = ReactionEventContent::new(Annotation::new(message_id, reaction));
 
-        room.send(event)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        room.send(event).await?;
 
         Ok(())
     }
@@ -1719,17 +1720,15 @@ impl MatrixClientInner {
             memory_cache.remove_reaction_by_emoji(&room_id, &message_id, &user_id, &reaction);
 
         let Some(cached_reaction) = cached_reaction else {
-            return Err(errors::create_error(ErrorType::ReactionNotFound));
+            return Err(Error::ReactionNotFound);
         };
 
         let Ok(event_id) = EventId::parse(&cached_reaction.reaction_id) else {
             log::error!("Unable to parse cached reaction ID to an event ID");
-            return Err(errors::create_error(ErrorType::ReactionNotFound));
+            return Err(Error::ReactionNotFound);
         };
 
-        room.redact(&event_id, None, None)
-            .await
-            .map_err(errors::convert_http_error)?;
+        room.redact(&event_id, None, None).await?;
 
         let proto = Reaction {
             room_id,
@@ -1753,15 +1752,13 @@ impl MatrixClientInner {
             message_id,
         } = request;
 
-        let event_id = EventId::parse(message_id)
-            .map_err(|_| errors::create_error(ErrorType::InvalidMessageId))?;
-
+        let event_id = EventId::parse(message_id).map_err(|_| Error::InvalidMessageId)?;
         let room = self.get_matrix_room(&room_id).await?;
 
         memory_cache
             .fetch_message(room, event_id)
             .await
-            .map_err(errors::convert_memory_cache_error)
+            .map_err(|err| err.into())
     }
 }
 
@@ -1780,8 +1777,7 @@ pub async fn build_client(
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
         })
         .build()
-        .await
-        .map_err(errors::convert_client_build_error)?;
+        .await?;
 
     if client.event_cache().subscribe().is_err() {
         log::error!("Error subscribing to event cache");
@@ -1802,7 +1798,7 @@ fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
             return Ok(());
         }
 
-        return Err(errors::create_unknown("error removing session file"));
+        return Err(Error::internal("error removing session file"));
     }
 
     Ok(())

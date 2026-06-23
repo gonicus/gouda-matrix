@@ -1,0 +1,112 @@
+use std::borrow::Cow;
+
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("the requested feature is not implemented")]
+    NotImplemented,
+
+    #[error("client has not yet been initialized")]
+    NotInitialized,
+
+    #[error("client is already initialized")]
+    AlreadyInitialized,
+
+    #[error("client is currently not logged in")]
+    NotLoggedIn,
+
+    #[error("the client is already logged in")]
+    AlreadyLoggedIn,
+
+    #[error("network error")]
+    Network,
+
+    #[error("timeout error")]
+    Timeout,
+
+    #[error("authorization error")]
+    Authorization,
+
+    #[error("the given URL is invalid")]
+    InvalidUrl,
+
+    #[error("the given user ID is invalid")]
+    InvalidUserId,
+
+    #[error("the requested user was not found")]
+    UserNotFound,
+
+    #[error("the given room ID is invalid")]
+    InvalidRoomId,
+
+    #[error("the requested room was not found")]
+    RoomNotFound,
+
+    #[error("the given message ID is invalid")]
+    InvalidMessageId,
+
+    #[error("the requested message as not found")]
+    MessageNotFound,
+
+    #[error("the requested reaction was not found")]
+    ReactionNotFound,
+
+    #[error("the requested verification flow was not found")]
+    VerificationFlowNotFound,
+
+    #[error("the requested cross signing method is not supported")]
+    UnsupportedCrossSigningMethod,
+
+    #[error("internal error: {0}")]
+    InternalError(Cow<'static, str>),
+
+    #[error("media error: {0}")]
+    MediaError(#[from] crate::media::MediaError),
+
+    #[error("memory cache error: {0}")]
+    MemoryCacheError(#[from] crate::memory_cache::MemoryCacheError),
+
+    #[error("matrix sdk error: {0}")]
+    MatrixSdkError(#[from] matrix_sdk::Error),
+
+    #[error("matrix sdk client build error: {0}")]
+    MatrixSdkClientBuildError(#[from] matrix_sdk::ClientBuildError),
+
+    #[error("matrix sdk http error: {0}")]
+    MatrixSdkHttpError(#[from] matrix_sdk::HttpError),
+
+    #[error("matrix sdk edit error: {0}")]
+    MatrixSdkEditError(#[from] matrix_sdk::room::edit::EditError),
+
+    #[error("matrix sdk recovery error: {0}")]
+    MatrixSdkRecoveryError(#[from] matrix_sdk::encryption::recovery::RecoveryError),
+
+    #[error("matrix sdk store error: {0}")]
+    MatrixSdkStoreError(#[from] matrix_sdk::StoreError),
+
+    #[error("matrix sdk crypto store error: {0}")]
+    MatrixSdkCryptoStoreError(#[from] matrix_sdk_crypto::CryptoStoreError),
+
+    #[error("matrix sdk refresh token error: {0}")]
+    MatrixSdkRefreshTokenError(#[from] matrix_sdk::RefreshTokenError),
+
+    #[error("matrix sdk request verification error: {0}")]
+    MatrixSdkRequestVerificationError(
+        #[from] matrix_sdk::encryption::identities::RequestVerificationError,
+    ),
+}
+
+impl Error {
+    pub fn internal(msg: impl Into<Cow<'static, str>>) -> Self {
+        Error::InternalError(msg.into())
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<Error> for gouda_proto::chat::Error {
+    fn from(value: Error) -> Self {
+        todo!()
+    }
+}

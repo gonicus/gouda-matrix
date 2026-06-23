@@ -55,12 +55,12 @@ pub enum MediaError {
     #[error("the requested operation is not allowed")]
     NotAllowed,
 
+    #[error("unable to get the avatar uri of the requested user")]
+    UnableToGetAvatarUri,
+
     // This error is most likely a bug in the code!
     #[error("the id of the asset is not specified")]
     AssetIdNotSpecified,
-
-    #[error("chat error")]
-    ChatError(#[from] gouda_proto::chat::Error),
 
     #[error("io error")]
     Io(#[from] std::io::Error),
@@ -854,7 +854,7 @@ impl UserAvatarAsset {
             self.avatar_uri = Some(uri.clone());
         }
 
-        result.map_err(MediaError::from)
+        result.map_err(|_| MediaError::UnableToGetAvatarUri)
     }
 }
 

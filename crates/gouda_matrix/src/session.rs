@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gouda_core::{RequestContext, Result};
+use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use matrix_sdk::authentication::matrix::MatrixSession;
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::client::SessionContext;
+use crate::error::{Error, Result};
 use crate::memory_cache::MemoryCache;
 use crate::notifications::NotificationManager;
 use crate::{crypto, errors, user};
@@ -35,9 +36,7 @@ impl Session {
         let user_session = client.matrix_auth().session();
 
         let Some(user_session) = user_session else {
-            return Err(errors::create_unknown(
-                "InternalError: Client is not logged in",
-            ));
+            return Err(Error::NotLoggedIn);
         };
 
         Ok(Self {
@@ -53,11 +52,11 @@ impl Session {
             .await
             .map_err(|err| {
                 log::error!("Error loading and decrypting session file: {err}");
-                errors::create_unknown("Error loading and decrypting session file")
+                Error::internal("Error loading and decrypting session file")
             })?;
 
         let mut session: Session = serde_json::from_slice(&decrypted)
-            .map_err(|_| errors::create_unknown("Error deserialing session"))?;
+            .map_err(|_| Error::internal("Error deserialing session"))?;
 
         session.file = file;
         session.passphrase = passphrase;
@@ -68,14 +67,14 @@ impl Session {
     pub async fn save(&self) -> Result<()> {
         log::debug!("Persisting session");
 
-        let serialized = serde_json::to_vec(&self)
-            .map_err(|_| errors::create_unknown("Error serializing session"))?;
+        let serialized =
+            serde_json::to_vec(&self).map_err(|_| Error::internal("Error serializing session"))?;
 
         crypto::encrypt_to_file(&self.file, &self.passphrase, serialized)
             .await
             .map_err(|err| {
                 log::error!("Error encrypting and writing to session file: {err}");
-                errors::create_unknown("Error writing session to file")
+                Error::internal("Error writing session to file")
             })?;
 
         log::debug!("Session persisted in: {}", self.file.to_string_lossy());
@@ -147,9 +146,7 @@ impl Session {
     ) -> Result<()> {
         log::info!("Starting initial sync");
 
-        self.sync_once(session_context)
-            .await
-            .map_err(errors::convert_matrix_sdk_error)?;
+        self.sync_once(session_context).await?;
 
         log::info!("Initial sync finished");
         log::debug!("Checking verification status");
@@ -178,7 +175,7 @@ impl Session {
                     log::error!(
                         "Received an unrecoverable error during sync, stopping background sync"
                     );
-                    ctx.send_error(err).await;
+                    ctx.send_error(err.into()).await;
 
                     break;
                 }
@@ -229,32 +226,29 @@ impl Session {
         log::warn!("Error during sync: {err}");
 
         let Some(error_kind) = err.client_api_error_kind() else {
-            return Err(errors::convert_matrix_sdk_error(err));
+            return Err(err.into());
         };
 
         if let ErrorKind::UnknownToken(error_data) = error_kind {
             if !error_data.soft_logout {
-                return Err(errors::convert_matrix_sdk_error(err));
+                return Err(err.into());
             }
 
             return self.refresh_access_token(client).await;
         }
 
-        Err(errors::convert_matrix_sdk_error(err))
+        Err(err.into())
     }
 
     async fn refresh_access_token(&mut self, client: &Client) -> Result<()> {
         log::info!("Refreshing access token");
 
-        client
-            .refresh_access_token()
-            .await
-            .map_err(errors::convert_refresh_token_error)?;
+        client.refresh_access_token().await?;
 
         self.user_session = client
             .matrix_auth()
             .session()
-            .ok_or(errors::create_unknown("msg"))?;
+            .ok_or(Error::internal("Unable to retrieve matrix auth session"))?;
 
         if let Err(err) = self.save().await {
             log::error!("Error when saving session: {err}");
@@ -317,12 +311,10 @@ async fn send_verification_status_event(ctx: &mut RequestContext, client: &Clien
         .encryption()
         .get_own_device()
         .await
-        .map_err(|err| errors::create_unknown(format!("Error retrieving own device: {err}")))?;
+        .map_err(|err| Error::internal(format!("Error retrieving own device: {err}")))?;
 
     let Some(this_device) = result else {
-        return Err(errors::create_unknown(
-            "Client is not logged in, but verification status has been requested",
-        ));
+        return Err(Error::NotLoggedIn);
     };
 
     let is_cross_signing_available = client
