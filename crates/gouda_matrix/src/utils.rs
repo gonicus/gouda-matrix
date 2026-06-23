@@ -57,7 +57,7 @@ where
                 found_match = true;
                 matched_old_indices.push(old_index);
 
-                if data_matches(old_item, new_item) {
+                if !data_matches(old_item, new_item) {
                     result.updated.push((old_item.clone(), new_item.clone()));
                 }
 
