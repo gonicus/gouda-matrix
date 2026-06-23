@@ -36,11 +36,8 @@ impl NotificationManager {
         }
 
         tokio::spawn(async move {
-            let mut receiver = self
-                .client
-                .notification_settings()
-                .await
-                .subscribe_to_changes();
+            let settings = self.client.notification_settings().await;
+            let mut receiver = settings.subscribe_to_changes();
 
             loop {
                 match receiver.recv().await {
@@ -73,6 +70,7 @@ impl NotificationManager {
             let room_rule = settings
                 .get_user_defined_room_notification_mode(&room_id)
                 .await;
+
             let Some(room_rule) = room_rule else {
                 continue;
             };
