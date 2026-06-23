@@ -184,12 +184,16 @@ pub async fn compose_global_notification_settings(client: &Client) -> Notificati
     let settings = client.notification_settings().await;
     let mut result = NotificationSetting::Mute;
 
+    log::debug!("Composing global notification settings");
+
     apply_notification_mode(
         &mut result,
         settings
             .get_default_room_notification_mode(true.into(), false.into())
             .await,
     );
+
+    log::debug!("Setting after encryted group room: {result:?}");
 
     apply_notification_mode(
         &mut result,
@@ -198,6 +202,8 @@ pub async fn compose_global_notification_settings(client: &Client) -> Notificati
             .await,
     );
 
+    log::debug!("Setting after unencrypted group room: {result:?}");
+
     apply_notification_mode(
         &mut result,
         settings
@@ -205,12 +211,16 @@ pub async fn compose_global_notification_settings(client: &Client) -> Notificati
             .await,
     );
 
+    log::debug!("Setting after encryped direct room: {result:?}");
+
     apply_notification_mode(
         &mut result,
         settings
             .get_default_room_notification_mode(false.into(), true.into())
             .await,
     );
+
+    log::debug!("Setting after unencrypted direct room: {result:?}");
 
     result
 }
