@@ -5,8 +5,8 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, EventOrigin, Message, MessageContentMembershipChange, MessageRemoveEvent,
-    NotificationSetting, Reaction, Room,
+    message, Error as ChatError, EventOrigin, Message, MessageContentMembershipChange,
+    MessageRemoveEvent, NotificationSetting, Reaction, Room,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -27,6 +27,7 @@ use ruma_common::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::error::chat_err;
 use crate::media::MediaManager;
 use crate::{messages, user};
 
@@ -53,6 +54,13 @@ pub enum MemoryCacheError {
 
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
+}
+
+impl From<MemoryCacheError> for ChatError {
+    // TODO: Improve error handling
+    fn from(value: MemoryCacheError) -> ChatError {
+        chat_err!(Unknown, value)
+    }
 }
 
 impl<T> From<std::sync::PoisonError<T>> for MemoryCacheError {

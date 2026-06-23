@@ -27,7 +27,7 @@ use crate::proto_cache::ProtoCache;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{errors, messages, notifications, rooms, user};
+use crate::{messages, notifications, rooms, user};
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -81,7 +81,7 @@ impl ClientAbstraction for MatrixClient {
 
         if let Err(err) = self.inner.set(client) {
             log::error!("Error when initializting client: {err}");
-            return Err(errors::create_unknown("Unknown error initializing client"));
+            return Err(Error::internal("Unknown error initializing client").into());
         }
 
         Ok(result)
@@ -889,7 +889,8 @@ impl MatrixClientInner {
         // a status update to the application.
         tokio::spawn(async move {
             if let Err(err) = login_builder.await {
-                ctx.send_error(errors::convert_matrix_sdk_error(err)).await;
+                ctx.send_error(Error::internal(err.to_string()).into())
+                    .await;
                 return;
             }
 
@@ -901,7 +902,7 @@ impl MatrixClientInner {
             let Ok(session) =
                 Session::new(&session_context.client, session_file, session_passphrase)
             else {
-                ctx.send_error(errors::create_unknown("Error creating session"))
+                ctx.send_error(Error::internal("Error creating session").into())
                     .await;
                 return;
             };
@@ -1338,11 +1339,10 @@ impl MatrixClientInner {
         if let Some(avatar_path) = avatar_path {
             let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await
-                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
+                .await;
 
             if let Err(err) = result {
-                ctx.send_error(err).await;
+                ctx.send_error(err.into()).await;
             }
         }
 
@@ -1375,11 +1375,10 @@ impl MatrixClientInner {
         if let Some(avatar_path) = request.avatar_path {
             let result = media_manager
                 .upload_room_avatar(&room, &PathBuf::from(avatar_path))
-                .await
-                .map_err(|_| errors::create_unknown("Error uploading room avatar"));
+                .await;
 
             if let Err(err) = result {
-                ctx.send_error(err).await;
+                ctx.send_error(err.into()).await;
             }
         }
 

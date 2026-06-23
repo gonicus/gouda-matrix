@@ -15,8 +15,9 @@ use ruma_common::{EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedUserId};
 use thiserror::Error;
 use tokio::fs;
 
+use crate::error::chat_err;
 use crate::{
-    debug_assert_or_log, errors, unwrap_or_log_return, unwrap_or_log_return_err,
+    debug_assert_or_log, unwrap_or_log_return, unwrap_or_log_return_err,
     unwrap_or_log_return_option, user, utils,
 };
 
@@ -75,7 +76,7 @@ pub enum MediaError {
 impl From<MediaError> for ChatError {
     // TODO: Improve error handling
     fn from(value: MediaError) -> ChatError {
-        errors::create_unknown(value.to_string())
+        chat_err!(Unknown, value)
     }
 }
 

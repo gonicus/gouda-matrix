@@ -3,7 +3,6 @@
 mod client;
 mod crypto;
 mod error;
-mod errors;
 mod events;
 mod macros;
 mod media;
