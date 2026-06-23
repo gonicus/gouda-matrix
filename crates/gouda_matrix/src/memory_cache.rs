@@ -346,8 +346,8 @@ impl ReactionMetadata {
     }
 }
 
-/// Contains the cached notfication settings.
-#[derive(Debug, Clone)]
+/// Contains the cached notification settings.
+#[derive(Debug, Default, Clone)]
 pub struct CachedNotificationSettings {
     /// The global notification settings.
     pub global_settings: NotificationSetting,

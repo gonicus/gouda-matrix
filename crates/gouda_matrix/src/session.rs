@@ -99,7 +99,7 @@ impl Session {
         );
 
         NotificationManager::from_session(ctx.clone(), &session_context)
-            .subscibe_to_changes()
+            .subscribe_to_changes()
             .await;
 
         self.initial_sync(&mut ctx, &session_context).await?;

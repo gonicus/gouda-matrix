@@ -27,7 +27,7 @@ impl NotificationManager {
         }
     }
 
-    pub async fn subscibe_to_changes(self) {
+    pub async fn subscribe_to_changes(self) {
         log::debug!("Subscribing to notification settings changes");
 
         let initial = self.load_notification_settings().await;
@@ -91,14 +91,13 @@ impl NotificationManager {
     async fn handle_notification_settings_change(&self) {
         log::info!("Handling notification settings change");
 
-        let old = self
-            .memory_cache
-            .get_notification_settings()
-            .unwrap()
-            .unwrap();
+        let old = self.memory_cache.get_notification_settings();
+        let Ok(old) = old else {
+            log::error!("Error retrieving cached notification settings");
+            return;
+        };
 
         let new = self.load_notification_settings().await;
-
         if let Err(err) = self.memory_cache.cache_notification_settings(new.clone()) {
             log::error!("Unable to cache new notification settings: {err}");
         };
@@ -106,9 +105,20 @@ impl NotificationManager {
         log::debug!("Old settings: {old:?}");
         log::debug!("New settings: {new:?}");
 
-        if old.global_settings != new.global_settings {
-            self.send_global_update_event(new.global_settings).await;
+        match &old {
+            Some(old) => {
+                if old.global_settings != new.global_settings {
+                    log::debug!("Global settings changed, sending event");
+                    self.send_global_update_event(new.global_settings).await;
+                }
+            }
+            None => {
+                self.send_global_update_event(new.global_settings).await;
+                log::debug!("Global settings have not been cached before, sending event");
+            }
         }
+
+        let old = old.unwrap_or_default();
 
         let old_room_settings: Vec<(String, NotificationSetting)> =
             old.room_settings.into_iter().collect();
@@ -193,7 +203,7 @@ pub async fn compose_global_notification_settings(client: &Client) -> Notificati
             .await,
     );
 
-    log::trace!("Setting after encryted group room: {result:?}");
+    log::trace!("Setting after encrypted group room: {result:?}");
 
     apply_notification_mode(
         &mut result,
@@ -211,7 +221,7 @@ pub async fn compose_global_notification_settings(client: &Client) -> Notificati
             .await,
     );
 
-    log::trace!("Setting after encryped direct room: {result:?}");
+    log::trace!("Setting after encrypted direct room: {result:?}");
 
     apply_notification_mode(
         &mut result,
@@ -237,7 +247,6 @@ fn apply_notification_mode(setting: &mut NotificationSetting, mode: RoomNotifica
 
     if mode == RoomNotificationMode::MentionsAndKeywordsOnly {
         *setting = NotificationSetting::MentionsAndKeywordsOnly;
-        return;
     }
 }
 
