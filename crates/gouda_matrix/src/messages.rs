@@ -1,4 +1,3 @@
-use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::ruma::events::room::message::{Relation, ReplyMetadata, RoomMessageEventContent};
@@ -8,7 +7,6 @@ use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
 
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::{errors, media};
 
 macro_rules! download_file {
     ($file:expr, $media_manager:expr, $room:expr, $event_id:expr, $dest_proto_message:ident) => {{

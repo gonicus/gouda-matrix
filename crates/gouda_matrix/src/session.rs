@@ -15,7 +15,7 @@ use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::memory_cache::MemoryCache;
 use crate::notifications::NotificationManager;
-use crate::{crypto, errors, user};
+use crate::{crypto, user};
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]

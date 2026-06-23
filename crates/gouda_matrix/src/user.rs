@@ -1,5 +1,4 @@
 use gouda_core::RequestContext;
-use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::message_content_membership_change::MembershipChange;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
@@ -14,7 +13,6 @@ use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
-use crate::{errors, unwrap_or_log_return_err};
 
 #[derive(Clone)]
 pub struct UserManager {

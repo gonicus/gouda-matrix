@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -22,7 +21,7 @@ use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::proto_cache::ProtoCache;
 use crate::utils::ComparisonResult;
-use crate::{errors, notifications, user, utils};
+use crate::{notifications, user, utils};
 
 #[derive(Clone)]
 pub struct RoomManager {

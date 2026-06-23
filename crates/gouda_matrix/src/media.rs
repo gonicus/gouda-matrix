@@ -72,11 +72,6 @@ pub enum MediaError {
     MatrixError(#[from] matrix_sdk::Error),
 }
 
-pub fn convert_error(err: MediaError) -> ChatError {
-    // TODO: Improve error handling
-    errors::create_unknown(err.to_string())
-}
-
 impl From<MediaError> for ChatError {
     // TODO: Improve error handling
     fn from(value: MediaError) -> ChatError {
