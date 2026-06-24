@@ -264,9 +264,7 @@ impl Session {
     fn is_token_error<'a>(&self, err: &'a matrix_sdk::Error) -> Option<&'a UnknownTokenErrorData> {
         use ruma_common::api::error::ErrorKind;
 
-        let Some(kind) = err.client_api_error_kind() else {
-            return None;
-        };
+        let kind = err.client_api_error_kind()?;
 
         if let ErrorKind::UnknownToken(data) = kind {
             return Some(data);
