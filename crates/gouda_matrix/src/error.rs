@@ -39,6 +39,9 @@ pub enum Error {
     #[error("the client is already logged in")]
     AlreadyLoggedIn,
 
+    #[error("the session has been logged out")]
+    LoggedOut,
+
     #[error("network error")]
     Network,
 
@@ -149,6 +152,7 @@ impl From<Error> for ChatError {
             Error::AlreadyInitialized => chat_err!(AlreadyInitialized),
             Error::NotLoggedIn => chat_err!(Authorization, "Not logged in"),
             Error::AlreadyLoggedIn => chat_err!(AlreadyLoggedIn),
+            Error::LoggedOut => chat_err!(Authorization, "Session has been logged out"),
             Error::Network => chat_err!(Network),
             Error::Timeout => chat_err!(Timeout),
             Error::Authorization => chat_err!(Authorization),

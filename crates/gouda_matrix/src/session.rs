@@ -8,6 +8,7 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk::Client;
 use matrix_sdk_crypto::store::types::RoomKeyInfo;
+use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -16,6 +17,8 @@ use crate::error::{Error, Result};
 use crate::memory_cache::MemoryCache;
 use crate::notifications::NotificationManager;
 use crate::{crypto, user};
+
+const SYNC_RETRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -168,15 +171,13 @@ impl Session {
             loop {
                 let result = self.sync_once(&session_context).await;
 
-                if let Err(err) = self
-                    .handle_sync_result(result, &session_context.client)
-                    .await
-                {
-                    log::error!(
-                        "Received an unrecoverable error during sync, stopping background sync"
-                    );
-                    ctx.send_error(err.into()).await;
+                let result = self
+                    .process_sync_result(&session_context.client, result)
+                    .await;
 
+                if let Err(err) = result {
+                    log::error!("Received an unrecoverable error during sync: {err}");
+                    ctx.send_error(err.into()).await;
                     break;
                 }
             }
@@ -212,32 +213,79 @@ impl Session {
         Ok(())
     }
 
-    async fn handle_sync_result(
+    /// Processes the result of a single sync.
+    /// Only returns an error when the sync result is an unrecoverable error, for example
+    /// if the auth token is no longer valid.
+    /// In case of a network error, this function will block for a specific
+    /// timeout and return Ok, so the sync is being retried.
+    async fn process_sync_result(
         &mut self,
-        result: matrix_sdk::Result<()>,
         client: &Client,
+        result: matrix_sdk::Result<()>,
     ) -> Result<()> {
-        use ruma_common::api::error::ErrorKind;
-
         let Err(err) = result else {
             return Ok(());
         };
 
         log::warn!("Error during sync: {err}");
 
-        let Some(error_kind) = err.client_api_error_kind() else {
-            return Err(err.into());
-        };
+        if self.is_connection_error(&err) {
+            return self.handle_connection_error().await;
+        }
 
-        if let ErrorKind::UnknownToken(error_data) = error_kind {
-            if !error_data.soft_logout {
-                return Err(err.into());
-            }
-
-            return self.refresh_access_token(client).await;
+        if let Some(data) = self.is_token_error(&err) {
+            return self.handle_token_error(client, data).await;
         }
 
         Err(err.into())
+    }
+
+    fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
+        if let matrix_sdk::Error::Http(http_err) = &err {
+            if let matrix_sdk::HttpError::Reqwest(e) = &**http_err {
+                return e.is_request() || e.is_connect() || e.is_timeout();
+            }
+        }
+
+        false
+    }
+
+    async fn handle_connection_error(&self) -> Result<()> {
+        log::info!(
+            "Received a connection error during sync, waiting for {} seconds to retry",
+            SYNC_RETRY_TIMEOUT.as_secs()
+        );
+
+        tokio::time::sleep(SYNC_RETRY_TIMEOUT).await;
+
+        Ok(())
+    }
+
+    fn is_token_error<'a>(&self, err: &'a matrix_sdk::Error) -> Option<&'a UnknownTokenErrorData> {
+        use ruma_common::api::error::ErrorKind;
+
+        let kind = err.client_api_error_kind()?;
+
+        if let ErrorKind::UnknownToken(data) = kind {
+            return Some(data);
+        }
+
+        None
+    }
+
+    async fn handle_token_error(
+        &mut self,
+        client: &Client,
+        data: &UnknownTokenErrorData,
+    ) -> Result<()> {
+        log::info!("Received an unknown token error during sync");
+
+        if !data.soft_logout {
+            log::info!("Session has been logged out, stopping sync");
+            return Err(Error::LoggedOut);
+        }
+
+        return self.refresh_access_token(client).await;
     }
 
     async fn refresh_access_token(&mut self, client: &Client) -> Result<()> {
