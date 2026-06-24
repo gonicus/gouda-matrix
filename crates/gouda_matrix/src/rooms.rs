@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::format;
 use std::time::Duration;
 
 use gouda_core::RequestContext;
@@ -46,18 +47,21 @@ impl RoomManager {
     /// synced in the background. If the rooms are not yet cached, this method
     /// retrieves them from the server and blocks once all rooms have been retrieved.
     pub async fn get_and_sync_rooms(&self) -> Result<Vec<Room>> {
-        match self.proto_cache.cached_rooms() {
-            Some(room_list) => {
-                log::debug!("Rooms have already been cached before");
-                self.clone().sync_cached_rooms();
-                Ok(room_list)
-            }
-            None => {
-                log::debug!("Rooms have not been cached before");
-                let room_list = self.fetch_all_rooms().await?;
-                Ok(room_list)
-            }
-        }
+        // match self.proto_cache.cached_rooms() {
+        //     Some(room_list) => {
+        //         log::debug!("Rooms have already been cached before");
+        //         self.clone().sync_cached_rooms();
+        //         Ok(room_list)
+        //     }
+        //     None => {
+        //         log::debug!("Rooms have not been cached before");
+        //         let room_list = self.fetch_all_rooms().await?;
+        //         Ok(room_list)
+        //     }
+        // }
+
+        let room_list = self.fetch_all_rooms().await?;
+        Ok(room_list)
     }
 
     /// Fetches all rooms from the matrix server and blocks until
@@ -155,20 +159,28 @@ pub async fn convert_to_proto(
 
     let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
 
+    let timer = std::time::Instant::now();
     let members = get_members(&room).await?;
+    log::error!("ELAPSED_TIME_FETCHING_MEMBERS: {} ms", timer.elapsed().as_millis());
 
+    let timer = std::time::Instant::now();
     let is_direct = if members.len() > 2 {
         false
     } else {
         room.is_direct().await?
     };
+    log::error!("ELAPSED_TIME_FETCHING_IS_DIRECT: {} ms", timer.elapsed().as_millis());
 
     let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
 
-    let latest_message_timestamp: Option<u64> = get_latest_event(&room)
-        .await
-        .and_then(|e| e.timestamp())
-        .map(|t| t.0.into());
+    let timer = std::time::Instant::now();
+    let latest_message_timestamp: Option<u64> = room.latest_event_timestamp().map(|f| f.0.into());
+    // let latest_message_timestamp = None;
+    log::error!("ELAPSED_TIME_FETCHING_LATEST_MSG: {} ms", timer.elapsed().as_millis());
+
+    let timer = std::time::Instant::now();
+    let avatar_path = media_manager.get_room_avatar_path(&room).await;
+    log::error!("ELAPSED_TIME_FETCHING_AVATAR: {} ms", timer.elapsed().as_millis());
 
     Ok(Room {
         room_id: room.room_id().to_string(),
@@ -180,7 +192,7 @@ pub async fn convert_to_proto(
         join_rule: join_rule.into(),
         permissions: Some(get_permissions(&room, user_id).await?),
         latest_message_timestamp,
-        avatar_path: media_manager.get_room_avatar_path(&room).await,
+        avatar_path,
         is_favorite: room.is_favourite(),
         room_settings: Some(get_settings(&room).await),
     })
