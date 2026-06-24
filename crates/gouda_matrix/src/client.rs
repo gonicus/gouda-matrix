@@ -618,11 +618,9 @@ impl MatrixClientInner {
         }
 
         if let matrix_sdk::HttpError::Api(err) = &err {
-            if let FromHttpResponseError::Server(err) = &**err {
-                if let UiaaResponse::MatrixError(err) = err {
-                    if err.status_code == StatusCode::UNAUTHORIZED {
-                        return true;
-                    }
+            if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
+                if err.status_code == StatusCode::UNAUTHORIZED {
+                    return true;
                 }
             }
         }
