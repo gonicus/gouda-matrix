@@ -242,13 +242,8 @@ impl Session {
 
     fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
         if let matrix_sdk::Error::Http(http_err) = &err {
-            match http_err.as_ref() {
-                matrix_sdk::HttpError::Reqwest(e) => {
-                    if e.is_connect() || e.is_connect() {
-                        return true;
-                    }
-                }
-                _ => {}
+            if let matrix_sdk::HttpError::Reqwest(e) = &**http_err {
+                return e.is_request() || e.is_connect() || e.is_timeout();
             }
         }
 
