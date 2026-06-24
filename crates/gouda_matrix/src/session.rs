@@ -8,6 +8,7 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk::Client;
 use matrix_sdk_crypto::store::types::RoomKeyInfo;
+use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -222,41 +223,76 @@ impl Session {
         client: &Client,
         result: matrix_sdk::Result<()>,
     ) -> Result<()> {
-        use ruma_common::api::error::ErrorKind;
-
         let Err(err) = result else {
             return Ok(());
         };
 
         log::warn!("Error during sync: {err}");
 
-        let Some(error_kind) = err.client_api_error_kind() else {
-            return Err(err.into());
-        };
-
-        if let ErrorKind::UnknownToken(error_data) = error_kind {
-            log::info!("Received an unknown token error during sync");
-
-            if !error_data.soft_logout {
-                log::info!("Session has been logged out, stopping sync");
-                return Err(err.into());
-            }
-
-            return self.refresh_access_token(client).await;
+        if self.is_connection_error(&err) {
+            return self.handle_connection_error().await;
         }
 
-        if matches!(error_kind, ErrorKind::ConnectionFailed)
-            || matches!(error_kind, ErrorKind::ConnectionTimeout)
-        {
-            log::info!(
-                "Received a connection error during sync, waiting for {} seconds to retry",
-                SYNC_RETRY_TIMEOUT.as_secs()
-            );
-            tokio::time::sleep(SYNC_RETRY_TIMEOUT).await;
-            return Ok(());
+        if let Some(data) = self.is_token_error(&err) {
+            return self.handle_token_error(client, data).await;
         }
 
         Err(err.into())
+    }
+
+    fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
+        if let matrix_sdk::Error::Http(http_err) = &err {
+            match http_err.as_ref() {
+                matrix_sdk::HttpError::Reqwest(e) => {
+                    if e.is_connect() || e.is_connect() {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    async fn handle_connection_error(&self) -> Result<()> {
+        log::info!(
+            "Received a connection error during sync, waiting for {} seconds to retry",
+            SYNC_RETRY_TIMEOUT.as_secs()
+        );
+
+        tokio::time::sleep(SYNC_RETRY_TIMEOUT).await;
+
+        Ok(())
+    }
+
+    fn is_token_error<'a>(&self, err: &'a matrix_sdk::Error) -> Option<&'a UnknownTokenErrorData> {
+        use ruma_common::api::error::ErrorKind;
+
+        let Some(kind) = err.client_api_error_kind() else {
+            return None;
+        };
+
+        if let ErrorKind::UnknownToken(data) = kind {
+            return Some(data);
+        }
+
+        None
+    }
+
+    async fn handle_token_error(
+        &mut self,
+        client: &Client,
+        data: &UnknownTokenErrorData,
+    ) -> Result<()> {
+        log::info!("Received an unknown token error during sync");
+
+        if !data.soft_logout {
+            log::info!("Session has been logged out, stopping sync");
+            return Err(Error::LoggedOut);
+        }
+
+        return self.refresh_access_token(client).await;
     }
 
     async fn refresh_access_token(&mut self, client: &Client) -> Result<()> {
