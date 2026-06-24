@@ -75,6 +75,8 @@ impl RoomManager {
 
         let mut result = Vec::new();
 
+        // TODO: Spawn a task for each room so fetching media is done async
+
         for room in self.client.rooms() {
             if room.is_space() {
                 continue;
