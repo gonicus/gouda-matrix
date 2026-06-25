@@ -44,8 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     setup_logging(&args);
-
-    log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
+    log_build_infos();
 
     log::info!("Socket for incoming requests: '{}'", args.request_socket);
     log::info!("Socket for outgoing responses: '{}'", args.response_socket);
@@ -114,4 +113,15 @@ async fn connect_socket(
     log::info!("Successfully connected to local socket");
 
     Ok(conn.split())
+}
+
+fn log_build_infos() {
+    log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
+
+    log::debug!("BUILD_TIMESTAMP: {}", env!("VERGEN_BUILD_TIMESTAMP"));
+    log::debug!("CARGO_DEBUG: {}", env!("VERGEN_CARGO_DEBUG"));
+    log::debug!("CARGO_OPT_LEVEL: {}", env!("VERGEN_CARGO_OPT_LEVEL"));
+    log::debug!("CARGO_FEATURES: {}", env!("VERGEN_CARGO_FEATURES"));
+    log::debug!("RUSTC_SEMVER: {}", env!("VERGEN_RUSTC_SEMVER"));
+    log::debug!("RUSTC_CHANNEL: {}", env!("VERGEN_RUSTC_CHANNEL"));
 }

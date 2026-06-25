@@ -12,6 +12,7 @@ version = "0.1.0"
 gouda_core = { path = "crates/gouda_core" }
 gouda_proto = { path = "crates/gouda_proto" }
 
+vergen = { version = "10.0", features = ["build", "cargo", "rustc"] }
 prost = "0.14"
 prost-build = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }

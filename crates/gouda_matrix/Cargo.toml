@@ -39,8 +39,10 @@ infer.workspace = true
 
 thiserror.workspace = true
 
+[build-dependencies]
+vergen.workspace = true
+
 [dev-dependencies]
-tokio.workspace = true
 tempdir.workspace = true
 test-log.workspace = true
 
