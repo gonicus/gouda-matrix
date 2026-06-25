@@ -96,12 +96,7 @@ impl ClientAbstraction for MatrixClient {
             return;
         };
 
-        let Some(content) = response.content else {
-            log::error!("Received response with no content: {response:?}");
-            return;
-        };
-
-        inner.on_response(content).await;
+        inner.on_response(response).await;
     }
 
     async fn get_login_flows(&self, ctx: RequestContext) -> gouda_core::Result<LoginFlowsResponse> {
@@ -774,17 +769,22 @@ impl MatrixClientInner {
 
 /// Contains the actual client implementation methods.
 impl MatrixClientInner {
-    async fn on_response(&self, content: ResponseContent) {
-        match self.session() {
-            Ok(session) => {
-                if let Err(err) = session.memory_cache.cache_response_content(&content).await {
-                    log::error!("Unable to cache response content in memory cache: {err}");
-                };
+    async fn on_response(&self, response: ResponseContainer) {
+        let Ok(session) = self.session() else {
+            log::error!("Unable to open session in on_response event handler");
+            return;
+        };
 
-                session.proto_cache.cache_response_content(content);
-            }
-            Err(err) => log::error!("Unable to cache response content: {err:?}"),
+        if let Err(err) = session.memory_cache.cache_response(&response).await {
+            log::error!("Unable to cache response content in memory cache: {err}");
         }
+
+        let Some(content) = response.content else {
+            log::error!("Received response with no content: {response:?}");
+            return;
+        };
+
+        session.proto_cache.cache_response_content(content);
     }
 
     async fn get_login_flows(&self, _ctx: RequestContext) -> Result<LoginFlowsResponse> {

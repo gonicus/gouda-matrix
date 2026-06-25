@@ -6,7 +6,7 @@ use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuild
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
     message, Error as ChatError, EventOrigin, Message, MessageContentMembershipChange,
-    MessageRemoveEvent, NotificationSetting, Reaction, Room,
+    MessageRemoveEvent, NotificationSetting, Reaction, ResponseContainer, Room,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -93,8 +93,8 @@ impl MemoryCache {
     }
 
     /// Caches the given response content.
-    pub async fn cache_response_content(&self, content: &ResponseContent) -> Result<()> {
-        self.inner.cache_response_content(content).await
+    pub async fn cache_response(&self, response: &ResponseContainer) -> Result<()> {
+        self.inner.cache_response(response).await
     }
 
     /// Fetches the assembled messages from the room with the given options.
@@ -215,17 +215,26 @@ impl MemoryCacheInner {
         }
     }
 
-    pub async fn cache_response_content(&self, content: &ResponseContent) -> Result<()> {
+    pub async fn cache_response(&self, response: &ResponseContainer) -> Result<()> {
+        let Some(content) = &response.content else {
+            log::warn!("Unable to cache response as it does not contain any content");
+            return Ok(());
+        };
+
         match content {
             ResponseContent::MessageReceivedEvent(message) => {
-                self.cache_proto_message(message).await
+                if response.tag == 0 {
+                    self.cache_proto_message(message).await?;
+                }
             }
             ResponseContent::RoomListResponse(response) => {
-                self.cache_proto_room_list(&response.room_list)
+                self.cache_proto_room_list(&response.room_list)?;
             }
-            ResponseContent::RoomCreatedEvent(room) => self.cache_proto_room(room),
-            _ => Ok(()),
+            ResponseContent::RoomCreatedEvent(room) => self.cache_proto_room(room)?,
+            _ => (),
         }
+
+        Ok(())
     }
 
     pub async fn fetch_messages(
