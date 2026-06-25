@@ -78,18 +78,19 @@ impl RoomManager {
             let media_manager = self.media_manager.clone();
             let user_id = user_id.clone();
 
-            join_set.spawn({
-                let media_manager = media_manager;
-                let user_id = user_id;
-                async move { convert_to_proto(&media_manager, room, &user_id).await }
-            });
+            join_set.spawn(async move { convert_to_proto(&media_manager, room, &user_id).await });
         }
 
         let mut rooms = Vec::new();
 
         while let Some(result) = join_set.join_next().await {
-            match result {
-                Ok(room) => rooms.push(room.unwrap()),
+            let Ok(room) = result else {
+                log::error!("Encountered join error when processing room");
+                continue;
+            };
+
+            match room {
+                Ok(room) => rooms.push(room),
                 Err(err) => log::error!("Error fetching room: {err}"),
             }
         }
