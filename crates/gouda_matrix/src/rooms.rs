@@ -4,17 +4,16 @@ use std::time::Duration;
 use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
-use matrix_sdk::ruma::{assign, OwnedUserId};
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
+use tokio::task::JoinSet;
 
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
@@ -65,23 +64,38 @@ impl RoomManager {
     async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
         log::debug!("Fetching all known rooms from matrix server");
 
-        let Some(user_id) = self.client.user_id() else {
+        let Some(user_id) = self.client.user_id().map(|f| f.to_owned()) else {
             return Err(Error::Authorization);
         };
 
-        let mut result = Vec::new();
+        let mut join_set = JoinSet::new();
 
         for room in self.client.rooms() {
             if room.is_space() {
                 continue;
             }
 
-            let proto = convert_to_proto(&self.media_manager, room, user_id).await?;
+            let media_manager = self.media_manager.clone();
+            let user_id = user_id.clone();
 
-            result.push(proto);
+            join_set.spawn(async move { convert_to_proto(&media_manager, room, &user_id).await });
         }
 
-        Ok(result)
+        let mut rooms = Vec::new();
+
+        while let Some(result) = join_set.join_next().await {
+            let Ok(room) = result else {
+                log::error!("Encountered join error when processing room");
+                continue;
+            };
+
+            match room {
+                Ok(room) => rooms.push(room),
+                Err(err) => log::error!("Error fetching room: {err}"),
+            }
+        }
+
+        Ok(rooms)
     }
 
     /// Syncs the rooms in the background.
@@ -154,21 +168,16 @@ pub async fn convert_to_proto(
     };
 
     let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-
     let members = get_members(&room).await?;
+    let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
+    let latest_message_timestamp: Option<u64> = room.latest_event_timestamp().map(|f| f.0.into());
+    let avatar_path = media_manager.get_room_avatar_path(&room).await;
 
     let is_direct = if members.len() > 2 {
         false
     } else {
         room.is_direct().await?
     };
-
-    let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
-
-    let latest_message_timestamp: Option<u64> = get_latest_event(&room)
-        .await
-        .and_then(|e| e.timestamp())
-        .map(|t| t.0.into());
 
     Ok(Room {
         room_id: room.room_id().to_string(),
@@ -180,7 +189,7 @@ pub async fn convert_to_proto(
         join_rule: join_rule.into(),
         permissions: Some(get_permissions(&room, user_id).await?),
         latest_message_timestamp,
-        avatar_path: media_manager.get_room_avatar_path(&room).await,
+        avatar_path,
         is_favorite: room.is_favourite(),
         room_settings: Some(get_settings(&room).await),
     })
@@ -227,17 +236,6 @@ async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
     RoomSettings {
         notification_setting: notification,
     }
-}
-
-async fn get_latest_event(room: &matrix_sdk::Room) -> Option<TimelineEvent> {
-    let options = assign!(
-        MessagesOptions::backward(), {
-        limit: 1u8.into(),
-        }
-    );
-
-    let messages = room.messages(options).await.ok()?;
-    messages.chunk.first().cloned()
 }
 
 pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
