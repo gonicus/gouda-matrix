@@ -1015,6 +1015,10 @@ impl MatrixClientInner {
 
         let methods = verification::cross_signing_methods_to_matrix(request.supported_methods);
 
+        if methods.is_empty() {
+            return Err(Error::NoCrossSigningMethod);
+        }
+
         let request = user_identity
             .request_verification_with_methods(methods)
             .await?;
