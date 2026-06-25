@@ -223,7 +223,8 @@ impl MemoryCacheInner {
 
         match content {
             ResponseContent::MessageReceivedEvent(message) => {
-                if response.tag == 0 {
+                let user_id = self.client.user_id().map(|f| f.as_str());
+                if response.tag == 0 && Some(message.sender_id.as_str()) != user_id {
                     self.cache_proto_message(message).await?;
                 }
             }
