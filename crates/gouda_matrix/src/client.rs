@@ -9,7 +9,6 @@ use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode;
 use matrix_sdk::room::edit::EditedContent;
-use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
@@ -1573,26 +1572,23 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: RoomMarkAsReadRequest,
     ) -> Result<RoomChangeEvent> {
-        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
-        use matrix_sdk::ruma::events::receipt::ReceiptThread;
+        use matrix_sdk::room::Receipts;
 
         let session = self.session()?;
         let SessionContext { memory_cache, .. } = &*session;
 
         let room = self.get_matrix_room(&request.room_id).await?;
-        let options = MessagesOptions::new(matrix_sdk::ruma::api::Direction::Backward);
 
-        let messages = room.messages(options).await?;
+        let Some(event_id) = room.latest_event().event_id() else {
+            log::warn!("Room does not contain any events");
+            return Err(Error::internal("Room does not contain any events"));
+        };
 
-        let event = messages
-            .chunk
-            .first()
-            .ok_or(Error::internal("No event found"))?;
+        let receipts = Receipts::new()
+            .fully_read_marker(event_id.clone())
+            .public_read_receipt(event_id);
 
-        let event_id = event.event_id().ok_or(Error::InvalidMessageId)?;
-
-        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-            .await?;
+        room.send_multiple_receipts(receipts).await?;
 
         if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
             log::error!("Unable to update cached unread count for room: {err}");
