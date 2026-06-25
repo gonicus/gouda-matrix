@@ -13,6 +13,7 @@ use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
+use tokio::task::JoinSet;
 
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
@@ -63,25 +64,37 @@ impl RoomManager {
     async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
         log::debug!("Fetching all known rooms from matrix server");
 
-        let Some(user_id) = self.client.user_id() else {
+        let Some(user_id) = self.client.user_id().map(|f| f.to_owned()) else {
             return Err(Error::Authorization);
         };
 
-        let mut result = Vec::new();
-
-        // TODO: Spawn a task for each room so fetching media is done async
+        let mut join_set = JoinSet::new();
 
         for room in self.client.rooms() {
             if room.is_space() {
                 continue;
             }
 
-            let proto = convert_to_proto(&self.media_manager, room, user_id).await?;
+            let media_manager = self.media_manager.clone();
+            let user_id = user_id.clone();
 
-            result.push(proto);
+            join_set.spawn({
+                let media_manager = media_manager;
+                let user_id = user_id;
+                async move { convert_to_proto(&media_manager, room, &user_id).await }
+            });
         }
 
-        Ok(result)
+        let mut rooms = Vec::new();
+
+        while let Some(result) = join_set.join_next().await {
+            match result {
+                Ok(room) => rooms.push(room.unwrap()),
+                Err(err) => log::error!("Error fetching room: {err}"),
+            }
+        }
+
+        Ok(rooms)
     }
 
     /// Syncs the rooms in the background.
