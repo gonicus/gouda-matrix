@@ -1,17 +1,14 @@
 use std::collections::HashMap;
-use std::fmt::format;
 use std::time::Duration;
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk::room::MessagesOptions;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
-use matrix_sdk::ruma::{assign, OwnedUserId};
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
@@ -47,21 +44,18 @@ impl RoomManager {
     /// synced in the background. If the rooms are not yet cached, this method
     /// retrieves them from the server and blocks once all rooms have been retrieved.
     pub async fn get_and_sync_rooms(&self) -> Result<Vec<Room>> {
-        // match self.proto_cache.cached_rooms() {
-        //     Some(room_list) => {
-        //         log::debug!("Rooms have already been cached before");
-        //         self.clone().sync_cached_rooms();
-        //         Ok(room_list)
-        //     }
-        //     None => {
-        //         log::debug!("Rooms have not been cached before");
-        //         let room_list = self.fetch_all_rooms().await?;
-        //         Ok(room_list)
-        //     }
-        // }
-
-        let room_list = self.fetch_all_rooms().await?;
-        Ok(room_list)
+        match self.proto_cache.cached_rooms() {
+            Some(room_list) => {
+                log::debug!("Rooms have already been cached before");
+                self.clone().sync_cached_rooms();
+                Ok(room_list)
+            }
+            None => {
+                log::debug!("Rooms have not been cached before");
+                let room_list = self.fetch_all_rooms().await?;
+                Ok(room_list)
+            }
+        }
     }
 
     /// Fetches all rooms from the matrix server and blocks until
@@ -160,29 +154,16 @@ pub async fn convert_to_proto(
     };
 
     let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-
-    let timer = std::time::Instant::now();
     let members = get_members(&room).await?;
-    log::error!("ELAPSED_TIME_FETCHING_MEMBERS: {} ms", timer.elapsed().as_millis());
+    let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
+    let latest_message_timestamp: Option<u64> = room.latest_event_timestamp().map(|f| f.0.into());
+    let avatar_path = media_manager.get_room_avatar_path(&room).await;
 
-    let timer = std::time::Instant::now();
     let is_direct = if members.len() > 2 {
         false
     } else {
         room.is_direct().await?
     };
-    log::error!("ELAPSED_TIME_FETCHING_IS_DIRECT: {} ms", timer.elapsed().as_millis());
-
-    let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
-
-    let timer = std::time::Instant::now();
-    let latest_message_timestamp: Option<u64> = room.latest_event_timestamp().map(|f| f.0.into());
-    // let latest_message_timestamp = None;
-    log::error!("ELAPSED_TIME_FETCHING_LATEST_MSG: {} ms", timer.elapsed().as_millis());
-
-    let timer = std::time::Instant::now();
-    let avatar_path = media_manager.get_room_avatar_path(&room).await;
-    log::error!("ELAPSED_TIME_FETCHING_AVATAR: {} ms", timer.elapsed().as_millis());
 
     Ok(Room {
         room_id: room.room_id().to_string(),
@@ -241,17 +222,6 @@ async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
     RoomSettings {
         notification_setting: notification,
     }
-}
-
-async fn get_latest_event(room: &matrix_sdk::Room) -> Option<TimelineEvent> {
-    let options = assign!(
-        MessagesOptions::backward(), {
-        limit: 1u8.into(),
-        }
-    );
-
-    let messages = room.messages(options).await.ok()?;
-    messages.chunk.first().cloned()
 }
 
 pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
