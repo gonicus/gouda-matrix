@@ -84,9 +84,19 @@ impl Default for message_change_event::Content {
 impl From<message::Content> for message_change_event::Content {
     fn from(value: message::Content) -> Self {
         match value {
-            message::Content::MembershipChange(c) => Self::MembershipChange(c),
             message::Content::Text(t) => Self::Text(t),
             message::Content::File(f) => Self::File(f),
+            message::Content::MembershipChange(c) => Self::MembershipChange(c),
+        }
+    }
+}
+
+impl From<message_change_event::Content> for message::Content {
+    fn from(value: message_change_event::Content) -> Self {
+        match value {
+            message_change_event::Content::Text(t) => Self::Text(t),
+            message_change_event::Content::File(f) => Self::File(f),
+            message_change_event::Content::MembershipChange(c) => Self::MembershipChange(c),
         }
     }
 }
@@ -159,6 +169,26 @@ impl UserChangeEvent {
 
         if let Some(status) = self.status {
             user.status = Some(status);
+        }
+    }
+}
+
+impl MessageChangeEvent {
+    pub fn update_into_message(self, message: &mut Message) {
+        if let Some(is_pinned) = self.is_pinned {
+            message.is_pinned = is_pinned;
+        }
+
+        if let Some(is_encrypted) = self.is_encrypted {
+            message.is_encrypted = is_encrypted;
+        }
+
+        if self.has_mentioned_user_ids_changed {
+            message.mentioned_user_ids = self.mentioned_user_ids;
+        }
+
+        if let Some(content) = self.content {
+            message.content = Some(content.into());
         }
     }
 }
@@ -352,5 +382,46 @@ mod tests {
         event.update_into_user(&mut user);
 
         assert_eq!(user, expected);
+    }
+
+    #[test]
+    fn test_message_change_event_update_into_message() {
+        let event = MessageChangeEvent {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            is_pinned: Some(true),
+            is_encrypted: Some(true),
+            has_mentioned_user_ids_changed: true,
+            mentioned_user_ids: vec!["user-1".to_owned(), "user-2".to_owned()],
+            content: Some(message_change_event::Content::Text(MessageContentText {
+                content: "Hello world".to_owned(),
+            })),
+        };
+
+        let expected = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            sender_id: "user-5".to_owned(),
+            timestamp: 0,
+            related_message_id: None,
+            is_pinned: true,
+            is_encrypted: true,
+            reactions: Vec::new(),
+            mentioned_user_ids: vec!["user-1".to_owned(), "user-2".to_owned()],
+            content: Some(message::Content::Text(MessageContentText {
+                content: "Hello world".to_owned(),
+            })),
+        };
+
+        let mut message = Message {
+            room_id: "room-1".to_owned(),
+            message_id: "message-1".to_owned(),
+            sender_id: "user-5".to_owned(),
+            ..Default::default()
+        };
+
+        event.update_into_message(&mut message);
+
+        assert_eq!(message, expected);
     }
 }

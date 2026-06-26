@@ -1,10 +1,5 @@
-use std::sync::mpsc::Sender;
-
-use interprocess::local_socket::SendHalf;
-
 use crate::actions::Action;
-use crate::communication::OutputLog;
-use crate::config::Config;
+use crate::context::Context;
 use crate::ui::InputUi;
 
 macro_rules! ui_action {
@@ -21,32 +16,26 @@ macro_rules! ui_action {
 }
 
 pub struct InputWindow {
-    config: Config,
-    sender: SendHalf,
-    output_sender: Sender<OutputLog>,
     selected_action: Action,
     tag: u64,
 }
 
 impl InputWindow {
-    pub fn new(config: Config, send_half: SendHalf, output_sender: Sender<OutputLog>) -> Self {
-        let default_action = Action::Initialize(Box::new(config.initialize.clone()));
+    pub fn new(context: &Context) -> Self {
+        let default_action = Action::Initialize(Box::new(context.config().initialize.clone()));
 
         Self {
-            config,
-            sender: send_half,
-            output_sender,
             selected_action: default_action,
             tag: 0,
         }
     }
 
-    pub fn update(&mut self, ctx: &egui::Context) {
+    pub fn show(&mut self, egui_ctx: &egui::Context, context: &mut Context) {
         egui::Window::new("Request")
             .resizable(true)
             .min_size(egui::Vec2::new(500.0, 500.0))
-            .show(ctx, |ui| {
-                self.update_selection(ui);
+            .show(egui_ctx, |ui| {
+                self.update_selection(context, ui);
 
                 ui.add_space(10.0);
 
@@ -59,117 +48,125 @@ impl InputWindow {
                 if ui.button("Submit").clicked() {
                     self.tag += 1;
 
-                    let re = self.selected_action.run(&mut self.sender, self.tag);
+                    let response = self.selected_action.to_container(self.tag);
 
-                    self.output_sender
-                        .send(OutputLog::Request(re))
-                        .expect("Error sending request to output window");
+                    context.queue_request(response);
                 }
             });
     }
 
-    fn update_selection(&mut self, ui: &mut egui::Ui) {
+    fn update_selection(&mut self, ctx: &mut Context, ui: &mut egui::Ui) {
         egui::ComboBox::from_label("Action")
             .selected_text(format!("{}", self.selected_action))
             .show_ui(ui, |ui| {
-                ui_action!(self, ui, Initialize, self.config.initialize.clone());
+                ui_action!(self, ui, Initialize, ctx.config().initialize.clone());
                 ui_action!(self, ui, LoginFlows);
                 ui_action!(self, ui, IdentityProviders);
                 ui_action!(
                     self,
                     ui,
                     LoginUsernamePassword,
-                    self.config.login_username_password.clone()
+                    ctx.config().login_username_password.clone()
                 );
-                ui_action!(self, ui, LoginSso, self.config.login_sso.clone());
+                ui_action!(self, ui, LoginSso, ctx.config().login_sso.clone());
                 ui_action!(
                     self,
                     ui,
                     RecoveryKeyVerification,
-                    self.config.recovery_key_verification.clone()
+                    ctx.config().recovery_key_verification.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     CrossSigningStart,
-                    self.config.cross_signing_start.clone()
+                    ctx.config().cross_signing_start.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     CrossSigningSelectMethod,
-                    self.config.cross_signing_select_method.clone()
+                    ctx.config().cross_signing_select_method.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     CrossSigningConfirm,
-                    self.config.cross_signing_confirm.clone()
+                    ctx.config().cross_signing_confirm.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     AbortVerification,
-                    self.config.abort_verification.clone()
+                    ctx.config().abort_verification.clone()
                 );
-                ui_action!(self, ui, GetGlobalSettings, self.config.get_global_settings);
-                ui_action!(self, ui, GetUser, self.config.get_user.clone());
-                ui_action!(self, ui, UserSearch, self.config.user_search.clone());
-                ui_action!(self, ui, SetUserStatus, self.config.set_user_status.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    GetGlobalSettings,
+                    ctx.config().get_global_settings
+                );
+                ui_action!(self, ui, GetUser, ctx.config().get_user.clone());
+                ui_action!(self, ui, UserSearch, ctx.config().user_search.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    SetUserStatus,
+                    ctx.config().set_user_status.clone()
+                );
                 ui_action!(
                     self,
                     ui,
                     PublicRoomList,
-                    self.config.public_room_list.clone()
+                    ctx.config().public_room_list.clone()
                 );
-                ui_action!(self, ui, Invite, self.config.invite.clone());
+                ui_action!(self, ui, Invite, ctx.config().invite.clone());
                 ui_action!(
                     self,
                     ui,
                     InvitationReply,
-                    self.config.invitation_reply.clone()
+                    ctx.config().invitation_reply.clone()
                 );
-                ui_action!(self, ui, RoomList, self.config.room_list);
+                ui_action!(self, ui, RoomList, ctx.config().room_list);
                 ui_action!(
                     self,
                     ui,
                     CreateGroupRoom,
-                    self.config.create_group_room.clone()
+                    ctx.config().create_group_room.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     CreateDirectRoom,
-                    self.config.create_direct_room.clone()
+                    ctx.config().create_direct_room.clone()
                 );
-                ui_action!(self, ui, ChangeRoom, self.config.change_room.clone());
-                ui_action!(self, ui, LeaveRoom, self.config.leave_room.clone());
-                ui_action!(self, ui, JoinRoom, self.config.join_room.clone());
-                ui_action!(self, ui, KnockRoom, self.config.knock_room.clone());
-                ui_action!(self, ui, RoomMessages, self.config.room_messages.clone());
-                ui_action!(self, ui, MarkAsRead, self.config.mark_as_read.clone());
+                ui_action!(self, ui, ChangeRoom, ctx.config().change_room.clone());
+                ui_action!(self, ui, LeaveRoom, ctx.config().leave_room.clone());
+                ui_action!(self, ui, JoinRoom, ctx.config().join_room.clone());
+                ui_action!(self, ui, KnockRoom, ctx.config().knock_room.clone());
+                ui_action!(self, ui, RoomMessages, ctx.config().room_messages.clone());
+                ui_action!(self, ui, MarkAsRead, ctx.config().mark_as_read.clone());
                 ui_action!(
                     self,
                     ui,
                     ActivateTypingNotice,
-                    self.config.activate_typing_notice.clone()
+                    ctx.config().activate_typing_notice.clone()
                 );
-                ui_action!(self, ui, SendMessage, self.config.send_message.clone());
-                ui_action!(self, ui, RemoveMessage, self.config.remove_message.clone());
-                ui_action!(self, ui, ChangeMessage, self.config.change_message.clone());
+                ui_action!(self, ui, SendMessage, ctx.config().send_message.clone());
+                ui_action!(self, ui, RemoveMessage, ctx.config().remove_message.clone());
+                ui_action!(self, ui, ChangeMessage, ctx.config().change_message.clone());
                 ui_action!(
                     self,
                     ui,
                     CreateReaction,
-                    self.config.create_reaction.clone()
+                    ctx.config().create_reaction.clone()
                 );
                 ui_action!(
                     self,
                     ui,
                     RemoveReaction,
-                    self.config.remove_reaction.clone()
+                    ctx.config().remove_reaction.clone()
                 );
-                ui_action!(self, ui, GetMessage, self.config.get_message.clone());
+                ui_action!(self, ui, GetMessage, ctx.config().get_message.clone());
             });
     }
 }
