@@ -45,8 +45,7 @@ impl MessagesWindow {
     }
 
     fn collect_responses(&mut self, context: &mut Context) {
-        let responses: Vec<ResponseContainer> =
-            context.received_responses().to_vec();
+        let responses: Vec<ResponseContainer> = context.received_responses().to_vec();
 
         for response in responses {
             let Some(content) = &response.content else {
