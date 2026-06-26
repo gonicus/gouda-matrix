@@ -127,8 +127,9 @@ impl MessagesWindow {
     fn ui_decryped_message(&self, ui: &mut egui::Ui, message: &Message) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.2;
+            ui.label("🔑");
+            let re = ui.label(format!("  {}", &message.message_id));
 
-            let re = ui.label("🔑");
             re.on_hover_ui(|ui| {
                 ui.label(format!("{:?}", message.content));
 
@@ -136,8 +137,6 @@ impl MessagesWindow {
                     ui.label(format!("REDACTED_CONTENT:\n{}", c.content));
                 }
             });
-
-            ui.label(format!("  {}", &message.message_id));
         });
     }
 
