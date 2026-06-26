@@ -46,14 +46,16 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, egui_ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.context.exec_io();
 
-        self.input_window.show(egui_ctx, &mut self.context);
-        self.communication_window.show(egui_ctx, &self.context);
-        self.messages_window.show(egui_ctx, &self.context);
+        self.input_window.show(ui, &mut self.context);
+        self.communication_window.show(ui, &self.context);
+        self.messages_window.show(ui, &mut self.context);
 
-        egui_ctx.request_repaint();
+        self.context.display_toasts(ui);
+
+        ui.request_repaint();
     }
 }
 
