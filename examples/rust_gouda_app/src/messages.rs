@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::{Message, MessageChangeEvent, MessageRemoveEvent, message};
+use gouda_proto::chat::{
+    Message, MessageChangeEvent, MessageRemoveEvent, ResponseContainer, message,
+};
 
 use crate::context::Context;
 
@@ -42,22 +44,28 @@ impl MessagesWindow {
         self.rooms.get(self.selected_room.as_ref()?)
     }
 
-    fn collect_responses(&mut self, context: &Context) {
-        for response in context.received_responses() {
+    fn collect_responses(&mut self, context: &mut Context) {
+        let responses: Vec<ResponseContainer> =
+            context.received_responses().iter().cloned().collect();
+
+        for response in responses {
             let Some(content) = &response.content else {
-                eprintln!("Receiver response with empty content: {response:?}");
+                context.display_warning(format!(
+                    "Received response with empty content: {response:?}"
+                ));
+
                 continue;
             };
 
-            self.collect_response_content(content);
+            self.collect_response_content(context, content);
         }
     }
 
-    fn collect_response_content(&mut self, content: &ResponseContent) {
+    fn collect_response_content(&mut self, ctx: &mut Context, content: &ResponseContent) {
         match content {
             ResponseContent::MessageReceivedEvent(message) => self.collect_message(message.clone()),
-            ResponseContent::MessageRemoveEvent(event) => self.remove_message(event.clone()),
-            ResponseContent::MessageChangeEvent(event) => self.change_message(event.clone()),
+            ResponseContent::MessageRemoveEvent(event) => self.remove_message(ctx, event.clone()),
+            ResponseContent::MessageChangeEvent(event) => self.change_message(ctx, event.clone()),
             _ => (),
         }
     }
@@ -67,17 +75,28 @@ impl MessagesWindow {
         room.messages.insert(message.message_id.clone(), message);
     }
 
-    fn remove_message(&mut self, event: MessageRemoveEvent) {
+    fn remove_message(&mut self, ctx: &mut Context, event: MessageRemoveEvent) {
         let room = self.get_or_create_room(&event.room_id);
-        room.messages.remove(&event.message_id);
+        if room.messages.remove(&event.message_id).is_none() {
+            ctx.display_warning(format!(
+                "Received MessageRemoveEvent for a message we don't know: {}",
+                event.message_id
+            ));
+        }
     }
 
-    fn change_message(&mut self, event: MessageChangeEvent) {
+    fn change_message(&mut self, ctx: &mut Context, event: MessageChangeEvent) {
         let room = self.get_or_create_room(&event.room_id);
+
         let Some(message) = room.messages.get_mut(&event.message_id) else {
-            eprint!("Received a message change event of a message we don't know");
+            ctx.display_warning(format!(
+                "Received MessageChangeEvent for a message we don't know: {}",
+                event.message_id
+            ));
+
             return;
         };
+
         event.update_into_message(message);
     }
 

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 
-use gouda_proto::chat::{RequestContainer, ResponseContainer};
 use egui_toast::{Toast, Toasts};
+use gouda_proto::chat::{RequestContainer, ResponseContainer};
 
 use crate::config::Config;
 
