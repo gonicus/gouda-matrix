@@ -6,8 +6,9 @@ version.workspace = true
 [dependencies]
 gouda_proto.workspace = true
 
-egui = "0.33"
-eframe = { version = "0.33", default-features = false, features = ["persistence", "glow", "wayland", "x11"] }
+egui = "0.34"
+eframe = { version = "0.34", default-features = false, features = ["persistence", "glow", "wayland", "x11"] }
+egui-toast = "0.20"
 
 clap.workspace = true
 interprocess.workspace = true

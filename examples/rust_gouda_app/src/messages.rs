@@ -23,13 +23,13 @@ impl MessagesWindow {
         }
     }
 
-    pub fn show(&mut self, egui_ctx: &egui::Context, context: &Context) {
-        self.collect_responses(context);
+    pub fn show(&mut self, ui: &mut egui::Ui, ctx: &mut Context) {
+        self.collect_responses(ctx);
 
         egui::Window::new("Messages")
             .resizable(true)
             .default_size(egui::Vec2::new(500.0, 500.0))
-            .show(egui_ctx, |ui| {
+            .show(ui, |ui| {
                 self.ui(ui);
             });
     }

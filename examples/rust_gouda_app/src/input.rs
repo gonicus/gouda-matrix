@@ -30,11 +30,11 @@ impl InputWindow {
         }
     }
 
-    pub fn show(&mut self, egui_ctx: &egui::Context, context: &mut Context) {
+    pub fn show(&mut self, ui: &mut egui::Ui, context: &mut Context) {
         egui::Window::new("Request")
             .resizable(true)
             .min_size(egui::Vec2::new(500.0, 500.0))
-            .show(egui_ctx, |ui| {
+            .show(ui, |ui| {
                 self.update_selection(context, ui);
 
                 ui.add_space(10.0);

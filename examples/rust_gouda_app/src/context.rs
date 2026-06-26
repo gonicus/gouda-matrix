@@ -1,6 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use gouda_proto::chat::{RequestContainer, ResponseContainer};
+use egui_toast::{Toast, Toasts};
 
 use crate::config::Config;
 
@@ -20,6 +21,9 @@ pub struct Context {
 
     /// Actions we have queued during this frame.
     queued_requests: Vec<RequestContainer>,
+
+    /// Toasts.
+    toasts: Toasts,
 }
 
 impl Context {
@@ -37,6 +41,8 @@ impl Context {
             send_requests: Vec::new(),
 
             queued_requests: Vec::new(),
+
+            toasts: Toasts::new().anchor(egui::Align2::RIGHT_TOP, (-10.0, -10.0)),
         }
     }
 
@@ -58,6 +64,20 @@ impl Context {
     /// Queues an action to be executed at the end of the frame.
     pub fn queue_request(&mut self, request: RequestContainer) {
         self.queued_requests.push(request);
+    }
+
+    /// Displays a warning message as a toast.
+    pub fn display_warning(&mut self, msg: impl Into<String>) {
+        self.toasts.add(Toast {
+            text: msg.into().into(),
+            kind: egui_toast::ToastKind::Warning,
+            ..Default::default()
+        });
+    }
+
+    /// Displays all toasts.
+    pub fn display_toasts(&mut self, ui: &mut egui::Ui) {
+        self.toasts.show(ui);
     }
 
     /// Executes pending IO tasks.
