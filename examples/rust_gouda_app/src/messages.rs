@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::format;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
@@ -111,11 +112,18 @@ impl MessagesWindow {
     }
 
     fn ui_room_selection(&mut self, ui: &mut egui::Ui) {
+        if self.selected_room.is_none() {
+            if let Some(room) = self.rooms.keys().next() {
+                self.selected_room = Some(room.clone());
+            }
+        }
+
         egui::ComboBox::from_label("Room")
             .selected_text(format!("{:?}", self.selected_room))
             .show_ui(ui, |ui| {
                 for room_id in self.rooms.keys() {
                     let selected = Some(room_id) == self.selected_room.as_ref();
+
                     if ui.selectable_label(selected, room_id).clicked() {
                         self.selected_room = Some(room_id.clone());
                     }
@@ -124,7 +132,11 @@ impl MessagesWindow {
     }
 
     fn ui_room(&self, ui: &mut egui::Ui, room: &Room) {
-        ui.label(format!("Number of messages: {}", room.messages.len()));
+        let num_messages = room.messages.len();
+        let num_encrypted = room.messages.values().filter(|p| p.is_encrypted).count();
+
+        ui.label(format!("Messages: {num_messages}"));
+        ui.label(format!("Encrypted: {num_encrypted} / {num_messages}"));
 
         egui::containers::ScrollArea::vertical()
             .auto_shrink([false, false])
