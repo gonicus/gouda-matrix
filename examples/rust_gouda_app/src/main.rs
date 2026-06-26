@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod communication;
 mod config;
+mod context;
 mod input;
 mod ui;
 

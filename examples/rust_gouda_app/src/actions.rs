@@ -1,34 +1,26 @@
-use std::io::Write;
-
 use gouda_proto::chat::request_container::Content as RequestContent;
 use gouda_proto::chat::*;
-use interprocess::local_socket::SendHalf;
-use prost::Message;
 use strum_macros::{Display, EnumString};
 
 use crate::ui::InputUi;
 
-macro_rules! impl_run {
+macro_rules! impl_to_container {
     ($method:ident, $request_name:ident) => {
-        fn $method(tag: u64, sender: &mut SendHalf) -> RequestContainer {
+        fn $method(tag: u64) -> RequestContainer {
             let request = RequestContainer {
                 tag,
                 content: Some(RequestContent::$request_name($request_name::default())),
             };
 
-            send_request(sender, request.clone());
-
             request
         }
     };
     ($method:ident, $request_name:ident, $payload_name:ident) => {
-        fn $method(tag: u64, sender: &mut SendHalf, request: $payload_name) -> RequestContainer {
+        fn $method(tag: u64, request: $payload_name) -> RequestContainer {
             let request = RequestContainer {
                 tag,
                 content: Some(RequestContent::$request_name(request)),
             };
-
-            send_request(sender, request.clone());
 
             request
         }
@@ -74,49 +66,43 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn run(&self, sender: &mut SendHalf, tag: u64) -> RequestContainer {
+    pub fn to_container(&self, tag: u64) -> RequestContainer {
         match self.clone() {
-            Self::Initialize(request) => run_initialize(tag, sender, *request),
-            Self::LoginFlows => run_login_flows(tag, sender),
-            Self::IdentityProviders => run_identity_providers(tag, sender),
-            Self::LoginUsernamePassword(request) => {
-                run_login_username_password(tag, sender, *request)
-            }
-            Self::LoginSso(request) => run_login_sso(tag, sender, *request),
-            Self::RecoveryKeyVerification(request) => {
-                run_recovery_key_verification(tag, sender, *request)
-            }
-            Self::CrossSigningStart(request) => run_cross_signing_start(tag, sender, *request),
+            Self::Initialize(request) => run_initialize(tag, *request),
+            Self::LoginFlows => run_login_flows(tag),
+            Self::IdentityProviders => run_identity_providers(tag),
+            Self::LoginUsernamePassword(request) => run_login_username_password(tag, *request),
+            Self::LoginSso(request) => run_login_sso(tag, *request),
+            Self::RecoveryKeyVerification(request) => run_recovery_key_verification(tag, *request),
+            Self::CrossSigningStart(request) => run_cross_signing_start(tag, *request),
             Self::CrossSigningSelectMethod(request) => {
-                run_cross_signing_select_method(tag, sender, *request)
+                run_cross_signing_select_method(tag, *request)
             }
-            Self::CrossSigningConfirm(request) => run_cross_signing_confirm(tag, sender, *request),
-            Self::AbortVerification(request) => run_abort_verification(tag, sender, *request),
-            Self::GetGlobalSettings(request) => run_get_global_settings(tag, sender, *request),
-            Self::GetUser(request) => run_get_user(tag, sender, *request),
-            Self::UserSearch(request) => run_user_search(tag, sender, *request),
-            Self::SetUserStatus(request) => run_set_status(tag, sender, *request),
-            Self::PublicRoomList(request) => run_public_room_list(tag, sender, *request),
-            Self::Invite(request) => run_invite(tag, sender, *request),
-            Self::InvitationReply(request) => run_invitation_reply(tag, sender, *request),
-            Self::RoomList(request) => run_room_list(tag, sender, *request),
-            Self::CreateGroupRoom(request) => run_create_group_room(tag, sender, *request),
-            Self::CreateDirectRoom(request) => run_create_direct_room(tag, sender, *request),
-            Self::ChangeRoom(request) => run_change_room(tag, sender, *request),
-            Self::LeaveRoom(request) => run_leave_room(tag, sender, *request),
-            Self::JoinRoom(request) => run_join_room(tag, sender, *request),
-            Self::KnockRoom(request) => run_knock_room(tag, sender, *request),
-            Self::RoomMessages(request) => run_room_messages(tag, sender, *request),
-            Self::MarkAsRead(request) => run_mark_as_read(tag, sender, *request),
-            Self::ActivateTypingNotice(request) => {
-                run_activate_typing_notice(tag, sender, *request)
-            }
-            Self::SendMessage(request) => run_send_message(tag, sender, *request),
-            Self::RemoveMessage(request) => run_remove_message(tag, sender, *request),
-            Self::ChangeMessage(request) => run_change_message(tag, sender, *request),
-            Self::CreateReaction(request) => run_create_reaction(tag, sender, *request),
-            Self::RemoveReaction(request) => run_remove_reaction(tag, sender, *request),
-            Self::GetMessage(request) => run_get_message(tag, sender, *request),
+            Self::CrossSigningConfirm(request) => run_cross_signing_confirm(tag, *request),
+            Self::AbortVerification(request) => run_abort_verification(tag, *request),
+            Self::GetGlobalSettings(request) => run_get_global_settings(tag, *request),
+            Self::GetUser(request) => run_get_user(tag, *request),
+            Self::UserSearch(request) => run_user_search(tag, *request),
+            Self::SetUserStatus(request) => run_set_status(tag, *request),
+            Self::PublicRoomList(request) => run_public_room_list(tag, *request),
+            Self::Invite(request) => run_invite(tag, *request),
+            Self::InvitationReply(request) => run_invitation_reply(tag, *request),
+            Self::RoomList(request) => run_room_list(tag, *request),
+            Self::CreateGroupRoom(request) => run_create_group_room(tag, *request),
+            Self::CreateDirectRoom(request) => run_create_direct_room(tag, *request),
+            Self::ChangeRoom(request) => run_change_room(tag, *request),
+            Self::LeaveRoom(request) => run_leave_room(tag, *request),
+            Self::JoinRoom(request) => run_join_room(tag, *request),
+            Self::KnockRoom(request) => run_knock_room(tag, *request),
+            Self::RoomMessages(request) => run_room_messages(tag, *request),
+            Self::MarkAsRead(request) => run_mark_as_read(tag, *request),
+            Self::ActivateTypingNotice(request) => run_activate_typing_notice(tag, *request),
+            Self::SendMessage(request) => run_send_message(tag, *request),
+            Self::RemoveMessage(request) => run_remove_message(tag, *request),
+            Self::ChangeMessage(request) => run_change_message(tag, *request),
+            Self::CreateReaction(request) => run_create_reaction(tag, *request),
+            Self::RemoveReaction(request) => run_remove_reaction(tag, *request),
+            Self::GetMessage(request) => run_get_message(tag, *request),
         }
     }
 }
@@ -161,104 +147,93 @@ impl InputUi for Action {
     }
 }
 
-fn send_request(sender: &mut SendHalf, request: RequestContainer) {
-    let mut encoded = request.encode_to_vec();
-    let mut data = encoded.len().to_le_bytes().to_vec();
-
-    data.append(&mut encoded);
-
-    sender
-        .write_all(&data)
-        .expect("Error writing request container to sender");
-}
-
-impl_run!(run_initialize, InitializationRequest, InitializationRequest);
-impl_run!(run_login_flows, LoginFlowsRequest);
-impl_run!(run_identity_providers, IdentityProvidersRequest);
-impl_run!(
+impl_to_container!(run_initialize, InitializationRequest, InitializationRequest);
+impl_to_container!(run_login_flows, LoginFlowsRequest);
+impl_to_container!(run_identity_providers, IdentityProvidersRequest);
+impl_to_container!(
     run_login_username_password,
     LoginUsernamePasswordRequest,
     LoginUsernamePasswordRequest
 );
-impl_run!(run_login_sso, LoginSsoRequest, LoginSsoRequest);
-impl_run!(
+impl_to_container!(run_login_sso, LoginSsoRequest, LoginSsoRequest);
+impl_to_container!(
     run_recovery_key_verification,
     RecoveryKeyVerificationRequest,
     RecoveryKeyVerificationRequest
 );
-impl_run!(
+impl_to_container!(
     run_cross_signing_start,
     CrossSigningStartRequest,
     CrossSigningStartRequest
 );
-impl_run!(
+impl_to_container!(
     run_cross_signing_select_method,
     CrossSigningMethodSelectedRequest,
     CrossSigningMethodSelectedRequest
 );
-impl_run!(
+impl_to_container!(
     run_cross_signing_confirm,
     CrossSigningConfirmRequest,
     CrossSigningConfirmRequest
 );
-impl_run!(
+impl_to_container!(
     run_abort_verification,
     VerificationAbortRequest,
     VerificationAbortRequest
 );
-impl_run!(
+impl_to_container!(
     run_get_global_settings,
     GlobalSettingsRequest,
     GlobalSettingsRequest
 );
-impl_run!(run_get_user, UserRequest, UserRequest);
-impl_run!(run_user_search, UserSearchRequest, UserSearchRequest);
-impl_run!(run_set_status, UserStatusSetOwnRequest, UserStatus);
-impl_run!(
+impl_to_container!(run_get_user, UserRequest, UserRequest);
+impl_to_container!(run_user_search, UserSearchRequest, UserSearchRequest);
+impl_to_container!(run_set_status, UserStatusSetOwnRequest, UserStatus);
+impl_to_container!(
     run_public_room_list,
     PublicRoomListRequest,
     PublicRoomListRequest
 );
-impl_run!(run_invite, InvitationRequest, InvitationRequest);
-impl_run!(run_invitation_reply, InvitedReply, InvitedReply);
-impl_run!(run_room_list, RoomListRequest, RoomListRequest);
-impl_run!(
+impl_to_container!(run_invite, InvitationRequest, InvitationRequest);
+impl_to_container!(run_invitation_reply, InvitedReply, InvitedReply);
+impl_to_container!(run_room_list, RoomListRequest, RoomListRequest);
+impl_to_container!(
     run_create_group_room,
     RoomCreateGroupRequest,
     RoomCreateGroupRequest
 );
-impl_run!(
+impl_to_container!(
     run_create_direct_room,
     RoomCreateDirectRequest,
     RoomCreateDirectRequest
 );
-impl_run!(run_change_room, RoomChangeRequest, RoomChangeRequest);
-impl_run!(run_leave_room, RoomLeaveRequest, RoomLeaveRequest);
-impl_run!(run_join_room, RoomJoinRequest, RoomJoinRequest);
+impl_to_container!(run_change_room, RoomChangeRequest, RoomChangeRequest);
+impl_to_container!(run_leave_room, RoomLeaveRequest, RoomLeaveRequest);
+impl_to_container!(run_join_room, RoomJoinRequest, RoomJoinRequest);
 
-impl_run!(run_knock_room, RoomKnockRequest, RoomKnockRequest);
-impl_run!(run_room_messages, RoomMessagesRequest, RoomMessagesRequest);
-impl_run!(
+impl_to_container!(run_knock_room, RoomKnockRequest, RoomKnockRequest);
+impl_to_container!(run_room_messages, RoomMessagesRequest, RoomMessagesRequest);
+impl_to_container!(
     run_mark_as_read,
     RoomMarkAsReadRequest,
     RoomMarkAsReadRequest
 );
-impl_run!(
+impl_to_container!(
     run_activate_typing_notice,
     RoomTypingRequest,
     RoomTypingRequest
 );
-impl_run!(run_send_message, MessageSendRequest, MessageSendRequest);
-impl_run!(
+impl_to_container!(run_send_message, MessageSendRequest, MessageSendRequest);
+impl_to_container!(
     run_remove_message,
     MessageRemoveRequest,
     MessageRemoveRequest
 );
-impl_run!(
+impl_to_container!(
     run_change_message,
     MessageChangeRequest,
     MessageChangeRequest
 );
-impl_run!(run_create_reaction, CreateReactionRequest, Reaction);
-impl_run!(run_remove_reaction, RemoveReactionRequest, Reaction);
-impl_run!(run_get_message, MessageRequest, MessageRequest);
+impl_to_container!(run_create_reaction, CreateReactionRequest, Reaction);
+impl_to_container!(run_remove_reaction, RemoveReactionRequest, Reaction);
+impl_to_container!(run_get_message, MessageRequest, MessageRequest);
