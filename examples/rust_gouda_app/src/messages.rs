@@ -49,7 +49,7 @@ impl MessagesWindow {
                 continue;
             };
 
-            self.collect_response_content(&content);
+            self.collect_response_content(content);
         }
     }
 
@@ -90,7 +90,7 @@ impl MessagesWindow {
         egui::ComboBox::from_label("Room")
             .selected_text(format!("{:?}", self.selected_room))
             .show_ui(ui, |ui| {
-                for (room_id, _) in &self.rooms {
+                for room_id in self.rooms.keys() {
                     let selected = Some(room_id) == self.selected_room.as_ref();
                     if ui.selectable_label(selected, room_id).clicked() {
                         self.selected_room = Some(room_id.clone());
@@ -122,11 +122,11 @@ impl MessagesWindow {
         if message.is_encrypted {
             self.ui_encrypted_message(ui, message);
         } else {
-            self.ui_decryped_message(ui, message);
+            self.ui_decrypted_message(ui, message);
         }
     }
 
-    fn ui_decryped_message(&self, ui: &mut egui::Ui, message: &Message) {
+    fn ui_decrypted_message(&self, ui: &mut egui::Ui, message: &Message) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.2;
             ui.label("🔑");

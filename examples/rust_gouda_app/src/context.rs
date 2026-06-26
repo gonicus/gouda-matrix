@@ -70,9 +70,9 @@ impl Context {
     }
 
     fn send_queued_requests(&mut self) {
-        let requets = std::mem::take(&mut self.queued_requests);
+        let request = std::mem::take(&mut self.queued_requests);
 
-        for request in requets {
+        for request in request {
             self.request_sender.send(request.clone()).unwrap();
             self.send_requests.push(request);
         }
