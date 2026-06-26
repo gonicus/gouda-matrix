@@ -1,4 +1,5 @@
 mod actions;
+mod app;
 mod communication;
 mod config;
 mod input;
@@ -8,9 +9,8 @@ use clap::Parser;
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, RecvHalf, SendHalf};
 
-use crate::communication::OutputWindow;
+use crate::app::App;
 use crate::config::Config;
-use crate::input::InputWindow;
 
 const fn config_default_path() -> &'static str {
     concat!(env!("CARGO_MANIFEST_DIR"), "/config.json")
@@ -32,42 +32,15 @@ fn main() {
     let args = Args::parse();
     let native_options = eframe::NativeOptions::default();
 
+    let cfg = Config::read_from_file(&args.config);
+    let (recv, send) = setup_conn();
+
     eframe::run_native(
         "Rust GOuda App",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, &args)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, cfg, recv, send)))),
     )
     .expect("Error setting up graphics context");
-}
-
-struct App {
-    input_window: InputWindow,
-    output_window: OutputWindow,
-}
-
-impl App {
-    fn new(_cc: &eframe::CreationContext<'_>, args: &Args) -> Self {
-        let config = Config::read_from_file(&args.config);
-
-        let (recv, send) = setup_conn();
-
-        let (output_window, output_sender) = OutputWindow::new(recv);
-        let input_window = InputWindow::new(config, send, output_sender);
-
-        Self {
-            input_window,
-            output_window,
-        }
-    }
-}
-
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.input_window.update(ctx);
-        self.output_window.update(ctx);
-
-        ctx.request_repaint();
-    }
 }
 
 fn start_server(socket: &str) -> Listener {
