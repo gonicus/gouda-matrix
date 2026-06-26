@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::format;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::{Message, MessageChangeEvent, MessageRemoveEvent};
+use gouda_proto::chat::{Message, MessageChangeEvent, MessageRemoveEvent, message};
 
 use crate::context::Context;
 
@@ -127,9 +127,14 @@ impl MessagesWindow {
     fn ui_decryped_message(&self, ui: &mut egui::Ui, message: &Message) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.2;
+
             let re = ui.label("🔑");
             re.on_hover_ui(|ui| {
                 ui.label(format!("{:?}", message.content));
+
+                if let Some(message::Content::Text(c)) = &message.content {
+                    ui.label(format!("REDACTED_CONTENT:\n{}", c.content));
+                }
             });
 
             ui.label(format!("  {}", &message.message_id));
