@@ -1,5 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt::format;
+use std::collections::HashMap;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{Message, MessageChangeEvent, MessageRemoveEvent, message};
@@ -110,7 +109,10 @@ impl MessagesWindow {
                     return;
                 };
 
-                for message in room.messages.values() {
+                let mut messages: Vec<&Message> = room.messages.values().collect();
+                messages.sort_by_key(|f| f.timestamp);
+
+                for message in messages {
                     self.ui_message(ui, message);
                 }
             });
@@ -131,7 +133,7 @@ impl MessagesWindow {
             let re = ui.label(format!("  {}", &message.message_id));
 
             re.on_hover_ui(|ui| {
-                ui.label(format!("{:?}", message.content));
+                ui.label(format!("{message:?}"));
 
                 if let Some(message::Content::Text(c)) = &message.content {
                     ui.label(format!("REDACTED_CONTENT:\n{}", c.content));
