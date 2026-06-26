@@ -48,9 +48,7 @@ impl InputWindow {
                 if ui.button("Submit").clicked() {
                     self.tag += 1;
 
-                    let response = self
-                        .selected_action
-                        .to_container(self.tag);
+                    let response = self.selected_action.to_container(self.tag);
 
                     context.queue_request(response);
                 }
@@ -101,10 +99,20 @@ impl InputWindow {
                     AbortVerification,
                     ctx.config().abort_verification.clone()
                 );
-                ui_action!(self, ui, GetGlobalSettings, ctx.config().get_global_settings);
+                ui_action!(
+                    self,
+                    ui,
+                    GetGlobalSettings,
+                    ctx.config().get_global_settings
+                );
                 ui_action!(self, ui, GetUser, ctx.config().get_user.clone());
                 ui_action!(self, ui, UserSearch, ctx.config().user_search.clone());
-                ui_action!(self, ui, SetUserStatus, ctx.config().set_user_status.clone());
+                ui_action!(
+                    self,
+                    ui,
+                    SetUserStatus,
+                    ctx.config().set_user_status.clone()
+                );
                 ui_action!(
                     self,
                     ui,
