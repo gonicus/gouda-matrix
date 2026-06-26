@@ -102,7 +102,13 @@ impl MessagesWindow {
 
     fn ui(&mut self, ui: &mut egui::Ui) {
         self.ui_room_selection(ui);
-        self.ui_messages(ui);
+
+        let Some(room) = self.get_selected_room() else {
+            ui.label("No room selected");
+            return;
+        };
+
+        self.ui_room(ui, room);
     }
 
     fn ui_room_selection(&mut self, ui: &mut egui::Ui) {
@@ -118,16 +124,13 @@ impl MessagesWindow {
             });
     }
 
-    fn ui_messages(&self, ui: &mut egui::Ui) {
+    fn ui_room(&self, ui: &mut egui::Ui, room: &Room) {
+        ui.label(format!("Number of messages: {}", room.messages.len()));
+
         egui::containers::ScrollArea::vertical()
             .auto_shrink([false, false])
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                let Some(room) = self.get_selected_room() else {
-                    ui.label("No room selected");
-                    return;
-                };
-
                 let mut messages: Vec<&Message> = room.messages.values().collect();
                 messages.sort_by_key(|f| f.timestamp);
 
