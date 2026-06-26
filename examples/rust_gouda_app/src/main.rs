@@ -4,6 +4,7 @@ mod communication;
 mod config;
 mod context;
 mod input;
+mod messages;
 mod ui;
 
 use clap::Parser;

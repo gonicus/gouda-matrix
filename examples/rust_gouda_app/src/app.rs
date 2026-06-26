@@ -10,11 +10,13 @@ use crate::communication::CommunicationWindow;
 use crate::config::Config;
 use crate::context::Context;
 use crate::input::InputWindow;
+use crate::messages::MessagesWindow;
 
 pub struct App {
     context: Context,
     input_window: InputWindow,
-    output_window: CommunicationWindow,
+    communication_window: CommunicationWindow,
+    messages_window: MessagesWindow,
 }
 
 impl App {
@@ -32,13 +34,13 @@ impl App {
         run_response_reader(recv, response_sender);
         run_request_writer(send, request_receiver);
 
-        let output_window = CommunicationWindow::new();
         let input_window = InputWindow::new(&context);
 
         Self {
             context,
             input_window,
-            output_window,
+            communication_window: CommunicationWindow::new(),
+            messages_window: MessagesWindow::new(),
         }
     }
 }
@@ -48,7 +50,8 @@ impl eframe::App for App {
         self.context.exec_io();
 
         self.input_window.show(egui_ctx, &mut self.context);
-        self.output_window.update(egui_ctx, &self.context);
+        self.communication_window.show(egui_ctx, &self.context);
+        self.messages_window.show(egui_ctx, &self.context);
 
         egui_ctx.request_repaint();
     }

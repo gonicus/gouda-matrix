@@ -30,7 +30,7 @@ impl CommunicationWindow {
         }
     }
 
-    pub fn update(&mut self, egui_ctx: &egui::Context, ctx: &Context) {
+    pub fn show(&mut self, egui_ctx: &egui::Context, ctx: &Context) {
         egui::Window::new("Communication")
             .resizable(true)
             .default_size(egui::Vec2::new(500.0, 500.0))
