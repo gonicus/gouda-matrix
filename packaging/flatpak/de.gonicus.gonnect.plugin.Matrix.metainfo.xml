@@ -38,12 +38,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="1.0.0" date="2026-01-01">
+    <release version="1.0.2" date="2026-06-27">
+    <description>
+      <p>Performance improvements</p>
+    </description>
+    </release>
+    <release version="1.0.1" date="2026-06-17">
     <description>
       <p>Initial release</p>
     </description>
     </release>
-    <release version="1.0.0" date="2026-01-01"/>
   </releases>
 
 </component>
