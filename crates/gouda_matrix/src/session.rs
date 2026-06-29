@@ -334,8 +334,8 @@ async fn handle_redecryptor_report(memory_cache: &MemoryCache, report: Redecrypt
     log::debug!("Handling redecryptor report: {report:?}");
 
     match report {
-        RedecryptorReport::ResolvedUtds { room_id, events } => {
-            memory_cache.retry_all_encrypted_events().await;
+        RedecryptorReport::ResolvedUtds { room_id, .. } => {
+            memory_cache.retry_encrypted_events(room_id, None).await;
         }
         RedecryptorReport::Lagging => {
             memory_cache.retry_all_encrypted_events().await;

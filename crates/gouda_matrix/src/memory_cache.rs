@@ -124,7 +124,7 @@ impl MemoryCache {
     pub async fn retry_encrypted_events(
         &self,
         room_id: impl AsRef<str>,
-        events: BTreeSet<OwnedEventId>,
+        events: Option<BTreeSet<OwnedEventId>>,
     ) {
         let result = self
             .inner
@@ -283,7 +283,7 @@ impl MemoryCacheInner {
     pub async fn retry_encrypted_events(
         &self,
         room_id: &str,
-        events: BTreeSet<OwnedEventId>,
+        events: Option<BTreeSet<OwnedEventId>>,
     ) -> Result<()> {
         let guard = self.cached_rooms.lock()?;
 
@@ -292,7 +292,7 @@ impl MemoryCacheInner {
         };
 
         tokio::spawn(async move {
-            if let Err(err) = room.retry_decryption(Some(events)).await {
+            if let Err(err) = room.retry_decryption(events).await {
                 log::error!("Error retrying decryption of room events: {err}");
             }
         });
