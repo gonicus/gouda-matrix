@@ -312,20 +312,36 @@ fn subscribe_to_room_keys(client: Client, memory_cache: MemoryCache) {
     log::debug!("Subscribing to room keys stream");
 
     tokio::spawn(async move {
-        let Some(mut stream) = client.encryption().room_keys_received_stream().await else {
-            log::error!("Unable to subscribe to room keys stream");
-            return;
-        };
+        let event_cache = client.event_cache();
+        let mut stream = event_cache.subscribe_to_decryption_reports();
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(keys) => handle_room_keys(&memory_cache, keys).await,
+                Ok(report) => println!("REPORT: {report:?}"),
                 Err(err) => {
-                    log::error!("Received error on room keys stream {err}");
+                    log::error!("Received error subscribing to redecryption reports: {err}");
                 }
             }
         }
+
+        log::error!("Stream stopped");
     });
+
+    // tokio::spawn(async move {
+    //     let Some(mut stream) = client.encryption().room_keys_received_stream().await else {
+    //         log::error!("Unable to subscribe to room keys stream");
+    //         return;
+    //     };
+
+    //     while let Some(result) = stream.next().await {
+    //         match result {
+    //             Ok(keys) => handle_room_keys(&memory_cache, keys).await,
+    //             Err(err) => {
+    //                 log::error!("Received error on room keys stream {err}");
+    //             }
+    //         }
+    //     }
+    // });
 }
 
 async fn handle_room_keys(memory_cache: &MemoryCache, keys: Vec<RoomKeyInfo>) {
