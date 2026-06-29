@@ -1818,10 +1818,6 @@ pub async fn build_client(
         .build()
         .await?;
 
-    if client.event_cache().subscribe().is_err() {
-        log::error!("Error subscribing to event cache");
-    }
-
     Ok(client)
 }
 

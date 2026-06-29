@@ -75,7 +75,10 @@ impl MessagesWindow {
     }
 
     fn remove_message(&mut self, ctx: &mut Context, event: MessageRemoveEvent) {
-        let room = self.get_or_create_room(&event.room_id);
+        let Some(room) = self.rooms.get_mut(&event.room_id) else {
+            return;
+        };
+
         if room.messages.remove(&event.message_id).is_none() {
             ctx.display_warning(format!(
                 "Received MessageRemoveEvent for a message we don't know: {}",
@@ -85,7 +88,9 @@ impl MessagesWindow {
     }
 
     fn change_message(&mut self, ctx: &mut Context, event: MessageChangeEvent) {
-        let room = self.get_or_create_room(&event.room_id);
+        let Some(room) = self.rooms.get_mut(&event.room_id) else {
+            return;
+        };
 
         let Some(message) = room.messages.get_mut(&event.message_id) else {
             ctx.display_warning(format!(
@@ -111,11 +116,18 @@ impl MessagesWindow {
     }
 
     fn ui_room_selection(&mut self, ui: &mut egui::Ui) {
+        if self.selected_room.is_none()
+            && let Some(room) = self.rooms.keys().next()
+        {
+            self.selected_room = Some(room.clone());
+        }
+
         egui::ComboBox::from_label("Room")
             .selected_text(format!("{:?}", self.selected_room))
             .show_ui(ui, |ui| {
                 for room_id in self.rooms.keys() {
                     let selected = Some(room_id) == self.selected_room.as_ref();
+
                     if ui.selectable_label(selected, room_id).clicked() {
                         self.selected_room = Some(room_id.clone());
                     }
@@ -124,7 +136,11 @@ impl MessagesWindow {
     }
 
     fn ui_room(&self, ui: &mut egui::Ui, room: &Room) {
-        ui.label(format!("Number of messages: {}", room.messages.len()));
+        let num_messages = room.messages.len();
+        let num_encrypted = room.messages.values().filter(|p| p.is_encrypted).count();
+
+        ui.label(format!("Messages: {num_messages}"));
+        ui.label(format!("Encrypted: {num_encrypted} / {num_messages}"));
 
         egui::containers::ScrollArea::vertical()
             .auto_shrink([false, false])
