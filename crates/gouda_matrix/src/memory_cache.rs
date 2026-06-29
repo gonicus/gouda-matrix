@@ -633,7 +633,7 @@ impl CachedRoom {
             self.room.room_id()
         );
 
-        for event in self.get_events_for_redecryption(events)? {
+        for event in self.get_events_for_redecryption(events.as_ref())? {
             self.retry_cached_encrypted_event(event).await?;
         }
 
@@ -916,7 +916,7 @@ impl CachedRoom {
 
     fn get_events_for_redecryption(
         &self,
-        events: Option<BTreeSet<OwnedEventId>>,
+        events: Option<&BTreeSet<OwnedEventId>>,
     ) -> Result<Vec<CachedEncryptedEvent>> {
         let guard = self.encrypted_events.lock()?;
 
@@ -1222,6 +1222,14 @@ impl CachedRoom {
     /// Only returns an error when the cache lock is poisoined.
     fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
         log::debug!("Caching encrypted event {event_id:?}");
+
+        // let request = matrix_sdk::event_cache::DecryptionRetryRequest {
+        //     room_id: self.room.room_id().to_owned(),
+        //     utd_session_ids: BTreeSet::from([event_id.clone()]),
+        //     refresh_info_session_ids: BTreeSet::new(),
+        // };
+
+        // self.room.client().event_cache().request_decryption(request);
 
         let mut guard = self.encrypted_events.lock()?;
         guard.insert(event_id, event);
