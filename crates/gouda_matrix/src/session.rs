@@ -8,7 +8,6 @@ use matrix_sdk::config::SyncSettings;
 use matrix_sdk::event_cache::RedecryptorReport;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk::Client;
-use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -98,7 +97,7 @@ impl Session {
             log::error!("Error subscribing to event cache");
         }
 
-        subscibe_to_redecryptor_reports(
+        subscribe_to_redecryptor_reports(
             session_context.client.clone(),
             session_context.memory_cache.clone(),
         );
@@ -311,7 +310,7 @@ impl Session {
     }
 }
 
-fn subscibe_to_redecryptor_reports(client: Client, memory_cache: MemoryCache) {
+fn subscribe_to_redecryptor_reports(client: Client, memory_cache: MemoryCache) {
     log::debug!("Subscribing to redecryptor reports");
 
     tokio::spawn(async move {
@@ -336,7 +335,7 @@ async fn handle_redecryptor_report(memory_cache: &MemoryCache, report: Redecrypt
 
     match report {
         RedecryptorReport::ResolvedUtds { room_id, events } => {
-            memory_cache.retry_encrypted_events(room_id, events).await;
+            memory_cache.retry_all_encrypted_events().await;
         }
         RedecryptorReport::Lagging => {
             memory_cache.retry_all_encrypted_events().await;

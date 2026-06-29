@@ -674,6 +674,8 @@ impl CachedRoom {
             }
         };
 
+        self.remove_encrypted_event(deserialized.event_id().as_str())?;
+
         self.process_any_timeline_event(deserialized).await
     }
 
@@ -1088,8 +1090,6 @@ impl CachedRoom {
     ) -> Result<()> {
         log::info!("Caching replacement {replacement_id} of message {original_message_id} with {replacement:?}");
 
-        self.remove_encrypted_event(&replacement_id)?;
-
         let mut guard = self.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
         message.replacements.insert(replacement_id, replacement);
@@ -1106,8 +1106,6 @@ impl CachedRoom {
         reaction: CachedReaction,
     ) -> Result<()> {
         log::info!("Caching reaction {reaction_id} of message {message_id} with {reaction:?}");
-
-        self.remove_encrypted_event(&reaction_id)?;
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1209,10 +1207,7 @@ impl CachedRoom {
     fn cache_and_build_message(&self, original: Message) -> Result<Message> {
         log::debug!("Caching and assembling original message: {original:?}");
 
-        self.remove_encrypted_event(&original.message_id)?;
-
         let mut guard = self.messages.lock()?;
-
         let cached_message = guard.entry(original.message_id.clone()).or_default();
 
         Ok(cached_message.build_from_original(original))
@@ -1239,10 +1234,9 @@ impl CachedRoom {
 
     /// Removes a tracked encrypted event, if it exists.
     /// Only returns an error when the cache lock is poisoined.
-    fn remove_encrypted_event(&self, event_id: &String) -> Result<()> {
+    fn remove_encrypted_event(&self, event_id: &str) -> Result<()> {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
-
         Ok(())
     }
 }

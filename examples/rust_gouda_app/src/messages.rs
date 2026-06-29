@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt::format;
 
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
@@ -76,7 +75,10 @@ impl MessagesWindow {
     }
 
     fn remove_message(&mut self, ctx: &mut Context, event: MessageRemoveEvent) {
-        let room = self.get_or_create_room(&event.room_id);
+        let Some(room) = self.rooms.get_mut(&event.room_id) else {
+            return;
+        };
+
         if room.messages.remove(&event.message_id).is_none() {
             ctx.display_warning(format!(
                 "Received MessageRemoveEvent for a message we don't know: {}",
@@ -86,7 +88,9 @@ impl MessagesWindow {
     }
 
     fn change_message(&mut self, ctx: &mut Context, event: MessageChangeEvent) {
-        let room = self.get_or_create_room(&event.room_id);
+        let Some(room) = self.rooms.get_mut(&event.room_id) else {
+            return;
+        };
 
         let Some(message) = room.messages.get_mut(&event.message_id) else {
             ctx.display_warning(format!(
@@ -112,10 +116,10 @@ impl MessagesWindow {
     }
 
     fn ui_room_selection(&mut self, ui: &mut egui::Ui) {
-        if self.selected_room.is_none() {
-            if let Some(room) = self.rooms.keys().next() {
-                self.selected_room = Some(room.clone());
-            }
+        if self.selected_room.is_none()
+            && let Some(room) = self.rooms.keys().next()
+        {
+            self.selected_room = Some(room.clone());
         }
 
         egui::ComboBox::from_label("Room")
