@@ -577,6 +577,8 @@ struct CachedEncryptedEvent {
     pub event: Raw<OriginalSyncRoomEncryptedEvent>,
     /// The ID of the session used to encrypt the message, if it used the
     /// `m.megolm.v1.aes-sha2` algorithm.
+    // We probably need this later.
+    #[allow(unused)]
     pub session_id: Option<String>,
 }
 
@@ -930,7 +932,7 @@ impl CachedRoom {
                 .map(|(_, val)| val.clone())
                 .collect()
         } else {
-            guard.values().map(|p| p.clone()).collect()
+            guard.values().cloned().collect()
         };
 
         Ok(events)
