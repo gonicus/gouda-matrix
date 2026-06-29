@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
@@ -115,20 +115,33 @@ impl MemoryCache {
         self.inner.fetch_message(room, event_id.into()).await
     }
 
-    /// Retries to decrypt previously unencryptable events.
+    /// Retries to decrypt previously unencryptable events of a room.
     ///
     /// # Arguments
     ///
     /// * `room_id`: The ID of the room the events belong to.
     /// * `session_id`: The ID of the session used to encrypt the events.
-    pub async fn retry_encrypted_events(&self, room_id: impl Into<String>, session_id: String) {
+    pub async fn retry_encrypted_events(
+        &self,
+        room_id: impl AsRef<str>,
+        events: BTreeSet<OwnedEventId>,
+    ) {
         let result = self
             .inner
-            .retry_encrypted_events(room_id.into(), session_id)
+            .retry_encrypted_events(room_id.as_ref(), events)
             .await;
 
         if let Err(err) = result {
             log::error!("Error retrying decryption of events: {err}");
+        }
+    }
+
+    /// Retries to decrypt all previously unencryptable events of every room.
+    pub async fn retry_all_encrypted_events(&self) {
+        let result = self.inner.retry_all_encrypted_events().await;
+
+        if let Err(err) = result {
+            log::error!("Error retrying decryption of all events: {err}");
         }
     }
 
@@ -267,18 +280,37 @@ impl MemoryCacheInner {
         MessageFetcher::new(room, event_id).run().await
     }
 
-    pub async fn retry_encrypted_events(&self, room_id: String, session_id: String) -> Result<()> {
+    pub async fn retry_encrypted_events(
+        &self,
+        room_id: &str,
+        events: BTreeSet<OwnedEventId>,
+    ) -> Result<()> {
         let guard = self.cached_rooms.lock()?;
 
-        let Some(room) = guard.get(&room_id).cloned() else {
+        let Some(room) = guard.get(room_id).cloned() else {
             return Ok(());
         };
 
         tokio::spawn(async move {
-            if let Err(err) = room.retry_decryption(session_id).await {
+            if let Err(err) = room.retry_decryption(Some(events)).await {
                 log::error!("Error retrying decryption of room events: {err}");
             }
         });
+
+        Ok(())
+    }
+
+    pub async fn retry_all_encrypted_events(&self) -> Result<()> {
+        let guard = self.cached_rooms.lock()?;
+
+        for room in guard.values() {
+            let room = room.clone();
+            tokio::spawn(async move {
+                if let Err(err) = room.retry_decryption(None).await {
+                    log::error!("Unable to retry decryption of events: {err}");
+                }
+            });
+        }
 
         Ok(())
     }
@@ -595,13 +627,13 @@ impl CachedRoom {
 
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
-    pub async fn retry_decryption(&self, session_id: String) -> Result<()> {
+    pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
         log::debug!(
-            "Retrying decryption of events from room {:?} for session_id: {session_id}",
+            "Retrying decryption of events {events:?} from room {:?}",
             self.room.room_id()
         );
 
-        for event in self.get_events_for_redecryption(session_id)? {
+        for event in self.get_events_for_redecryption(events)? {
             self.retry_cached_encrypted_event(event).await?;
         }
 
@@ -882,14 +914,22 @@ impl CachedRoom {
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
-    fn get_events_for_redecryption(&self, session_id: String) -> Result<Vec<CachedEncryptedEvent>> {
+    fn get_events_for_redecryption(
+        &self,
+        events: Option<BTreeSet<OwnedEventId>>,
+    ) -> Result<Vec<CachedEncryptedEvent>> {
         let guard = self.encrypted_events.lock()?;
 
-        let events = guard
-            .iter()
-            .filter(|p| p.1.session_id.as_ref() == Some(&session_id))
-            .map(|p| p.1.clone())
-            .collect();
+        let events: Vec<CachedEncryptedEvent> = if let Some(events) = events {
+            let events: Vec<String> = events.iter().map(|f| f.to_string()).collect();
+            guard
+                .iter()
+                .filter(|(key, _)| events.contains(key))
+                .map(|(_, val)| val.clone())
+                .collect()
+        } else {
+            guard.values().map(|p| p.clone()).collect()
+        };
 
         Ok(events)
     }
