@@ -5,9 +5,9 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk::event_cache::RedecryptorReport;
 use matrix_sdk::stream::StreamExt;
 use matrix_sdk::Client;
-use matrix_sdk_crypto::store::types::RoomKeyInfo;
 use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -85,8 +85,6 @@ impl Session {
         Ok(())
     }
 
-    // TODO: Refactor entire session stuff
-
     /// Performs the initial synchronization followed by an infinite
     /// background synchronization.
     /// This method blocks until the initial sync is finished.
@@ -95,7 +93,11 @@ impl Session {
         mut ctx: RequestContext,
         session_context: SessionContext,
     ) -> Result<()> {
-        subscribe_to_room_keys(
+        if session_context.client.event_cache().subscribe().is_err() {
+            log::error!("Error subscribing to event cache");
+        }
+
+        subscribe_to_redecryptor_reports(
             session_context.client.clone(),
             session_context.memory_cache.clone(),
         );
@@ -308,33 +310,39 @@ impl Session {
     }
 }
 
-fn subscribe_to_room_keys(client: Client, memory_cache: MemoryCache) {
-    log::debug!("Subscribing to room keys stream");
+fn subscribe_to_redecryptor_reports(client: Client, memory_cache: MemoryCache) {
+    log::debug!("Subscribing to redecryptor reports");
 
     tokio::spawn(async move {
-        let Some(mut stream) = client.encryption().room_keys_received_stream().await else {
-            log::error!("Unable to subscribe to room keys stream");
-            return;
-        };
+        let event_cache = client.event_cache();
+        let mut stream = event_cache.subscribe_to_decryption_reports();
 
         while let Some(result) = stream.next().await {
             match result {
-                Ok(keys) => handle_room_keys(&memory_cache, keys).await,
+                Ok(report) => handle_redecryptor_report(&memory_cache, report).await,
                 Err(err) => {
-                    log::error!("Received error on room keys stream {err}");
+                    log::error!("Received error on redecryption reports stream: {err}");
                 }
             }
         }
+
+        log::error!("Redecryptor stream stopped");
     });
 }
 
-async fn handle_room_keys(memory_cache: &MemoryCache, keys: Vec<RoomKeyInfo>) {
-    for info in keys {
-        log::debug!("Received new room keys: {info:?}");
+async fn handle_redecryptor_report(memory_cache: &MemoryCache, report: RedecryptorReport) {
+    log::debug!("Handling redecryptor report: {report:?}");
 
-        memory_cache
-            .retry_encrypted_events(info.room_id, info.session_id)
-            .await;
+    match report {
+        RedecryptorReport::ResolvedUtds { room_id, .. } => {
+            memory_cache.retry_encrypted_events(room_id, None).await;
+        }
+        RedecryptorReport::Lagging => {
+            memory_cache.retry_all_encrypted_events().await;
+        }
+        RedecryptorReport::BackupAvailable => {
+            memory_cache.retry_all_encrypted_events().await;
+        }
     }
 }
 
