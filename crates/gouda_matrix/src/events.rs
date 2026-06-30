@@ -857,13 +857,17 @@ impl EventExecutor {
     }
 
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
-        let Some(list) = get_user_typing_list(&update) else {
-            return;
+        let mut builder = RoomChangeEventBuilder::new(room_id.to_string());
+
+        if let Some(list) = get_user_typing_list(&update) {
+            builder = builder.change_typing_user_id_list(list);
         };
 
-        let proto = RoomChangeEventBuilder::new(room_id.to_string())
-            .change_typing_user_id_list(list)
-            .to_proto();
+        if update.unread_notifications.notification_count == 0 {
+            builder = builder.change_unread_count(0);
+        }
+
+        let proto = builder.to_proto();
 
         if !self.is_new_room_change(&proto) {
             log::debug!(
