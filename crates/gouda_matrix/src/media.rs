@@ -1539,6 +1539,69 @@ mod tests {
 
     #[tokio::test]
     #[test_log::test]
+    async fn test_asset_manager_download_no_more_file_extension() {
+        // Arrange
+        let dirs = setup_directories();
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let content_new = vec![10, 20];
+
+        let download_result = Download {
+            data: content_new.clone(),
+            file_extension: None,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset")
+            .download_result(download_result)
+            .up_to_date_result(false);
+
+        let mut manager = setup_asset_manager(&dirs, asset);
+
+        // Act
+        let result = manager.download().await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        #[cfg(not(windows))]
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset"));
+
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(&asset_path_absolute, &content_new);
+
+        assert_info_file(info_path_absolute, "some_asset", "mxc://some_asset");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
     async fn test_asset_manager_download_removed() {
         // Arrange
         let dirs = setup_directories();
@@ -1749,6 +1812,71 @@ mod tests {
         test_utils::assert_file_content(asset_path_absolute, &asset_content);
 
         assert_info_file(info_path_absolute, "some_asset.jpeg", "mxc://some_asset");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_upload_no_file_extension() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("some_asset.jpeg");
+        let upload_path_relative = dirs.upload_dir_relative.join("some_asset.jpeg");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let upload_result = Upload {
+            file_extension: None,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
+        let mut manager = setup_asset_manager(&dirs, asset);
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        #[cfg(not(windows))]
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset", "mxc://some_asset");
     }
 
     #[tokio::test]
