@@ -1129,11 +1129,23 @@ fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> (Option<String
         return (None, DEFAULT_MIME);
     };
 
-    let mime = mime_guess::from_ext(&file_extension)
-        .first()
-        .unwrap_or(DEFAULT_MIME);
+    let mime = mime_guess::from_ext(&file_extension).first();
+
+    let mime = if let Some(mime) = mime {
+        mime
+    } else if is_utf8_text(data) {
+        mime::TEXT_PLAIN_UTF_8
+    } else {
+        DEFAULT_MIME
+    };
+
+    log::debug!("Detected mime type: {mime:?}");
 
     (Some(file_extension), mime)
+}
+
+fn is_utf8_text(data: &[u8]) -> bool {
+    std::str::from_utf8(data).is_ok()
 }
 
 #[cfg(test)]
