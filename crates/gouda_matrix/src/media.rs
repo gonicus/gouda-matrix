@@ -27,6 +27,8 @@ const ATTACHMENTS_FOLDER: &str = "attachments";
 
 const INFO_FILE_SUFFIX: &str = "_info";
 
+const DEFAULT_MIME: mime::Mime = mime::APPLICATION_OCTET_STREAM;
+
 macro_rules! log_avatar_result {
     ($result:expr, $object:literal) => {
         if let Err(err) = &$result {
@@ -436,7 +438,7 @@ where
             self.delete_asset_and_info(&info).await;
         }
 
-        let asset_file_name = self.get_asset_file_name(&upload.file_extension)?;
+        let asset_file_name = self.get_asset_file_name(upload.file_extension.as_deref())?;
 
         let info = AssetInfo {
             file: asset_file_name.clone(),
@@ -536,7 +538,7 @@ where
             self.delete_asset_and_info(&existing_info).await;
         }
 
-        let data_file_name = self.get_asset_file_name(&download.file_extension)?;
+        let data_file_name = self.get_asset_file_name(download.file_extension.as_deref())?;
 
         let info = AssetInfo {
             file: data_file_name.clone(),
@@ -620,11 +622,15 @@ where
     }
 
     /// Gets the file name of the downloaded asset.
-    fn get_asset_file_name(&self, extension: &str) -> Result<String> {
+    fn get_asset_file_name(&self, extension: Option<&str>) -> Result<String> {
         let asset_id =
             unwrap_or_log_return_err!(self.asset.asset_id(), "Error retrieving asset ID");
 
-        Ok(format!("{asset_id}.{extension}"))
+        if let Some(extension) = extension {
+            Ok(format!("{asset_id}.{extension}"))
+        } else {
+            Ok(asset_id)
+        }
     }
 
     /// Builds the relative path to the download directory starting from
@@ -686,7 +692,7 @@ struct Download {
     /// The downloaded data.
     data: Vec<u8>,
     /// The file extension to use for the downloaded data.
-    file_extension: String,
+    file_extension: Option<String>,
     /// The upstream URL to the media file.
     upstream_url: String,
 }
@@ -695,7 +701,7 @@ struct Download {
 #[derive(Debug, Clone)]
 struct Upload {
     /// The file extension to use for the uploaded data.
-    file_extension: String,
+    file_extension: Option<String>,
     /// The upstream URL to the uploaded media file.
     upstream_url: String,
 }
@@ -771,8 +777,7 @@ impl Asset for RoomAvatarAsset {
             "Error downloading room avatar"
         );
 
-        let extension =
-            determine_file_extension(&content).ok_or(MediaError::UnableToDetermineFileExtension)?;
+        let extension = determine_file_extension_from_data(&content);
 
         let download = Download {
             data: content,
@@ -789,7 +794,7 @@ impl Asset for RoomAvatarAsset {
         let data =
             unwrap_or_log_return_err!(tokio::fs::read(&src).await, "Error reading source file");
 
-        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
+        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src);
 
         let response = unwrap_or_log_return_err!(
             self.room.client().media().upload(&mime, data, None).await,
@@ -883,8 +888,7 @@ impl Asset for UserAvatarAsset {
             "Error downloading user avatar"
         );
 
-        let extension =
-            determine_file_extension(&content).ok_or(MediaError::UnableToDetermineFileExtension)?;
+        let extension = determine_file_extension_from_data(&content);
 
         let download = Download {
             data: content,
@@ -980,7 +984,7 @@ impl Asset for RoomAttachmentAsset {
                 .to_string()
         });
 
-        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src)?;
+        let (file_extension, mime) = determine_file_extension_and_mime(&data, &src);
         let config = self.generate_attachment_config();
 
         let response = unwrap_or_log_return_err!(
@@ -1067,9 +1071,8 @@ impl<'a, C: MediaEventContent + Send + Sync> Asset for MediaEventAsset<'a, C> {
         let extension = if let Some(file_name) = self.file_name {
             determine_file_extension_with_path(&data, file_name)
         } else {
-            determine_file_extension(&data)
-        }
-        .ok_or(MediaError::UnableToDetermineFileExtension)?;
+            determine_file_extension_from_data(&data)
+        };
 
         let download = Download {
             data,
@@ -1099,7 +1102,7 @@ async fn download_mxc(client: &Client, mxc_uri: &MxcUri) -> Result<Vec<u8>> {
 }
 
 /// Attempts to determine the file extension of the specified data.
-fn determine_file_extension(data: &[u8]) -> Option<String> {
+fn determine_file_extension_from_data(data: &[u8]) -> Option<String> {
     match infer::get(data) {
         Some(kind) => Some(kind.extension().to_string()),
         None => {
@@ -1115,20 +1118,34 @@ fn determine_file_extension_with_path(data: &[u8], path: impl AsRef<Path>) -> Op
     path.as_ref()
         .extension()
         .map(|f| f.to_string_lossy().to_string())
-        .or_else(|| determine_file_extension(data))
+        .or_else(|| determine_file_extension_from_data(data))
 }
 
 /// Attempts to determine the file extension as well as the mime type
 /// given the specific data and path.
-fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> Result<(String, Mime)> {
-    let file_extension = determine_file_extension_with_path(data, path)
-        .ok_or(MediaError::UnableToDetermineFileExtension)?;
+/// Will return a default value for the MIME type if we couldn't guess it.
+fn determine_file_extension_and_mime(data: &[u8], path: &Path) -> (Option<String>, Mime) {
+    let Some(file_extension) = determine_file_extension_with_path(data, path) else {
+        return (None, DEFAULT_MIME);
+    };
 
-    let mime = mime_guess::from_ext(&file_extension)
-        .first()
-        .ok_or(MediaError::UnableToDetermineMimeType)?;
+    let mime = mime_guess::from_ext(&file_extension).first();
 
-    Ok((file_extension, mime))
+    let mime = if let Some(mime) = mime {
+        mime
+    } else if is_utf8_text(data) {
+        mime::TEXT_PLAIN_UTF_8
+    } else {
+        DEFAULT_MIME
+    };
+
+    log::debug!("Detected mime type: {mime:?}");
+
+    (Some(file_extension), mime)
+}
+
+fn is_utf8_text(data: &[u8]) -> bool {
+    std::str::from_utf8(data).is_ok()
 }
 
 #[cfg(test)]
@@ -1334,7 +1351,7 @@ mod tests {
 
         let download_result = Download {
             data: data.clone(),
-            file_extension: extension,
+            file_extension: Some(extension),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1431,7 +1448,7 @@ mod tests {
 
         let download_result = Download {
             data: content_new.clone(),
-            file_extension: extension,
+            file_extension: Some(extension),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1495,7 +1512,7 @@ mod tests {
 
         let download_result = Download {
             data: content_new.clone(),
-            file_extension: extension,
+            file_extension: Some(extension),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1530,6 +1547,69 @@ mod tests {
         test_utils::assert_file_content(&asset_path_absolute, &content_new);
 
         assert_info_file(info_path_absolute, "some_asset.jpeg", "mxc://some_asset");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_asset_manager_download_no_more_file_extension() {
+        // Arrange
+        let dirs = setup_directories();
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let content_new = vec![10, 20];
+
+        let download_result = Download {
+            data: content_new.clone(),
+            file_extension: None,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset")
+            .download_result(download_result)
+            .up_to_date_result(false);
+
+        let mut manager = setup_asset_manager(&dirs, asset);
+
+        // Act
+        let result = manager.download().await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        #[cfg(not(windows))]
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset"));
+
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(&asset_path_absolute, &content_new);
+
+        assert_info_file(info_path_absolute, "some_asset", "mxc://some_asset");
     }
 
     #[tokio::test]
@@ -1586,7 +1666,7 @@ mod tests {
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
         let upload_result = Upload {
-            file_extension: "png".to_owned(),
+            file_extension: Some("png".to_owned()),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1646,7 +1726,7 @@ mod tests {
         );
 
         let upload_result = Upload {
-            file_extension: "png".to_owned(),
+            file_extension: Some("png".to_owned()),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1711,7 +1791,7 @@ mod tests {
         );
 
         let upload_result = Upload {
-            file_extension: "jpeg".to_owned(),
+            file_extension: Some("jpeg".to_owned()),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
@@ -1748,6 +1828,71 @@ mod tests {
 
     #[tokio::test]
     #[test_log::test]
+    async fn test_asset_manager_upload_no_file_extension() {
+        // Arrange
+        let dirs = setup_directories();
+
+        let upload_path_absolute = dirs.upload_dir_absolute.join("some_asset.jpeg");
+        let upload_path_relative = dirs.upload_dir_relative.join("some_asset.jpeg");
+        let asset_content = vec![5, 6, 7];
+
+        fs::write(dirs.upload_dir_absolute.join("other.jpg"), vec![1, 2, 3]).unwrap();
+        fs::write(&upload_path_absolute, &asset_content).unwrap();
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset",
+            vec![2, 3, 4],
+            "png",
+            "mxc://some_asset",
+        );
+
+        setup_asset(
+            &dirs.asset_dir_absolute,
+            "some_asset2",
+            vec![5, 2],
+            "png",
+            "mxc://some_asset2",
+        );
+
+        let upload_result = Upload {
+            file_extension: None,
+            upstream_url: "mxc://some_asset".to_owned(),
+        };
+
+        let asset = AssetMock::new("some_asset").upload_result(upload_result);
+        let mut manager = setup_asset_manager(&dirs, asset);
+
+        // Act
+        let result = manager.upload(upload_path_relative).await.unwrap();
+
+        // Assert
+        let asset_path_absolute = dirs.asset_dir_absolute.join("some_asset");
+        let info_path_absolute = dirs.asset_dir_absolute.join("some_asset_info.json");
+
+        #[cfg(not(windows))]
+        assert_eq!(result, format!("{ASSET_DIR}/some_asset"));
+        #[cfg(windows)]
+        assert_eq!(result, format!("{ASSET_DIR}\\some_asset"));
+
+        test_utils::assert_directory(dirs.upload_dir_absolute, vec!["other.jpg"]);
+        test_utils::assert_directory(
+            dirs.asset_dir_absolute,
+            vec![
+                "some_asset_info.json",
+                "some_asset",
+                "some_asset2_info.json",
+                "some_asset2.png",
+            ],
+        );
+
+        test_utils::assert_file_content(asset_path_absolute, &asset_content);
+
+        assert_info_file(info_path_absolute, "some_asset", "mxc://some_asset");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
     async fn test_asset_manager_upload_new_different_upload_name() {
         // Arrange
         let dirs = setup_directories();
@@ -1760,7 +1905,7 @@ mod tests {
         fs::write(&upload_path_absolute, &asset_content).unwrap();
 
         let upload_result = Upload {
-            file_extension: "png".to_owned(),
+            file_extension: Some("png".to_owned()),
             upstream_url: "mxc://some_asset".to_owned(),
         };
 
