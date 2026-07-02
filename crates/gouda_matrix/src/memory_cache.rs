@@ -351,6 +351,7 @@ impl MemoryCacheInner {
         emoji: &str,
     ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
+            log::error!("Unable to remove reaction because room {room_id} was not found");
             return Ok(None);
         };
 
