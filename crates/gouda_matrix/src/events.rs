@@ -865,6 +865,9 @@ impl EventExecutor {
 
         if update.unread_notifications.notification_count == 0 {
             builder = builder.change_unread_count(0);
+            if let Err(err) = self.memory_cache.set_room_unread_count_by_id(&room_id, 0) {
+                log::error!("Unable to update room notification count: {err}");
+            }
         }
 
         let proto = builder.to_proto();
