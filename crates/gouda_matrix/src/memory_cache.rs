@@ -179,8 +179,8 @@ impl MemoryCache {
         emoji: impl AsRef<str>,
     ) -> Option<ReactionMetadata> {
         let result = self.inner.remove_reaction_by_emoji(
-            message_id.as_ref(),
             room_id.as_ref(),
+            message_id.as_ref(),
             user.as_ref(),
             emoji.as_ref(),
         );
@@ -316,6 +316,8 @@ impl MemoryCacheInner {
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
+        log::debug!("Caching reaction inside room {:?}", room.room_id());
+
         let cached_room = self.get_or_create_room(room)?;
 
         let message_id = event.content.relates_to.event_id.to_string();
@@ -337,6 +339,7 @@ impl MemoryCacheInner {
         reaction_id: &str,
     ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
+            log::error!("Unable to remove reaction because room {room_id} was not found");
             return Ok(None);
         };
 
