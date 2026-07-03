@@ -383,8 +383,10 @@ impl SyncProcess {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(DECRYPTION_RETRY_TIMEOUT).await;
-                log::info!("Retrying to decrypt all encrypted events");
-                self.session_ctx.memory_cache.retry_all_encrypted_events().await;
+                self.session_ctx
+                    .memory_cache
+                    .retry_all_encrypted_events()
+                    .await;
             }
         });
     }
@@ -396,7 +398,9 @@ impl SyncProcess {
 
         match report {
             RedecryptorReport::ResolvedUtds { room_id, events } => {
-                memory_cache.retry_encrypted_events(room_id, Some(events)).await;
+                memory_cache
+                    .retry_encrypted_events(room_id, Some(events))
+                    .await;
             }
             RedecryptorReport::Lagging => {
                 memory_cache.retry_all_encrypted_events().await;
