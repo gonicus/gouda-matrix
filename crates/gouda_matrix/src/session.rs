@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent};
+use gouda_proto::chat::status_update::StatusCode;
+use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent, StatusUpdate};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::event_cache::RedecryptorReport;
@@ -280,10 +281,19 @@ impl SyncProcess {
 
         if !data.soft_logout {
             log::info!("Session has been logged out, stopping sync");
+            self.send_logged_out_event().await;
             return Err(Error::LoggedOut);
         }
 
         return self.refresh_access_token().await;
+    }
+
+    async fn send_logged_out_event(&self) {
+        let event = StatusUpdate {
+            code: StatusCode::LoggedOut.into(),
+        };
+
+        self.request_ctx.send_event(ResponseContent::StatusUpdate(event)).await;
     }
 
     async fn refresh_access_token(&mut self) -> Result<()> {
