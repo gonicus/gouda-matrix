@@ -14,7 +14,6 @@ use tokio::task::JoinHandle;
 
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
-use crate::memory_cache::MemoryCache;
 use crate::notifications::NotificationManager;
 use crate::{crypto, user};
 
@@ -88,43 +87,57 @@ impl Session {
     /// Performs the initial synchronization followed by an infinite
     /// background synchronization.
     /// This method blocks until the initial sync is finished.
-    pub async fn sync(
-        mut self,
-        mut ctx: RequestContext,
-        session_context: SessionContext,
-    ) -> Result<()> {
-        if session_context.client.event_cache().subscribe().is_err() {
+    pub async fn sync(self, ctx: RequestContext, session_ctx: SessionContext) -> Result<()> {
+        SyncProcess::new(self, ctx, session_ctx).sync().await
+    }
+}
+
+#[derive(Clone)]
+struct SyncProcess {
+    session: Session,
+    request_ctx: RequestContext,
+    session_ctx: SessionContext,
+}
+
+impl SyncProcess {
+    pub fn new(session: Session, request_ctx: RequestContext, session_ctx: SessionContext) -> Self {
+        Self {
+            session,
+            request_ctx,
+            session_ctx,
+        }
+    }
+
+    pub async fn sync(mut self) -> Result<()> {
+        if self.session_ctx.client.event_cache().subscribe().is_err() {
             log::error!("Error subscribing to event cache");
         }
 
-        subscribe_to_redecryptor_reports(
-            session_context.client.clone(),
-            session_context.memory_cache.clone(),
-        );
+        self.clone().subscribe_to_redecryptor_reports();
 
-        NotificationManager::from_session(ctx.clone(), &session_context)
+        NotificationManager::from_session(self.request_ctx.clone(), &self.session_ctx)
             .subscribe_to_changes()
             .await;
 
-        self.initial_sync(&mut ctx, &session_context).await?;
-        self.exec_initial_actions(&ctx, &session_context).await;
+        self.initial_sync().await?;
+        self.exec_initial_actions().await;
 
-        session_context
+        self.session_ctx
             .event_manager
-            .setup_event_handlers(&session_context.client);
+            .setup_event_handlers(&self.session_ctx.client);
 
-        self.start_background_sync(ctx, session_context).await?;
+        self.start_background_sync().await?;
 
         Ok(())
     }
 
     /// Executes all actions required after the initial sync.
-    async fn exec_initial_actions(&self, ctx: &RequestContext, session_context: &SessionContext) {
+    async fn exec_initial_actions(&self) {
         let SessionContext {
             client,
             proto_cache,
             ..
-        } = session_context;
+        } = &self.session_ctx;
 
         let Some(user_id) = client.user_id() else {
             log::error!("Unable to retrieve user id after initial sync");
@@ -136,7 +149,8 @@ impl Session {
                 .change_status(status)
                 .to_proto();
 
-            ctx.send_event(ResponseContent::UserChangeEvent(proto))
+            self.request_ctx
+                .send_event(ResponseContent::UserChangeEvent(proto))
                 .await;
         }
     }
@@ -144,42 +158,32 @@ impl Session {
     /// Performs a single synchronization on the client, blocking the current thread until
     /// the synchronization is complete.
     /// The session is automatically persisted once a new sync token is received.
-    async fn initial_sync(
-        &mut self,
-        ctx: &mut RequestContext,
-        session_context: &SessionContext,
-    ) -> Result<()> {
+    async fn initial_sync(&mut self) -> Result<()> {
         log::info!("Starting initial sync");
 
-        self.sync_once(session_context).await?;
+        self.sync_once().await?;
 
         log::info!("Initial sync finished");
         log::debug!("Checking verification status");
 
-        send_capabilities_event(ctx).await;
-        send_verification_status_event(ctx, &session_context.client).await?;
+        self.send_capabilities_event().await;
+        self.send_verification_status_event().await?;
 
         Ok(())
     }
 
     /// Starts an endless synchronization loop in a separate tokio task,
     /// thus making this function non blocking.
-    async fn start_background_sync(
-        mut self,
-        ctx: RequestContext,
-        session_context: SessionContext,
-    ) -> Result<JoinHandle<()>> {
+    async fn start_background_sync(mut self) -> Result<JoinHandle<()>> {
         let handle = tokio::spawn(async move {
             loop {
-                let result = self.sync_once(&session_context).await;
+                let result = self.sync_once().await;
 
-                let result = self
-                    .process_sync_result(&session_context.client, result)
-                    .await;
+                let result = self.process_sync_result(result).await;
 
                 if let Err(err) = result {
                     log::error!("Received an unrecoverable error during sync: {err}");
-                    ctx.send_error(err.into()).await;
+                    self.request_ctx.send_error(err.into()).await;
                     break;
                 }
             }
@@ -188,14 +192,14 @@ impl Session {
         Ok(handle)
     }
 
-    async fn sync_once(&self, session_context: &SessionContext) -> matrix_sdk::Result<()> {
+    async fn sync_once(&self) -> matrix_sdk::Result<()> {
         let mut sync_settings = SyncSettings::new();
 
         let SessionContext {
             client,
             proto_cache,
             ..
-        } = session_context;
+        } = &self.session_ctx;
 
         if let Some(token) = proto_cache.sync_token() {
             sync_settings = sync_settings.token(token);
@@ -220,11 +224,7 @@ impl Session {
     /// if the auth token is no longer valid.
     /// In case of a network error, this function will block for a specific
     /// timeout and return Ok, so the sync is being retried.
-    async fn process_sync_result(
-        &mut self,
-        client: &Client,
-        result: matrix_sdk::Result<()>,
-    ) -> Result<()> {
+    async fn process_sync_result(&mut self, result: matrix_sdk::Result<()>) -> Result<()> {
         let Err(err) = result else {
             return Ok(());
         };
@@ -236,7 +236,7 @@ impl Session {
         }
 
         if let Some(data) = self.is_token_error(&err) {
-            return self.handle_token_error(client, data).await;
+            return self.handle_token_error(data).await;
         }
 
         Err(err.into())
@@ -275,11 +275,7 @@ impl Session {
         None
     }
 
-    async fn handle_token_error(
-        &mut self,
-        client: &Client,
-        data: &UnknownTokenErrorData,
-    ) -> Result<()> {
+    async fn handle_token_error(&mut self, data: &UnknownTokenErrorData) -> Result<()> {
         log::info!("Received an unknown token error during sync");
 
         if !data.soft_logout {
@@ -287,20 +283,22 @@ impl Session {
             return Err(Error::LoggedOut);
         }
 
-        return self.refresh_access_token(client).await;
+        return self.refresh_access_token().await;
     }
 
-    async fn refresh_access_token(&mut self, client: &Client) -> Result<()> {
+    async fn refresh_access_token(&mut self) -> Result<()> {
         log::info!("Refreshing access token");
 
-        client.refresh_access_token().await?;
+        self.session_ctx.client.refresh_access_token().await?;
 
-        self.user_session = client
+        self.session.user_session = self
+            .session_ctx
+            .client
             .matrix_auth()
             .session()
             .ok_or(Error::internal("Unable to retrieve matrix auth session"))?;
 
-        if let Err(err) = self.save().await {
+        if let Err(err) = self.session.save().await {
             log::error!("Error when saving session: {err}");
         }
 
@@ -308,85 +306,92 @@ impl Session {
 
         Ok(())
     }
-}
 
-fn subscribe_to_redecryptor_reports(client: Client, memory_cache: MemoryCache) {
-    log::debug!("Subscribing to redecryptor reports");
+    fn subscribe_to_redecryptor_reports(self) {
+        log::debug!("Subscribing to redecryptor reports");
 
-    tokio::spawn(async move {
-        let event_cache = client.event_cache();
-        let mut stream = event_cache.subscribe_to_decryption_reports();
+        tokio::spawn(async move {
+            let event_cache = self.session_ctx.client.event_cache();
+            let mut stream = event_cache.subscribe_to_decryption_reports();
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(report) => handle_redecryptor_report(&memory_cache, report).await,
-                Err(err) => {
-                    log::error!("Received error on redecryption reports stream: {err}");
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(report) => self.handle_redecryptor_report(report).await,
+                    Err(err) => {
+                        log::error!("Received error on redecryption reports stream: {err}");
+                    }
                 }
             }
-        }
 
-        log::error!("Redecryptor stream stopped");
-    });
-}
+            log::error!("Redecryptor stream stopped");
+        });
+    }
 
-async fn handle_redecryptor_report(memory_cache: &MemoryCache, report: RedecryptorReport) {
-    log::debug!("Handling redecryptor report: {report:?}");
+    async fn handle_redecryptor_report(&self, report: RedecryptorReport) {
+        log::debug!("Handling redecryptor report: {report:?}");
 
-    match report {
-        RedecryptorReport::ResolvedUtds { room_id, .. } => {
-            memory_cache.retry_encrypted_events(room_id, None).await;
-        }
-        RedecryptorReport::Lagging => {
-            memory_cache.retry_all_encrypted_events().await;
-        }
-        RedecryptorReport::BackupAvailable => {
-            memory_cache.retry_all_encrypted_events().await;
+        let SessionContext { memory_cache, .. } = &self.session_ctx;
+
+        match report {
+            RedecryptorReport::ResolvedUtds { room_id, .. } => {
+                memory_cache.retry_encrypted_events(room_id, None).await;
+            }
+            RedecryptorReport::Lagging => {
+                memory_cache.retry_all_encrypted_events().await;
+            }
+            RedecryptorReport::BackupAvailable => {
+                memory_cache.retry_all_encrypted_events().await;
+            }
         }
     }
-}
 
-async fn send_capabilities_event(ctx: &mut RequestContext) {
-    let re = CapabilityEvent {
-        direct_rooms: false,
-        group_rooms: true,
-        sub_threads: true,
-        user_search: true,
-        invitations: true,
-        spaces: false,
-        client_verification: true,
-        user_presence: true,
-        mime_types: vec!["text/plain".to_owned()],
-    };
+    async fn send_capabilities_event(&self) {
+        let re = CapabilityEvent {
+            direct_rooms: false,
+            group_rooms: true,
+            sub_threads: true,
+            user_search: true,
+            invitations: true,
+            spaces: false,
+            client_verification: true,
+            user_presence: true,
+            mime_types: vec!["text/plain".to_owned()],
+        };
 
-    ctx.send_event(ResponseContent::CapabilityEvent(re)).await;
-}
+        self.request_ctx
+            .send_event(ResponseContent::CapabilityEvent(re))
+            .await;
+    }
 
-async fn send_verification_status_event(ctx: &mut RequestContext, client: &Client) -> Result<()> {
-    let result = client
-        .encryption()
-        .get_own_device()
-        .await
-        .map_err(|err| Error::internal(format!("Error retrieving own device: {err}")))?;
+    async fn send_verification_status_event(&self) -> Result<()> {
+        let SessionContext { client, .. } = &self.session_ctx;
 
-    let Some(this_device) = result else {
-        return Err(Error::NotLoggedIn);
-    };
+        let result = client
+            .encryption()
+            .get_own_device()
+            .await
+            .map_err(|err| Error::internal(format!("Error retrieving own device: {err}")))?;
 
-    let is_cross_signing_available = client
-        .encryption()
-        .has_devices_to_verify_against()
-        .await
-        .unwrap_or(false);
+        let Some(this_device) = result else {
+            return Err(Error::NotLoggedIn);
+        };
 
-    ctx.send_event(ResponseContent::VerificationStatusEvent(
-        VerificationStatusEvent {
+        let is_cross_signing_available = client
+            .encryption()
+            .has_devices_to_verify_against()
+            .await
+            .unwrap_or(false);
+
+        let event = VerificationStatusEvent {
             is_verified: this_device.is_verified_with_cross_signing(),
             is_recovery_key_verification_available: true,
             is_cross_signing_available,
-        },
-    ))
-    .await;
+        };
 
-    Ok(())
+        self.request_ctx
+            .send_event(ResponseContent::VerificationStatusEvent(event))
+            .await;
+
+        Ok(())
+    }
 }
