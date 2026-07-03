@@ -564,7 +564,7 @@ impl MatrixClientInner {
                 Ok(()) => status_update::StatusCode::LoggedIn,
                 Err(err) => {
                     log::error!("Error restoring session: {err:?}");
-                    status_update::StatusCode::SessionInvalid
+                    status_update::StatusCode::LoggedOut
                 }
             }
         } else {
