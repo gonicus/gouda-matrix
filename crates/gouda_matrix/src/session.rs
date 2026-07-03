@@ -316,16 +316,16 @@ impl SyncProcess {
 
         if !data.soft_logout {
             log::info!("Session has been logged out, stopping sync");
-            self.send_logged_out_event().await;
+            self.send_session_invalid_event().await;
             return Err(Error::LoggedOut);
         }
 
         return self.refresh_access_token().await;
     }
 
-    async fn send_logged_out_event(&self) {
+    async fn send_session_invalid_event(&self) {
         let event = StatusUpdate {
-            code: StatusCode::LoggedOut.into(),
+            code: StatusCode::SessionInvalid.into(),
         };
 
         self.request_ctx
