@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::status_update::StatusCode;
-use gouda_proto::chat::{builder, CapabilityEvent, VerificationStatusEvent, StatusUpdate};
+use gouda_proto::chat::{builder, CapabilityEvent, StatusUpdate, VerificationStatusEvent};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::event_cache::RedecryptorReport;
@@ -98,6 +98,7 @@ struct SyncProcess {
     session: Session,
     request_ctx: RequestContext,
     session_ctx: SessionContext,
+    network_was_unavailable: bool,
 }
 
 impl SyncProcess {
@@ -106,6 +107,7 @@ impl SyncProcess {
             session,
             request_ctx,
             session_ctx,
+            network_was_unavailable: false,
         }
     }
 
@@ -179,7 +181,6 @@ impl SyncProcess {
         let handle = tokio::spawn(async move {
             loop {
                 let result = self.sync_once().await;
-
                 let result = self.process_sync_result(result).await;
 
                 if let Err(err) = result {
@@ -230,6 +231,11 @@ impl SyncProcess {
     /// In case of a network error, this function will block for a specific
     /// timeout and return Ok, so the sync is being retried.
     async fn process_sync_result(&mut self, result: matrix_sdk::Result<()>) -> Result<()> {
+        if result.is_ok() && self.network_was_unavailable {
+            self.network_was_unavailable = false;
+            self.send_logged_in_event().await;
+        }
+
         let Err(err) = result else {
             return Ok(());
         };
@@ -247,6 +253,16 @@ impl SyncProcess {
         Err(err.into())
     }
 
+    async fn send_logged_in_event(&self) {
+        let event = StatusUpdate {
+            code: StatusCode::LoggedIn.into(),
+        };
+
+        self.request_ctx
+            .send_event(ResponseContent::StatusUpdate(event))
+            .await;
+    }
+
     fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
         if let matrix_sdk::Error::Http(http_err) = &err {
             if let matrix_sdk::HttpError::Reqwest(e) = &**http_err {
@@ -257,15 +273,30 @@ impl SyncProcess {
         false
     }
 
-    async fn handle_connection_error(&self) -> Result<()> {
+    async fn handle_connection_error(&mut self) -> Result<()> {
         log::info!(
             "Received a connection error during sync, waiting for {} seconds to retry",
             SYNC_RETRY_TIMEOUT.as_secs()
         );
 
+        if !self.network_was_unavailable {
+            self.send_network_unavailable_event().await;
+        }
+
+        self.network_was_unavailable = true;
         tokio::time::sleep(SYNC_RETRY_TIMEOUT).await;
 
         Ok(())
+    }
+
+    async fn send_network_unavailable_event(&self) {
+        let event = StatusUpdate {
+            code: StatusCode::NetworkUnavailable.into(),
+        };
+
+        self.request_ctx
+            .send_event(ResponseContent::StatusUpdate(event))
+            .await;
     }
 
     fn is_token_error<'a>(&self, err: &'a matrix_sdk::Error) -> Option<&'a UnknownTokenErrorData> {
@@ -297,7 +328,9 @@ impl SyncProcess {
             code: StatusCode::LoggedOut.into(),
         };
 
-        self.request_ctx.send_event(ResponseContent::StatusUpdate(event)).await;
+        self.request_ctx
+            .send_event(ResponseContent::StatusUpdate(event))
+            .await;
     }
 
     async fn refresh_access_token(&mut self) -> Result<()> {
