@@ -18,7 +18,11 @@ use crate::error::{Error, Result};
 use crate::notifications::NotificationManager;
 use crate::{crypto, user};
 
+/// How long to wait before attempting the next sync if the previous sync failed
+/// due to a network error.
 const SYNC_RETRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long to wait to retry decryption of all previously failed encrypted events.
+const DECRYPTION_RETRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The full session to persist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,6 +121,7 @@ impl SyncProcess {
         }
 
         self.clone().subscribe_to_redecryptor_reports();
+        self.clone().begin_decryption_retry_loop();
 
         NotificationManager::from_session(self.request_ctx.clone(), &self.session_ctx)
             .subscribe_to_changes()
@@ -374,14 +379,24 @@ impl SyncProcess {
         });
     }
 
+    fn begin_decryption_retry_loop(self) {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(DECRYPTION_RETRY_TIMEOUT).await;
+                log::info!("Retrying to decrypt all encrypted events");
+                self.session_ctx.memory_cache.retry_all_encrypted_events().await;
+            }
+        });
+    }
+
     async fn handle_redecryptor_report(&self, report: RedecryptorReport) {
         log::debug!("Handling redecryptor report: {report:?}");
 
         let SessionContext { memory_cache, .. } = &self.session_ctx;
 
         match report {
-            RedecryptorReport::ResolvedUtds { room_id, .. } => {
-                memory_cache.retry_encrypted_events(room_id, None).await;
+            RedecryptorReport::ResolvedUtds { room_id, events } => {
+                memory_cache.retry_encrypted_events(room_id, Some(events)).await;
             }
             RedecryptorReport::Lagging => {
                 memory_cache.retry_all_encrypted_events().await;
