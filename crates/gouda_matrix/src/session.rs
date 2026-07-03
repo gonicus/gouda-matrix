@@ -184,7 +184,11 @@ impl SyncProcess {
 
                 if let Err(err) = result {
                     log::error!("Received an unrecoverable error during sync: {err}");
-                    self.request_ctx.send_error(err.into()).await;
+
+                    if !matches!(err, Error::LoggedOut) {
+                        self.request_ctx.send_error(err.into()).await;
+                    }
+
                     break;
                 }
             }
