@@ -315,6 +315,11 @@ impl MemoryCacheInner {
 
         for room in guard.values() {
             let room = room.clone();
+
+            if !room.has_events_to_decrypt()? {
+                continue;
+            }
+
             tokio::spawn(async move {
                 if let Err(err) = room.retry_decryption(None).await {
                     log::error!("Unable to retry decryption of events: {err}");
@@ -639,6 +644,11 @@ impl CachedRoom {
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Checks if the room has any events to try redecryption.
+    pub fn has_events_to_decrypt(&self) -> Result<bool> {
+        Ok(!self.encrypted_events.lock()?.is_empty())
     }
 
     /// Retries the decryption of the specified events.
