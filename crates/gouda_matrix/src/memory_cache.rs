@@ -126,6 +126,14 @@ impl MemoryCache {
         room_id: impl AsRef<str>,
         events: Option<BTreeSet<OwnedEventId>>,
     ) {
+        let room_id = room_id.as_ref();
+
+        if events.is_none() {
+            log::debug!("Retrying to decrypt all events inside room {room_id:?}");
+        } else {
+            log::debug!("Retrying to decrypt {events:?} inside room {room_id:?}");
+        }
+
         let result = self
             .inner
             .retry_encrypted_events(room_id.as_ref(), events)
@@ -138,6 +146,8 @@ impl MemoryCache {
 
     /// Retries to decrypt all previously unencryptable events of every room.
     pub async fn retry_all_encrypted_events(&self) {
+        log::debug!("Retrying to decrypt all encrypted events");
+
         let result = self.inner.retry_all_encrypted_events().await;
 
         if let Err(err) = result {
@@ -179,8 +189,8 @@ impl MemoryCache {
         emoji: impl AsRef<str>,
     ) -> Option<ReactionMetadata> {
         let result = self.inner.remove_reaction_by_emoji(
-            message_id.as_ref(),
             room_id.as_ref(),
+            message_id.as_ref(),
             user.as_ref(),
             emoji.as_ref(),
         );
@@ -316,6 +326,8 @@ impl MemoryCacheInner {
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
+        log::debug!("Caching reaction inside room {:?}", room.room_id());
+
         let cached_room = self.get_or_create_room(room)?;
 
         let message_id = event.content.relates_to.event_id.to_string();
@@ -337,6 +349,7 @@ impl MemoryCacheInner {
         reaction_id: &str,
     ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
+            log::error!("Unable to remove reaction because room {room_id} was not found");
             return Ok(None);
         };
 
@@ -351,6 +364,7 @@ impl MemoryCacheInner {
         emoji: &str,
     ) -> Result<Option<ReactionMetadata>> {
         let Some(cached_room) = self.get_room(room_id)? else {
+            log::error!("Unable to remove reaction because room {room_id} was not found");
             return Ok(None);
         };
 
@@ -950,8 +964,8 @@ impl CachedRoom {
             }
         };
 
-        if matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. }) {
-            log::warn!("Unknown error retrying decryption for event {event:?}");
+        if let TimelineEventKind::UnableToDecrypt { utd_info, .. } = &event.kind {
+            log::debug!("Unable to retry decryption of event {event:?}: {utd_info:?}");
             return Ok(());
         }
 
