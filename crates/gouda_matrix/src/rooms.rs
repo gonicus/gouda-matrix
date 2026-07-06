@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gouda_core::RequestContext;
-use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
@@ -18,24 +16,18 @@ use tokio::task::JoinSet;
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::proto_cache::ProtoCache;
-use crate::utils::ComparisonResult;
-use crate::{notifications, user, utils};
+use crate::{notifications, user};
 
 #[derive(Clone)]
 pub struct RoomManager {
-    context: RequestContext,
     client: Client,
-    proto_cache: ProtoCache,
     media_manager: MediaManager,
 }
 
 impl RoomManager {
-    pub fn from_session(context: RequestContext, session: &SessionContext) -> Self {
+    pub fn from_session(session: &SessionContext) -> Self {
         Self {
-            context,
             client: session.client.clone(),
-            proto_cache: session.proto_cache.clone(),
             media_manager: session.media_manager.clone(),
         }
     }

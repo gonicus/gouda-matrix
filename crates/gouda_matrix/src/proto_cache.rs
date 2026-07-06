@@ -10,7 +10,6 @@ use crate::{crypto, debug_assert_or_log};
 const SAVE_INTERVAL_SECONDS: u64 = 300;
 
 const CACHED_INFO_FILE: &str = "info";
-const CACHED_ROOMS_FILE: &str = "rooms";
 const CACHED_USERS_FILE: &str = "users";
 
 #[derive(thiserror::Error, Debug)]
@@ -181,8 +180,6 @@ struct ProtoCacheInner {
     passphrase: String,
     /// The absolute path to the info file.
     info_file: PathBuf,
-    /// The absolute path to the file where the cached rooms are stored.
-    rooms_file: PathBuf,
     /// The absolute path to the file where the cached users are stored.
     users_file: PathBuf,
 
@@ -210,7 +207,6 @@ impl ProtoCacheInner {
         let obj = Self {
             passphrase: cache_passphrase,
             info_file: cache_directory.join(CACHED_INFO_FILE),
-            rooms_file: cache_directory.join(CACHED_ROOMS_FILE),
             users_file: cache_directory.join(CACHED_USERS_FILE),
 
             info: Mutex::new(Info::default()),
@@ -470,21 +466,6 @@ mod tests {
                 .unwrap();
         }
 
-        pub async fn read_rooms(&self, secret: &str) -> Vec<Room> {
-            let encoded = crypto::decrypt_file(self.rooms_path(), secret)
-                .await
-                .unwrap();
-
-            decode_proto_messages::<Room>(&encoded).unwrap()
-        }
-
-        pub async fn write_rooms(&self, rooms: Vec<Room>, secret: &str) {
-            let encoded = encode_proto_messages::<Room>(&rooms);
-            crypto::encrypt_to_file(self.rooms_path(), secret, encoded)
-                .await
-                .unwrap();
-        }
-
         pub async fn read_users(&self, secret: &str) -> Vec<User> {
             let encoded = crypto::decrypt_file(self.users_path(), secret)
                 .await
@@ -502,10 +483,6 @@ mod tests {
 
         fn info_path(&self) -> PathBuf {
             self.cache_dir.join(CACHED_INFO_FILE)
-        }
-
-        fn rooms_path(&self) -> PathBuf {
-            self.cache_dir.join(CACHED_ROOMS_FILE)
         }
 
         fn users_path(&self) -> PathBuf {
@@ -601,11 +578,6 @@ mod tests {
             state: 1,
             status_message: Some("Hello World".to_owned()),
         });
-
-        let expected_room = Room {
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        };
 
         let expected_user = User {
             display_name: Some("User 1".to_owned()),

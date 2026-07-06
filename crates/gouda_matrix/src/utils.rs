@@ -26,6 +26,8 @@ impl<T> ComparisonResult<T> {
     }
 }
 
+// We may need this in the future.
+#[allow(unused)]
 pub fn compare_lists_partial_eq<T>(
     old: &[T],
     new: &[T],
