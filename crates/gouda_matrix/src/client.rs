@@ -559,22 +559,20 @@ impl MatrixClientInner {
             verification_requests: Mutex::new(Vec::new()),
         };
 
-        if obj.get_auth_file().exists() {
+        let status_code = if obj.get_auth_file().exists() {
             match obj.restore_session(ctx).await {
-                Ok(()) => {
-                    return Ok((
-                        obj,
-                        StatusUpdate {
-                            code: status_update::StatusCode::LoggedIn as i32,
-                        },
-                    ))
+                Ok(()) => status_update::StatusCode::LoggedIn,
+                Err(err) => {
+                    log::error!("Error restoring session: {err:?}");
+                    status_update::StatusCode::LoggedOut
                 }
-                Err(err) => log::error!("Error restoring session: {err:?}"),
             }
-        }
+        } else {
+            status_update::StatusCode::Connected
+        };
 
         let status = StatusUpdate {
-            code: status_update::StatusCode::Connected as i32,
+            code: status_code.into(),
         };
 
         Ok((obj, status))
@@ -1308,7 +1306,7 @@ impl MatrixClientInner {
 
     async fn get_rooms(
         &self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         request: RoomListRequest,
     ) -> Result<RoomListResponse> {
         let session = self.session()?;
@@ -1317,8 +1315,8 @@ impl MatrixClientInner {
             return Err(Error::NotLoggedIn);
         };
 
-        let room_manager = rooms::RoomManager::from_session(ctx, session.as_ref());
-        let room_list = room_manager.get_and_sync_rooms().await?;
+        let room_manager = rooms::RoomManager::from_session(session.as_ref());
+        let room_list = room_manager.fetch_all_rooms().await?;
 
         let mut result = Vec::new();
 

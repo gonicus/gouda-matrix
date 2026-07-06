@@ -129,6 +129,14 @@ impl MemoryCache {
         room_id: impl AsRef<str>,
         events: Option<BTreeSet<OwnedEventId>>,
     ) {
+        let room_id = room_id.as_ref();
+
+        if events.is_none() {
+            log::debug!("Retrying to decrypt all events inside room {room_id:?}");
+        } else {
+            log::debug!("Retrying to decrypt {events:?} inside room {room_id:?}");
+        }
+
         let result = self
             .inner
             .retry_encrypted_events(room_id.as_ref(), events)
@@ -141,6 +149,8 @@ impl MemoryCache {
 
     /// Retries to decrypt all previously unencryptable events of every room.
     pub async fn retry_all_encrypted_events(&self) {
+        log::debug!("Retrying to decrypt all encrypted events");
+
         let result = self.inner.retry_all_encrypted_events().await;
 
         if let Err(err) = result {
@@ -976,8 +986,8 @@ impl CachedRoom {
             }
         };
 
-        if matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. }) {
-            log::warn!("Unknown error retrying decryption for event {event:?}");
+        if let TimelineEventKind::UnableToDecrypt { utd_info, .. } = &event.kind {
+            log::debug!("Unable to retry decryption of event {event:?}: {utd_info:?}");
             return Ok(());
         }
 
