@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::u32;
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::builder::RoomChangeEventBuilder;
@@ -863,9 +864,25 @@ impl EventExecutor {
             builder = builder.change_typing_user_id_list(list);
         };
 
-        if update.unread_notifications.notification_count == 0 {
-            builder = builder.change_unread_count(0);
-            if let Err(err) = self.memory_cache.set_room_unread_count_by_id(&room_id, 0) {
+        let unread_count = update
+            .unread_notifications
+            .notification_count
+            .try_into()
+            .unwrap_or(u32::MAX);
+
+        let cached_unread_count = self
+            .memory_cache
+            .get_room_unread_count_by_id(&room_id)
+            .unwrap_or(0);
+
+        if unread_count < cached_unread_count {
+            builder = builder.change_unread_count(unread_count);
+
+            let result = self
+                .memory_cache
+                .set_room_unread_count_by_id(&room_id, unread_count);
+
+            if let Err(err) = result {
                 log::error!("Unable to update room notification count: {err}");
             }
         }

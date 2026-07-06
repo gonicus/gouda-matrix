@@ -214,6 +214,11 @@ impl MemoryCache {
         self.inner.get_cached_notification_settings()
     }
 
+    /// Gets the unread count of the given room by room_id.
+    pub fn get_room_unread_count_by_id(&self, room_id: impl AsRef<str>) -> Result<u32> {
+        self.inner.get_room_unread_count_by_id(room_id.as_ref())
+    }
+
     /// Sets the unread count of the given room.
     pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
         self.inner.set_room_unread_count(room, unread_count)
@@ -393,6 +398,14 @@ impl MemoryCacheInner {
     pub fn get_cached_notification_settings(&self) -> Result<Option<CachedNotificationSettings>> {
         let guard = self.cached_notification_settings.lock()?;
         Ok(guard.clone())
+    }
+
+    pub fn get_room_unread_count_by_id(&self, room_id: &str) -> Result<u32> {
+        let room = self
+            .get_room(room_id)?
+            .ok_or(MemoryCacheError::RoomNotFound)?;
+        let guard = room.unread_count.lock()?;
+        Ok(*guard)
     }
 
     pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
