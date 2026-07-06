@@ -1316,7 +1316,7 @@ impl MatrixClientInner {
         };
 
         let room_manager = rooms::RoomManager::from_session(ctx, session.as_ref());
-        let room_list = room_manager.get_and_sync_rooms().await?;
+        let room_list = room_manager.fetch_all_rooms().await?;
 
         let mut result = Vec::new();
 

@@ -126,18 +126,6 @@ impl ProtoCache {
     /// Caches the specified response content.
     pub fn cache_response_content(&self, content: ResponseContent) {
         match content {
-            ResponseContent::RoomListResponse(room_list) => {
-                self.cache_rooms(room_list.room_list);
-            }
-            ResponseContent::RoomCreatedEvent(room) => {
-                self.cache_room(room);
-            }
-            ResponseContent::RoomLeftEvent(event) => {
-                self.remove_room(&event.room_id);
-            }
-            ResponseContent::RoomChangeEvent(event) => {
-                self.update_room(event);
-            }
             ResponseContent::UserResponse(user) => {
                 self.cache_user(user);
             }
@@ -148,16 +136,6 @@ impl ProtoCache {
         }
     }
 
-    /// Gets all cached rooms.
-    /// None is returned if no rooms have been cached previously.
-    pub fn cached_rooms(&self) -> Option<Vec<Room>> {
-        self.inner
-            .room_list()
-            .inspect_err(|err| log::error!("Error retrieving cached room list: {err}"))
-            .ok()
-            .flatten()
-    }
-
     /// Gets a cached user.
     pub fn cached_user(&self, user_id: impl AsRef<str>) -> Option<User> {
         self.inner
@@ -165,45 +143,6 @@ impl ProtoCache {
             .inspect_err(|err| log::error!("Error retrieving cached user: {err}"))
             .ok()
             .flatten()
-    }
-
-    /// Cache the specified room.
-    fn cache_room(&self, room: Room) {
-        log::debug!("Caching room: {room:?}");
-
-        if let Err(err) = self.inner.cache_room(room) {
-            log::error!("Error caching room: {err}");
-        }
-    }
-
-    /// Update an already cached room.
-    fn update_room(&self, event: RoomChangeEvent) {
-        log::debug!("Updating room: {event:?}");
-
-        if let Err(err) = self.inner.update_room(event) {
-            log::error!("Error updating room: {err}");
-        }
-    }
-
-    /// Caches many rooms.
-    fn cache_rooms(&self, rooms: Vec<Room>) {
-        log::debug!("Caching room list: {rooms:?}");
-
-        for room in rooms {
-            if let Err(err) = self.inner.cache_room(room) {
-                log::error!("Error caching room: {err}");
-            }
-        }
-    }
-
-    /// Removes a previously cached room.
-    fn remove_room(&self, room_id: impl AsRef<str>) {
-        let room_id = room_id.as_ref();
-        log::debug!("Removing cached room: {room_id:?}");
-
-        if let Err(err) = self.inner.remove_room(room_id) {
-            log::error!("Error removing cached room: {err}");
-        }
     }
 
     /// Caches a user.
@@ -249,8 +188,6 @@ struct ProtoCacheInner {
 
     /// The persistent stored data.
     info: Mutex<Info>,
-    /// The rooms that have been cached.
-    cached_rooms: Mutex<Option<Vec<Room>>>,
     /// The users that have been cached.
     cached_users: Mutex<Option<Vec<User>>>,
 }
@@ -277,7 +214,6 @@ impl ProtoCacheInner {
             users_file: cache_directory.join(CACHED_USERS_FILE),
 
             info: Mutex::new(Info::default()),
-            cached_rooms: Mutex::new(None),
             cached_users: Mutex::new(None),
         };
 
@@ -297,10 +233,6 @@ impl ProtoCacheInner {
             log::error!("Error reading cache info from the file system: {err}");
         }
 
-        if let Err(err) = self.read_rooms().await {
-            log::error!("Error reading cached rooms from the file system: {err}");
-        }
-
         if let Err(err) = self.read_users().await {
             log::error!("Error reading cached users from the file system: {err}");
         }
@@ -317,21 +249,6 @@ impl ProtoCacheInner {
 
         let mut guard = self.info.lock()?;
         *guard = storage;
-
-        Ok(())
-    }
-
-    /// Reads the rooms from the file system.
-    async fn read_rooms(&self) -> Result<()> {
-        log::info!("Reading cached rooms from: {:?}", &self.rooms_file);
-
-        let encoded = crypto::decrypt_file(&self.rooms_file, &self.passphrase).await?;
-        let decoded = decode_proto_messages::<Room>(&encoded)?;
-
-        log::debug!("Successfully read cached rooms");
-
-        let mut guard = self.cached_rooms.lock()?;
-        *guard = Some(decoded);
 
         Ok(())
     }
@@ -362,11 +279,6 @@ impl ProtoCacheInner {
         // This can happen, for example, if errors occur or the application closes
         // during saving.
 
-        if let Err(err) = self.write_rooms().await {
-            log::error!("Error persisting cached rooms: {err}");
-            return;
-        }
-
         if let Err(err) = self.write_users().await {
             log::error!("Error persisting cached users: {err}");
             return;
@@ -375,25 +287,6 @@ impl ProtoCacheInner {
         if let Err(err) = self.write_info().await {
             log::error!("Error persisting cache info: {err}");
         }
-    }
-
-    async fn write_rooms(&self) -> Result<()> {
-        log::info!("Persisting cached rooms");
-
-        let encoded = {
-            let guard = self.cached_rooms.lock()?;
-
-            let Some(rooms) = guard.as_ref() else {
-                log::debug!("No rooms to cache, nothing to do");
-                return Ok(());
-            };
-
-            encode_proto_messages(rooms)
-        };
-
-        crypto::encrypt_to_file(&self.rooms_file, &self.passphrase, encoded).await?;
-
-        Ok(())
     }
 
     async fn write_users(&self) -> Result<()> {
@@ -446,51 +339,6 @@ impl ProtoCacheInner {
     pub fn set_user_status(&self, user_status: UserStatus) -> Result<()> {
         self.info.lock()?.user_status = Some(user_status);
         Ok(())
-    }
-
-    pub fn cache_room(&self, room: Room) -> Result<()> {
-        let mut guard = self.cached_rooms.lock()?;
-        let rooms = guard.get_or_insert_default();
-
-        if let Some(existing) = rooms.iter_mut().find(|p| p.room_id == room.room_id) {
-            *existing = room;
-        } else {
-            rooms.push(room);
-        }
-
-        Ok(())
-    }
-
-    pub fn update_room(&self, event: RoomChangeEvent) -> Result<()> {
-        let mut guard = self.cached_rooms.lock()?;
-
-        let Some(rooms) = &mut *guard else {
-            log::debug!("Room has not been cached before, nothing to do");
-            return Ok(());
-        };
-
-        let Some(room) = rooms.iter_mut().find(|p| p.room_id == event.room_id) else {
-            log::debug!("Room has not been cached before, nothing to do");
-            return Ok(());
-        };
-
-        event.update_into_room(room);
-
-        Ok(())
-    }
-
-    pub fn remove_room(&self, room_id: &str) -> Result<()> {
-        let mut guard = self.cached_rooms.lock()?;
-
-        if let Some(rooms) = guard.as_mut() {
-            rooms.retain(|f| f.room_id != room_id);
-        }
-
-        Ok(())
-    }
-
-    pub fn room_list(&self) -> Result<Option<Vec<Room>>> {
-        Ok(self.cached_rooms.lock()?.clone())
     }
 
     pub fn cache_user(&self, user: User) -> Result<()> {
@@ -770,7 +618,6 @@ mod tests {
         cache_inner
             .set_user_status(expected_user_status.clone().unwrap())
             .unwrap();
-        cache_inner.cache_room(expected_room.clone()).unwrap();
         cache_inner.cache_user(expected_user.clone()).unwrap();
 
         // Act
@@ -778,7 +625,6 @@ mod tests {
 
         // Assert
         let info = test_data.read_info("secret-123").await;
-        let rooms = test_data.read_rooms("secret-123").await;
         let users = test_data.read_users("secret-123").await;
 
         assert_eq!(
@@ -788,7 +634,6 @@ mod tests {
                 user_status: expected_user_status
             }
         );
-        assert_eq!(rooms, vec![expected_room]);
         assert_eq!(users, vec![expected_user]);
     }
 
@@ -805,11 +650,6 @@ mod tests {
             }),
         };
 
-        let expected_rooms = vec![Room {
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        }];
-
         let expected_users = vec![User {
             display_name: Some("User 1".to_owned()),
             ..Default::default()
@@ -817,9 +657,6 @@ mod tests {
 
         test_data
             .write_info(expected_info.clone(), "secret-123")
-            .await;
-        test_data
-            .write_rooms(expected_rooms.clone(), "secret-123")
             .await;
         test_data
             .write_users(expected_users.clone(), "secret-123")
@@ -834,10 +671,6 @@ mod tests {
 
         // Assert
         assert_eq!(*cache_inner.info.lock().unwrap(), expected_info);
-        assert_eq!(
-            *cache_inner.cached_rooms.lock().unwrap(),
-            Some(expected_rooms)
-        );
         assert_eq!(
             *cache_inner.cached_users.lock().unwrap(),
             Some(expected_users)
@@ -875,123 +708,6 @@ mod tests {
     async fn test_proto_cache_user_status_none() {
         let TestData { cache, .. } = TestData::new().await;
         assert_eq!(cache.user_status(), None);
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cached_rooms() {
-        let TestData { cache, .. } = TestData::new().await;
-
-        let expected_rooms = vec![
-            Room {
-                display_name: Some("Room 1".to_owned()),
-                ..Default::default()
-            },
-            Room {
-                display_name: Some("Room 2".to_owned()),
-                ..Default::default()
-            },
-        ];
-
-        *cache.inner.cached_rooms.lock().unwrap() = Some(expected_rooms.clone());
-
-        assert_eq!(cache.cached_rooms(), Some(expected_rooms));
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cached_rooms_none() {
-        let TestData { cache, .. } = TestData::new().await;
-        assert_eq!(cache.cached_rooms(), None);
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cache_response_content_room_list_response() {
-        let TestData { cache, .. } = TestData::new().await;
-
-        let rooms = vec![
-            Room {
-                room_id: "room-1".to_owned(),
-                display_name: Some("Room 1".to_owned()),
-                ..Default::default()
-            },
-            Room {
-                room_id: "room-2".to_owned(),
-                display_name: Some("Room 2".to_owned()),
-                ..Default::default()
-            },
-        ];
-
-        let response = ResponseContent::RoomListResponse(RoomListResponse {
-            room_list: rooms.clone(),
-        });
-
-        cache.cache_response_content(response);
-
-        assert_eq!(cache.cached_rooms(), Some(rooms));
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cache_response_content_room_created_event() {
-        let TestData { cache, .. } = TestData::new().await;
-
-        let room = Room {
-            room_id: "room-1".to_owned(),
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        };
-
-        let response = ResponseContent::RoomCreatedEvent(room.clone());
-
-        cache.cache_response_content(response);
-
-        assert_eq!(cache.cached_rooms(), Some(vec![room]));
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cache_response_content_room_left_event() {
-        let TestData { cache, .. } = TestData::new().await;
-
-        let room = Room {
-            room_id: "room-1".to_owned(),
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        };
-
-        let response = ResponseContent::RoomLeftEvent(RoomLeftEvent {
-            room_id: "room-1".to_owned(),
-            ..Default::default()
-        });
-
-        *cache.inner.cached_rooms.lock().unwrap() = Some(vec![room.clone()]);
-
-        cache.cache_response_content(response);
-
-        assert_eq!(cache.cached_rooms(), Some(vec![]));
-    }
-
-    #[tokio::test]
-    async fn test_proto_cache_cache_response_content_room_change_event() {
-        let TestData { cache, .. } = TestData::new().await;
-
-        let room = Room {
-            room_id: "room-1".to_owned(),
-            display_name: Some("Room 1".to_owned()),
-            ..Default::default()
-        };
-
-        *cache.inner.cached_rooms.lock().unwrap() = Some(vec![room.clone()]);
-
-        let mut updated_room = room.clone();
-        updated_room.display_name = Some("Room 1 New Name".to_owned());
-
-        let response = ResponseContent::RoomChangeEvent(RoomChangeEvent {
-            room_id: "room-1".to_owned(),
-            display_name: Some("Room 1 New Name".to_owned()),
-            ..Default::default()
-        });
-
-        cache.cache_response_content(response);
-
-        assert_eq!(cache.cached_rooms(), Some(vec![updated_room]));
     }
 
     #[tokio::test]
