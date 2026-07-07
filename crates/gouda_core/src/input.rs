@@ -41,7 +41,7 @@ impl InputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<std::result::Result<(), Error>> {
+    ) -> tokio::task::JoinHandle<std::result::Result<Self, Error>> {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -57,7 +57,7 @@ impl InputProcessor {
                 }
             }
 
-            Ok(())
+            Ok(self)
         })
     }
 
@@ -255,7 +255,7 @@ mod tests {
             InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
 
         // Act
-        input_processor.run().await.unwrap();
+        input_processor.run(CancellationToken::new()).await.unwrap();
 
         // Assert
         assert_eq!(executor_rx.recv().await.unwrap(), expected);

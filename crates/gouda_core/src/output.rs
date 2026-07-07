@@ -44,7 +44,7 @@ impl OutputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<std::result::Result<(), Error>> {
+    ) -> tokio::task::JoinHandle<std::result::Result<Self, Error>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -72,7 +72,7 @@ impl OutputProcessor {
                 }
             }
 
-            Ok(())
+            Ok(self)
         })
     }
 
@@ -174,7 +174,7 @@ mod tests {
             .unwrap();
         output_tx.send(OutputTask::Exit).await.unwrap();
 
-        output_processor.run().await.unwrap();
+        output_processor.run(CancellationToken::new()).await.unwrap();
 
         // Assert
         let output = output.lock().unwrap();
