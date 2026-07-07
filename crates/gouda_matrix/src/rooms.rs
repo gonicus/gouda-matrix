@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gouda_core::RequestContext;
-use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
@@ -18,50 +16,25 @@ use tokio::task::JoinSet;
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::proto_cache::ProtoCache;
-use crate::utils::ComparisonResult;
-use crate::{notifications, user, utils};
+use crate::{notifications, user};
 
 #[derive(Clone)]
 pub struct RoomManager {
-    context: RequestContext,
     client: Client,
-    proto_cache: ProtoCache,
     media_manager: MediaManager,
 }
 
 impl RoomManager {
-    pub fn from_session(context: RequestContext, session: &SessionContext) -> Self {
+    pub fn from_session(session: &SessionContext) -> Self {
         Self {
-            context,
             client: session.client.clone(),
-            proto_cache: session.proto_cache.clone(),
             media_manager: session.media_manager.clone(),
-        }
-    }
-
-    /// Gets and syncs all available rooms.
-    /// If the rooms are already cached, they are retrieved from the cache and
-    /// synced in the background. If the rooms are not yet cached, this method
-    /// retrieves them from the server and blocks once all rooms have been retrieved.
-    pub async fn get_and_sync_rooms(&self) -> Result<Vec<Room>> {
-        match self.proto_cache.cached_rooms() {
-            Some(room_list) => {
-                log::debug!("Rooms have already been cached before");
-                self.clone().sync_cached_rooms();
-                Ok(room_list)
-            }
-            None => {
-                log::debug!("Rooms have not been cached before");
-                let room_list = self.fetch_all_rooms().await?;
-                Ok(room_list)
-            }
         }
     }
 
     /// Fetches all rooms from the matrix server and blocks until
     /// all rooms have been retrieved and converted to proto objects.
-    async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
+    pub async fn fetch_all_rooms(&self) -> Result<Vec<Room>> {
         log::debug!("Fetching all known rooms from matrix server");
 
         let Some(user_id) = self.client.user_id().map(|f| f.to_owned()) else {
@@ -96,58 +69,6 @@ impl RoomManager {
         }
 
         Ok(rooms)
-    }
-
-    /// Syncs the rooms in the background.
-    fn sync_cached_rooms(self) {
-        tokio::spawn(async move {
-            log::info!("Syncing cached rooms in the background");
-
-            let fetched = match self.fetch_all_rooms().await {
-                Ok(fetched) => fetched,
-                Err(err) => {
-                    log::error!("Error syncing cached rooms: {err}");
-                    return;
-                }
-            };
-
-            let cached = self.proto_cache.cached_rooms().unwrap_or_default();
-            let result =
-                utils::compare_lists_partial_eq(&cached, &fetched, |a, b| a.room_id == b.room_id);
-            self.process_comparison_result(result).await;
-
-            // We don't have to manually overwrite the cache here, as the events send to
-            // the application with `process_comparison_result` will trigger
-            // the necessary cache changes.
-        });
-    }
-
-    async fn process_comparison_result(&self, result: ComparisonResult<Room>) {
-        log::debug!("Processing room sync changes: {result:?}");
-
-        for new in result.new {
-            self.context
-                .send_event(ResponseContent::RoomCreatedEvent(new))
-                .await;
-        }
-
-        for (old, new) in result.updated {
-            let proto = builder::RoomChangeEventBuilder::compare_rooms(&old, &new).to_proto();
-            self.context
-                .send_event(ResponseContent::RoomChangeEvent(proto))
-                .await;
-        }
-
-        for deleted in result.deleted {
-            let proto = RoomLeftEvent {
-                room_id: deleted.room_id,
-                ..Default::default()
-            };
-
-            self.context
-                .send_event(ResponseContent::RoomLeftEvent(proto))
-                .await;
-        }
     }
 }
 
