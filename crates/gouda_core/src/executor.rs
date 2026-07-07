@@ -6,6 +6,7 @@ use gouda_proto::chat::{RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 
+use crate::error::Error;
 use crate::output::OutputTask;
 use crate::{Client, RequestContext, Result};
 
@@ -54,7 +55,10 @@ impl Executor {
 
     /// Spawns an asynchronous tokio task and starts the executor to wait for events to execute.
     /// This method is executed until an `ExecutorTask::Exit` is received.
-    pub fn run(mut self, cancellation_token: CancellationToken) -> tokio::task::JoinHandle<Self> {
+    pub fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+    ) -> tokio::task::JoinHandle<std::result::Result<(), Error>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -82,7 +86,7 @@ impl Executor {
                 }
             }
 
-            self
+            Ok(())
         })
     }
 

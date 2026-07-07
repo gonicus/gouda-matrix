@@ -1,4 +1,5 @@
 use thiserror::Error;
+use tokio::task::JoinError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -6,4 +7,6 @@ pub enum Error {
     ReaderDropped,
     #[error("Response writer dropped")]
     WriterDropped,
+    #[error("Join error: {0}")]
+    JoinError(#[from] JoinError),
 }

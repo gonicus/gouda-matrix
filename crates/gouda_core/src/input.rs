@@ -4,6 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
+use crate::error::Error;
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
 
@@ -37,7 +38,10 @@ impl InputProcessor {
     /// Spawns an asynchronous tokio task and starts the input processor
     /// to wait for input to decode.
     /// This method is executed until the program ends.
-    pub fn run(mut self, cancellation_token: CancellationToken) -> tokio::task::JoinHandle<Self> {
+    pub fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+    ) -> tokio::task::JoinHandle<std::result::Result<(), Error>> {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -52,7 +56,8 @@ impl InputProcessor {
                     }
                 }
             }
-            self
+
+            Ok(())
         })
     }
 

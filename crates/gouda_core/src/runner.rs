@@ -49,17 +49,40 @@ impl Runner {
     pub async fn run(self) -> std::result::Result<(), Error> {
         let cancellation_token = CancellationToken::new();
 
-        let input_handle = self.input_processor.run(cancellation_token.clone());
-        let executor_handle = self.executor.run(cancellation_token.clone());
-        let output_handle = self.output_processor.run(cancellation_token.clone());
+        let input_handle = self.input_processor.run(cancellation_token.child_token());
+        let executor_handle = self.executor.run(cancellation_token.child_token());
+        let output_handle = self.output_processor.run(cancellation_token.child_token());
 
-        let result = tokio::try_join!(input_handle, executor_handle, output_handle);
+        let input = async {
+            let result = input_handle.await?;
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+            result
+        };
+
+        let executor = async {
+            let result = executor_handle.await?;
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+            result
+        };
+
+        let output = async {
+            let result = output_handle.await?;
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+            result
+        };
+
+        let result = tokio::try_join!(input, executor, output);
 
         if let Err(err) = &result {
             log::error!("Runner task failed: {err}");
         }
 
-        // TODO: Correct error type
-        result.map(|_| ()).map_err(|_| Error::WriterDropped)
+        result.map(|_| ())
     }
 }
