@@ -949,10 +949,9 @@ impl CachedRoom {
         let guard = self.encrypted_events.lock()?;
 
         let events: Vec<CachedEncryptedEvent> = if let Some(events) = events {
-            let events: Vec<String> = events.iter().map(|f| f.to_string()).collect();
             guard
                 .iter()
-                .filter(|(key, _)| events.contains(key))
+                .filter(|(key, _)| events.iter().any(|p| key.as_str() == p.as_str()))
                 .map(|(_, val)| val.clone())
                 .collect()
         } else {
