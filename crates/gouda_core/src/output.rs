@@ -4,6 +4,7 @@ use gouda_proto::chat::ResponseContainer;
 use prost::Message;
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc::Receiver;
+use tokio_util::sync::CancellationToken;
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -38,19 +39,32 @@ impl OutputProcessor {
     /// Spawns an asynchronous Tokio task and starts the output processor to
     /// wait for tasks and write its data to the `self.writer`.
     /// This method is executed until an `OutputTask::Exit` is received.
-    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
+    pub fn run(mut self, cancellation_token: CancellationToken) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
-            while let Some(task) = self.task_receiver.recv().await {
-                log::debug!("Received task: {task:?}");
+            loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        log::info!("OutputProcessor was cancelled");
+                        break;
+                    },
+                    task = self.task_receiver.recv() => {
+                        let Some(task) = task else {
+                            log::warn!("OutputProcessor channel has been closed");
+                            break;
+                        };
 
-                if matches!(task, OutputTask::Exit) {
-                    log::info!("Exiting as an exit event was received");
-                    break;
+                        log::debug!("Received task: {task:?}");
+
+                        if matches!(task, OutputTask::Exit) {
+                            log::info!("Exiting as an exit event was received");
+                            break;
+                        }
+
+                        self.process_task(task).await;
+                    }
                 }
-
-                self.process_task(task).await;
             }
 
             self

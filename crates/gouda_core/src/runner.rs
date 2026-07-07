@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::error::Error;
 use crate::executor::Executor;
@@ -46,9 +47,11 @@ impl Runner {
     /// It blocks until an end-of-file (EOF) is received from the input reader or another
     /// error occurs. Normally, it blocks for the entire duration of the client's runtime.
     pub async fn run(self) -> std::result::Result<(), Error> {
-        let input_handle = self.input_processor.run();
-        let executor_handle = self.executor.run();
-        let output_handle = self.output_processor.run();
+        let cancellation_token = CancellationToken::new();
+
+        let input_handle = self.input_processor.run(cancellation_token.clone());
+        let executor_handle = self.executor.run(cancellation_token.clone());
+        let output_handle = self.output_processor.run(cancellation_token.clone());
 
         let result = tokio::try_join!(input_handle, executor_handle, output_handle);
 

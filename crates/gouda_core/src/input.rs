@@ -2,6 +2,7 @@ use gouda_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
+use tokio_util::sync::CancellationToken;
 
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
@@ -36,11 +37,19 @@ impl InputProcessor {
     /// Spawns an asynchronous tokio task and starts the input processor
     /// to wait for input to decode.
     /// This method is executed until the program ends.
-    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
+    pub fn run(mut self, cancellation_token: CancellationToken) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             loop {
-                if self.read_input().await {
-                    break;
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        log::info!("InputProcessor was cancelled");
+                        break;
+                    }
+                    result = self.read_input() => {
+                        if result {
+                            break;
+                        }
+                    }
                 }
             }
             self

@@ -4,6 +4,7 @@ use gouda_proto::chat::request_container::Content as RequestContent;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_util::sync::CancellationToken;
 
 use crate::output::OutputTask;
 use crate::{Client, RequestContext, Result};
@@ -53,19 +54,32 @@ impl Executor {
 
     /// Spawns an asynchronous tokio task and starts the executor to wait for events to execute.
     /// This method is executed until an `ExecutorTask::Exit` is received.
-    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
+    pub fn run(mut self, cancellation_token: CancellationToken) -> tokio::task::JoinHandle<Self> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
-            while let Some(task) = self.task_receiver.recv().await {
-                log::debug!("Received task: {task:?}");
+            loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        log::info!("Executor was cancelled");
+                        break;
+                    }
+                    task = self.task_receiver.recv() => {
+                        let Some(task) = task else {
+                            log::warn!("InputProcessor channel has been closed");
+                            break;
+                        };
 
-                if matches!(task, ExecutorTask::Exit) {
-                    log::info!("Exiting as an exit event was received");
-                    break;
+                        log::debug!("Received task: {task:?}");
+
+                        if matches!(task, ExecutorTask::Exit) {
+                            log::info!("Exiting as an exit event was received");
+                            break;
+                        }
+
+                        self.process_task(task).await;
+                    }
                 }
-
-                self.process_task(task).await;
             }
 
             self
