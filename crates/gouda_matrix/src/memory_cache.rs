@@ -949,10 +949,9 @@ impl CachedRoom {
         let guard = self.encrypted_events.lock()?;
 
         let events: Vec<CachedEncryptedEvent> = if let Some(events) = events {
-            let events: Vec<String> = events.iter().map(|f| f.to_string()).collect();
             guard
                 .iter()
-                .filter(|(key, _)| events.contains(key))
+                .filter(|(key, _)| events.iter().any(|p| key.as_str() == p.as_str()))
                 .map(|(_, val)| val.clone())
                 .collect()
         } else {
@@ -1156,14 +1155,16 @@ impl CachedRoom {
         let mut guard = self.messages.lock()?;
 
         let Some(message) = guard.get_mut(&message_id) else {
-            log::error!("Message to the reaction not found");
+            log::debug!("Message to the reaction not found");
             return Ok(None);
         };
 
         let Some(removed) = message.reactions.remove(reaction_id) else {
-            log::error!("Reaction inside cached message not found");
+            log::debug!("Reaction inside cached message not found");
             return Ok(None);
         };
+
+        self.cleanup_reaction(reaction_id)?;
 
         let metadata = ReactionMetadata::new(
             removed,
@@ -1201,6 +1202,8 @@ impl CachedRoom {
             .extract_if(|_, p| p.user_id == user_id && p.emoji == emoji)
             .collect();
 
+        self.cleanup_reactions(&removed)?;
+
         let Some(removed) = removed.into_iter().next() else {
             log::debug!("Reaction of the user with the given emoji not found");
             return Ok(None);
@@ -1216,6 +1219,21 @@ impl CachedRoom {
         log::debug!("Returning metadata of removed reaction: {metadata:?}");
 
         Ok(Some(metadata))
+    }
+
+    /// Cleanup the given reaction. This will remove all mapping data.
+    fn cleanup_reaction(&self, reaction: &str) -> Result<()> {
+        self.reaction_id_to_message.lock()?.remove(reaction);
+        Ok(())
+    }
+
+    /// Cleanup the given reactions. This will remove all mapping data.
+    fn cleanup_reactions(&self, reactions: &[(String, CachedReaction)]) -> Result<()> {
+        for reaction in reactions {
+            self.cleanup_reaction(&reaction.0)?;
+        }
+
+        Ok(())
     }
 
     /// Gets the message_id a  reaction belongs to.

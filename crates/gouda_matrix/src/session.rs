@@ -325,7 +325,7 @@ impl SyncProcess {
             return Err(Error::LoggedOut);
         }
 
-        return self.refresh_access_token().await;
+        self.refresh_access_token().await
     }
 
     async fn send_session_invalid_event(&self) {
