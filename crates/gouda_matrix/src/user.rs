@@ -124,7 +124,7 @@ pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -
         MembershipState::Join => UserRoomState::Joined,
         MembershipState::Knock => UserRoomState::Knocked,
         MembershipState::Leave => UserRoomState::Unjoined,
-        _ => UserRoomState::Joined, // This is just a wyld guess
+        _ => UserRoomState::Unjoined,
     }
 }
 
