@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
+use futures_util::stream::{self, StreamExt};
 use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
@@ -18,7 +19,6 @@ use matrix_sdk::Client;
 use ruma_common::api::error::{FromHttpResponseError, IntoHttpError};
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::OnceCell;
-use tokio_stream::StreamExt;
 use url::Url;
 
 use crate::error::{Error, Result};
@@ -30,6 +30,9 @@ use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
 use crate::{messages, notifications, rooms, user};
+
+/// How many rooms to fetch at most at the same time.
+const MAX_CONCURRENT_USER_FETCHES: usize = 50;
 
 const SESSION_DIR: &str = "session";
 const MEDIA_DIR: &str = "media";
@@ -1160,18 +1163,26 @@ impl MatrixClientInner {
         } = session.as_ref();
 
         let user_list = client.search_users(&query, limit as u64).await?;
-        let mut result = Vec::new();
 
-        for user in user_list.results {
-            result.push(User {
-                user_id: user.user_id.to_string(),
-                display_name: user.display_name.clone(),
-                avatar_path: media_manager
-                    .get_user_directory_user_avatar_path(&user)
-                    .await,
-                status: user::fetch_status(client, &user.user_id).await.ok(),
-            });
-        }
+        let result = stream::iter(user_list.results)
+            .map(|user| {
+                let media_manager = media_manager.clone();
+                let client = client.clone();
+
+                async move {
+                    User {
+                        user_id: user.user_id.to_string(),
+                        display_name: user.display_name.clone(),
+                        avatar_path: media_manager
+                            .get_user_directory_user_avatar_path(&user)
+                            .await,
+                        status: user::fetch_status(&client, &user.user_id).await.ok(),
+                    }
+                }
+            })
+            .buffer_unordered(MAX_CONCURRENT_USER_FETCHES)
+            .collect::<Vec<_>>()
+            .await;
 
         Ok(UserSearchResponse { user_list: result })
     }
