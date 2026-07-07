@@ -1156,12 +1156,12 @@ impl CachedRoom {
         let mut guard = self.messages.lock()?;
 
         let Some(message) = guard.get_mut(&message_id) else {
-            log::error!("Message to the reaction not found");
+            log::debug!("Message to the reaction not found");
             return Ok(None);
         };
 
         let Some(removed) = message.reactions.remove(reaction_id) else {
-            log::error!("Reaction inside cached message not found");
+            log::debug!("Reaction inside cached message not found");
             return Ok(None);
         };
 
