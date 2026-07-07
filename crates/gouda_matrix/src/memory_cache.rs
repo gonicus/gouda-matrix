@@ -1165,6 +1165,8 @@ impl CachedRoom {
             return Ok(None);
         };
 
+        self.cleanup_reaction(reaction_id)?;
+
         let metadata = ReactionMetadata::new(
             removed,
             reaction_id.to_string(),
@@ -1201,6 +1203,8 @@ impl CachedRoom {
             .extract_if(|_, p| p.user_id == user_id && p.emoji == emoji)
             .collect();
 
+        self.cleanup_reactions(&removed)?;
+
         let Some(removed) = removed.into_iter().next() else {
             log::debug!("Reaction of the user with the given emoji not found");
             return Ok(None);
@@ -1216,6 +1220,21 @@ impl CachedRoom {
         log::debug!("Returning metadata of removed reaction: {metadata:?}");
 
         Ok(Some(metadata))
+    }
+
+    /// Cleanup the given reaction. This will remove all mapping data.
+    fn cleanup_reaction(&self, reaction: &str) -> Result<()> {
+        self.reaction_id_to_message.lock()?.remove(reaction);
+        Ok(())
+    }
+
+    /// Cleanup the given reactions. This will remove all mapping data.
+    fn cleanup_reactions(&self, reactions: &[(String, CachedReaction)]) -> Result<()> {
+        for reaction in reactions {
+            self.cleanup_reaction(&reaction.0)?;
+        }
+
+        Ok(())
     }
 
     /// Gets the message_id a  reaction belongs to.
