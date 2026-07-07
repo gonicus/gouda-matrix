@@ -2080,6 +2080,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "clap",
+ "futures-util",
  "gouda_core",
  "gouda_proto",
  "infer",
