@@ -4,6 +4,7 @@
 
 mod client;
 mod context;
+mod error;
 mod executor;
 mod input;
 mod multipart_response;

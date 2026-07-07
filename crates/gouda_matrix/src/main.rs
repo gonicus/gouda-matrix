@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = MatrixClient::new();
     let runner = Runner::new(Arc::new(client), Box::new(recv), Box::new(send));
 
-    runner.run().await.map(|_| ()).map_err(|err| err.into())
+    runner.run().await.map_err(|err| err.into())
 }
 
 fn setup_logging(args: &Args) {

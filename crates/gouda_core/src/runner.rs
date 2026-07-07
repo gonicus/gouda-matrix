@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio::task::JoinError;
 
+use crate::error::Error;
 use crate::executor::Executor;
 use crate::input::{InputProcessor, Reader};
 use crate::output::{OutputProcessor, Writer};
@@ -45,7 +45,7 @@ impl Runner {
     /// This method starts the actual processing and execution of incoming requests.
     /// It blocks until an end-of-file (EOF) is received from the input reader or another
     /// error occurs. Normally, it blocks for the entire duration of the client's runtime.
-    pub async fn run(self) -> Result<(), JoinError> {
+    pub async fn run(self) -> std::result::Result<(), Error> {
         let input_handle = self.input_processor.run();
         let executor_handle = self.executor.run();
         let output_handle = self.output_processor.run();
@@ -56,6 +56,7 @@ impl Runner {
             log::error!("Runner task failed: {err}");
         }
 
-        result.map(|_| ())
+        // TODO: Correct error type
+        result.map(|_| ()).map_err(|_| Error::WriterDropped)
     }
 }
