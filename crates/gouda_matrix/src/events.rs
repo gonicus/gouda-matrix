@@ -10,6 +10,7 @@ use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
+use matrix_sdk::ruma::events::receipt::ReceiptEvent;
 use matrix_sdk::ruma::events::relation::Replacement;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
@@ -862,29 +863,6 @@ impl EventExecutor {
         if let Some(list) = get_user_typing_list(&update) {
             builder = builder.change_typing_user_id_list(list);
         };
-
-        let unread_count = update
-            .unread_notifications
-            .notification_count
-            .try_into()
-            .unwrap_or(u32::MAX);
-
-        let cached_unread_count = self
-            .memory_cache
-            .get_room_unread_count_by_id(&room_id)
-            .unwrap_or(0);
-
-        if unread_count < cached_unread_count {
-            builder = builder.change_unread_count(unread_count);
-
-            let result = self
-                .memory_cache
-                .set_room_unread_count_by_id(&room_id, unread_count);
-
-            if let Err(err) = result {
-                log::error!("Unable to update room notification count: {err}");
-            }
-        }
 
         let proto = builder.to_proto();
 
