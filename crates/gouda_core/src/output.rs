@@ -6,7 +6,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::Error;
+use crate::error::{Error, InternalResult};
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -44,7 +44,7 @@ impl OutputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<std::result::Result<Self, Error>> {
+    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -67,7 +67,10 @@ impl OutputProcessor {
                             break;
                         }
 
-                        self.process_task(task).await;
+                        if let Err(err) = self.process_task(task).await {
+                            log::error!("Error processing task: {err}");
+                            return Err(err);
+                        }
                     }
                 }
             }
@@ -76,37 +79,32 @@ impl OutputProcessor {
         })
     }
 
-    async fn process_task(&mut self, task: OutputTask) {
+    async fn process_task(&mut self, task: OutputTask) -> InternalResult<()> {
         match task {
             // OutputTask::Exit is handled by the `Self::run` method.
-            OutputTask::Exit => (),
+            OutputTask::Exit => Ok(()),
             OutputTask::Response(response) => self.write_response(*response).await,
         }
     }
 
-    async fn write_response(&mut self, response: ResponseContainer) {
+    async fn write_response(
+        &mut self,
+        response: ResponseContainer,
+    ) -> InternalResult<()> {
         log::info!("Writing response container: {response:?}");
 
         let serialized = response.encode_to_vec();
         let size = serialized.len().to_le_bytes().to_vec();
 
-        // This error is unrecoverable.
-        // As the output processor runs in a separate tokio task, this will
-        // result in an error returned from the runner.
-        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&size)
             .await
-            .expect("Error writing size");
+            .map_err(|_| Error::WriterDropped)?;
 
-        // This error is unrecoverable.
-        // As the output processor runs in a separate tokio task, this will
-        // result in an error returned from the runner.
-        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&serialized)
             .await
-            .expect("Error writing response");
+            .map_err(|_| Error::WriterDropped)?;
 
         log::trace!("Flushing writer");
 
@@ -116,6 +114,8 @@ impl OutputProcessor {
         };
 
         log::debug!("Finished writing response");
+
+        Ok(())
     }
 }
 
@@ -174,7 +174,10 @@ mod tests {
             .unwrap();
         output_tx.send(OutputTask::Exit).await.unwrap();
 
-        output_processor.run(CancellationToken::new()).await.unwrap();
+        output_processor
+            .run(CancellationToken::new())
+            .await
+            .unwrap();
 
         // Assert
         let output = output.lock().unwrap();

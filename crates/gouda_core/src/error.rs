@@ -10,3 +10,5 @@ pub enum Error {
     #[error("Join error: {0}")]
     JoinError(#[from] JoinError),
 }
+
+pub type InternalResult<T> = std::result::Result<T, Error>;

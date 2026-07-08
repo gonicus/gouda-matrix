@@ -6,7 +6,7 @@ use gouda_proto::chat::{RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 
-use crate::error::Error;
+use crate::error::{Error, InternalResult};
 use crate::output::OutputTask;
 use crate::{Client, RequestContext, Result};
 
@@ -58,7 +58,7 @@ impl Executor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<std::result::Result<Self, Error>> {
+    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -81,7 +81,10 @@ impl Executor {
                             break;
                         }
 
-                        self.process_task(task).await;
+                        if let Err(err) = self.process_task(task).await {
+                            log::error!("Error processing task: {err}");
+                            return Err(err);
+                        }
                     }
                 }
             }
@@ -90,17 +93,13 @@ impl Executor {
         })
     }
 
-    async fn process_task(&mut self, task: ExecutorTask) {
+    async fn process_task(&mut self, task: ExecutorTask) -> InternalResult<()> {
         match task {
             // ExecutorTask::Exit is handled by the `Self::run` method
-            ExecutorTask::Exit => (),
+            ExecutorTask::Exit => Ok(()),
             ExecutorTask::Request(container) => {
                 let tag = container.tag;
 
-                // This error is unrecoverable as we received invalid data on the input reader.
-                // As the executor runs in a separate tokio task, this will
-                // result in an error returned from the runner.
-                #[allow(clippy::expect_used)]
                 let content = container
                     .content
                     .expect("Received client container without content");
@@ -114,6 +113,8 @@ impl Executor {
                 tokio::spawn(async move {
                     processor.exec_request(tag, content).await;
                 });
+
+                Ok(())
             }
             ExecutorTask::Response(container) => {
                 send_response(self.client.clone(), &self.output_sender, *container).await
@@ -340,7 +341,7 @@ async fn send_response(
     client: Arc<dyn Client>,
     sender: &Sender<OutputTask>,
     response: ResponseContainer,
-) {
+) -> InternalResult<()> {
     log::debug!("Preparing response: {response:?}");
 
     let response_handler = response.clone();
@@ -352,14 +353,10 @@ async fn send_response(
 
     log::debug!("Sending response to output processor");
 
-    // This error is unrecoverable.
-    // As the executor runs in a separate tokio task, this will
-    // result in an error returned from the runner.
-    #[allow(clippy::expect_used)]
     sender
         .send(OutputTask::Response(Box::new(response)))
         .await
-        .expect("Error sending message to output processor");
+        .map_err(|_| Error::WriterDropped)
 }
 
 #[allow(clippy::unwrap_used)]
@@ -372,9 +369,9 @@ mod tests {
     use gouda_proto::chat::response_container::Content as ResponseContent;
     use gouda_proto::chat::*;
     use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
+    use tokio_util::sync::CancellationToken;
 
-    use super::{Executor, ExecutorTask, OutputTask, Arc};
+    use super::{Arc, Executor, ExecutorTask, OutputTask};
     use crate::test_utils::ClientMock;
 
     fn create_executor_task(tag: u64, content: RequestContent) -> ExecutorTask {

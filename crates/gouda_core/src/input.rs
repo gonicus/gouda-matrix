@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::Error;
+use crate::error::InternalResult;
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
 
@@ -41,7 +41,7 @@ impl InputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<std::result::Result<Self, Error>> {
+    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
