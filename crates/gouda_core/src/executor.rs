@@ -111,7 +111,9 @@ impl Executor {
                 );
 
                 tokio::spawn(async move {
-                    processor.exec_request(tag, content).await;
+                    if let Err(err) = processor.exec_request(tag, content).await {
+                        log::error!("Error processing request: {err}");
+                    }
                 });
 
                 Ok(())
@@ -142,190 +144,192 @@ impl RequestProcessor {
         }
     }
 
-    pub async fn exec_request(self, tag: u64, request: RequestContent) {
+    pub async fn exec_request(self, tag: u64, request: RequestContent) -> InternalResult<()> {
         let ctx = RequestContext::new(tag, self.task_sender.clone());
 
         match request {
             RequestContent::InitializationRequest(request) => {
                 let result = self.client.initialize(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::StatusUpdate))
-                    .await;
+                    .await?;
             }
             RequestContent::LoginFlowsRequest(_) => {
                 let result = self.client.get_login_flows(ctx).await;
                 self.send_result(tag, result.map(ResponseContent::LoginFlowsResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::IdentityProvidersRequest(_) => {
                 let result = self.client.get_identity_providers(ctx).await;
                 self.send_result(tag, result.map(ResponseContent::IdentityProvidersResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::LoginUsernamePasswordRequest(request) => {
                 let result = self.client.login_username_password(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::StatusUpdate))
-                    .await;
+                    .await?;
             }
             RequestContent::LoginSsoRequest(request) => {
                 let result = self.client.login_sso(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::LoginSsoResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::RecoveryKeyVerificationRequest(request) => {
                 let result = self.client.recovery_key_verification(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::CrossSigningStartRequest(request) => {
                 let result = self.client.cross_signing_start(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::CrossSigningStartResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::CrossSigningMethodSelectedRequest(request) => {
                 let result = self.client.cross_signing_select_method(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::CrossSigningConfirmRequest(request) => {
                 let result = self.client.cross_signing_confirm(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::VerificationAbortRequest(request) => {
                 let result = self.client.abort_verification(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::VerificationEndEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::GlobalSettingsRequest(request) => {
                 let result = self.client.get_global_settings(ctx, request).await;
                 self.send_result(0, result.map(ResponseContent::GlobalSettingsEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::UserRequest(request) => {
                 let result = self.client.get_user(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::UserResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::UserSearchRequest(request) => {
                 let result = self.client.search_users(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::UserSearchResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::UserStatusSetOwnRequest(request) => {
                 let result = self.client.set_status(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::PublicRoomListRequest(request) => {
                 let result = self.client.get_public_rooms(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::PublicRoomListResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::InvitationRequest(request) => {
                 let result = self.client.invite(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::InvitedReply(request) => {
                 let result = self.client.invitation_reply(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::RoomListRequest(request) => {
                 let result = self.client.get_rooms(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomListResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomCreateGroupRequest(request) => {
                 let result = self.client.create_group_room(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomCreateDirectRequest(request) => {
                 let result = self.client.create_direct_room(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomChangeRequest(request) => {
                 let result = self.client.change_room(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomLeaveRequest(request) => {
                 let result = self.client.leave_room(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomLeftEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomJoinRequest(request) => {
                 let result = self.client.join_room(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomCreatedEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomKnockRequest(request) => {
                 let result = self.client.knock_room(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::RoomMessagesRequest(request) => {
                 let result = self.client.get_room_messages(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::RoomMarkAsReadRequest(request) => {
                 let result = self.client.mark_as_read(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::RoomChangeEvent))
-                    .await;
+                    .await?;
             }
             RequestContent::RoomTypingRequest(request) => {
                 let result = self.client.activate_typing_notice(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::MessageSendRequest(request) => {
                 let result = self.client.send_message(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::MessageSendResponse))
-                    .await;
+                    .await?;
             }
             RequestContent::MessageRemoveRequest(request) => {
                 let result = self.client.remove_message(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::MessageChangeRequest(request) => {
                 let result = self.client.change_message(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::CreateReactionRequest(request) => {
                 let result = self.client.create_reaction(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::RemoveReactionRequest(request) => {
                 let result = self.client.remove_reaction(ctx, request).await;
                 if let Err(err) = result {
-                    self.send_result(tag, Err(err)).await;
+                    self.send_result(tag, Err(err)).await?;
                 }
             }
             RequestContent::MessageRequest(request) => {
                 let result = self.client.get_message(ctx, request).await;
                 self.send_result(tag, result.map(ResponseContent::MessageReceivedEvent))
-                    .await;
+                    .await?;
             }
         }
+
+        Ok(())
     }
 
-    async fn send_result(self, tag: u64, content: Result<ResponseContent>) {
+    async fn send_result(self, tag: u64, content: Result<ResponseContent>) -> InternalResult<()> {
         let content = match content {
             Ok(c) => Some(c),
             Err(err) => Some(ResponseContent::Error(err)),
@@ -333,7 +337,7 @@ impl RequestProcessor {
 
         let container = ResponseContainer { tag, content };
 
-        send_response(self.client, &self.output_sender, container).await;
+        send_response(self.client, &self.output_sender, container).await
     }
 }
 
