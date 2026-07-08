@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio::task::JoinError;
+use tokio_util::sync::CancellationToken;
 
+use crate::error::{RunnerError, RunnerResult};
 use crate::executor::Executor;
 use crate::input::{InputProcessor, Reader};
 use crate::output::{OutputProcessor, Writer};
@@ -36,7 +37,7 @@ impl Runner {
         let (output_tx, output_rx) = mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
 
         Self {
-            input_processor: InputProcessor::new(reader, executor_tx.clone(), output_tx.clone()),
+            input_processor: InputProcessor::new(reader, executor_tx.clone()),
             executor: Executor::new(client, executor_rx, executor_tx, output_tx),
             output_processor: OutputProcessor::new(writer, output_rx),
         }
@@ -45,12 +46,42 @@ impl Runner {
     /// This method starts the actual processing and execution of incoming requests.
     /// It blocks until an end-of-file (EOF) is received from the input reader or another
     /// error occurs. Normally, it blocks for the entire duration of the client's runtime.
-    pub async fn run(self) -> Result<(), JoinError> {
-        let input_handle = self.input_processor.run();
-        let executor_handle = self.executor.run();
-        let output_handle = self.output_processor.run();
+    pub async fn run(self) -> RunnerResult<()> {
+        let cancellation_token = CancellationToken::new();
 
-        let result = tokio::try_join!(input_handle, executor_handle, output_handle);
+        let input_handle = self.input_processor.run(cancellation_token.clone());
+        let executor_handle = self.executor.run(cancellation_token.clone());
+        let output_handle = self.output_processor.run(cancellation_token.clone());
+
+        let input = async {
+            let result = input_handle.await.map_err(|_| RunnerError::TaskPanicked)?;
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+            result
+        };
+
+        let executor = async {
+            let result = executor_handle
+                .await
+                .map_err(|_| RunnerError::TaskPanicked)?;
+
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+
+            result
+        };
+
+        let output = async {
+            let result = output_handle.await.map_err(|_| RunnerError::TaskPanicked)?;
+            if result.is_err() {
+                cancellation_token.cancel();
+            }
+            result
+        };
+
+        let result = tokio::try_join!(input, executor, output);
 
         if let Err(err) = &result {
             log::error!("Runner task failed: {err}");

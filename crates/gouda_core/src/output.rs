@@ -4,6 +4,9 @@ use gouda_proto::chat::ResponseContainer;
 use prost::Message;
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc::Receiver;
+use tokio_util::sync::CancellationToken;
+
+use crate::error::{RunnerError, RunnerResult};
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -38,56 +41,67 @@ impl OutputProcessor {
     /// Spawns an asynchronous Tokio task and starts the output processor to
     /// wait for tasks and write its data to the `self.writer`.
     /// This method is executed until an `OutputTask::Exit` is received.
-    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
+    pub fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+    ) -> tokio::task::JoinHandle<RunnerResult<Self>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
-            while let Some(task) = self.task_receiver.recv().await {
-                log::debug!("Received task: {task:?}");
+            loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        log::info!("OutputProcessor was cancelled");
+                        break;
+                    },
+                    task = self.task_receiver.recv() => {
+                        let Some(task) = task else {
+                            log::warn!("OutputProcessor channel has been closed");
+                            break;
+                        };
 
-                if matches!(task, OutputTask::Exit) {
-                    log::info!("Exiting as an exit event was received");
-                    break;
+                        log::debug!("Received task: {task:?}");
+
+                        if matches!(task, OutputTask::Exit) {
+                            log::info!("Exiting as an exit event was received");
+                            break;
+                        }
+
+                        if let Err(err) = self.process_task(task).await {
+                            log::error!("Error processing task: {err}");
+                            return Err(err);
+                        }
+                    }
                 }
-
-                self.process_task(task).await;
             }
 
-            self
+            Ok(self)
         })
     }
 
-    async fn process_task(&mut self, task: OutputTask) {
+    async fn process_task(&mut self, task: OutputTask) -> RunnerResult<()> {
         match task {
             // OutputTask::Exit is handled by the `Self::run` method.
-            OutputTask::Exit => (),
+            OutputTask::Exit => Ok(()),
             OutputTask::Response(response) => self.write_response(*response).await,
         }
     }
 
-    async fn write_response(&mut self, response: ResponseContainer) {
+    async fn write_response(&mut self, response: ResponseContainer) -> RunnerResult<()> {
         log::info!("Writing response container: {response:?}");
 
         let serialized = response.encode_to_vec();
         let size = serialized.len().to_le_bytes().to_vec();
 
-        // This error is unrecoverable.
-        // As the output processor runs in a separate tokio task, this will
-        // result in an error returned from the runner.
-        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&size)
             .await
-            .expect("Error writing size");
+            .map_err(|_| RunnerError::ResponseChannelClosed)?;
 
-        // This error is unrecoverable.
-        // As the output processor runs in a separate tokio task, this will
-        // result in an error returned from the runner.
-        #[allow(clippy::expect_used)]
         self.writer
             .write_all(&serialized)
             .await
-            .expect("Error writing response");
+            .map_err(|_| RunnerError::ResponseChannelClosed)?;
 
         log::trace!("Flushing writer");
 
@@ -97,6 +111,8 @@ impl OutputProcessor {
         };
 
         log::debug!("Finished writing response");
+
+        Ok(())
     }
 }
 
@@ -155,7 +171,11 @@ mod tests {
             .unwrap();
         output_tx.send(OutputTask::Exit).await.unwrap();
 
-        output_processor.run().await.unwrap();
+        output_processor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let output = output.lock().unwrap();
