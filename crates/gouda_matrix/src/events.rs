@@ -8,9 +8,10 @@ use gouda_proto::chat::room_left_event::RoomLeaveReason;
 use gouda_proto::chat::{Reaction as ChatReaction, *};
 use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
+use matrix_sdk::ruma::events::fully_read::FullyReadEvent;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
-use matrix_sdk::ruma::events::receipt::ReceiptEvent;
+use matrix_sdk::ruma::events::receipt::SyncReceiptEvent;
 use matrix_sdk::ruma::events::relation::Replacement;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
@@ -123,6 +124,8 @@ impl EventManager {
         client.add_event_handler(reaction_event_handler);
         client.add_event_handler(presence_event_handler);
         client.add_event_handler(tag_event_handler);
+        client.add_event_handler(sync_receipt_event_handler);
+        client.add_event_handler(fully_read_event_handler);
 
         self.clone().subscribe_to_room_updates(client);
     }
@@ -209,6 +212,20 @@ impl EventManager {
         let _ = self.action_sender.send(Action::TagEvent { room, event });
     }
 
+    pub fn process_sync_receipt_event(&self, room: Room, event: SyncReceiptEvent) {
+        log::debug!("Received SyncReceiptEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Action::SyncReceiptEvent { room, event });
+    }
+
+    pub fn process_fully_read_event(&self, room: Room, event: FullyReadEvent) {
+        log::debug!("Received FullyReadEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Action::FullyReadEvent { room, event });
+    }
+
     pub fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
         log::debug!("Received JoinedRoomUpdate for room: {room_id:?}: {update:?}");
         let _ = self
@@ -254,6 +271,14 @@ enum Action {
     TagEvent {
         room: Room,
         event: TagEvent,
+    },
+    SyncReceiptEvent {
+        room: Room,
+        event: SyncReceiptEvent,
+    },
+    FullyReadEvent {
+        room: Room,
+        event: FullyReadEvent,
     },
     JoinedRoomUpdate {
         room_id: OwnedRoomId,
@@ -374,6 +399,10 @@ impl EventExecutor {
             Action::ReactionEvent { room, event } => self.exec_reaction_event(room, event).await,
             Action::PresenceEvent(event) => self.exec_presence_event(event).await,
             Action::TagEvent { room, event } => self.exec_tag_event(room, event).await,
+            Action::SyncReceiptEvent { room, event } => {
+                self.exec_sync_receipt_event(room, event).await
+            }
+            Action::FullyReadEvent { room, event } => self.exec_fully_read_event(room, event).await,
             Action::JoinedRoomUpdate { room_id, update } => {
                 self.exec_joined_room_update(room_id, update).await
             }
@@ -857,6 +886,22 @@ impl EventExecutor {
             .await;
     }
 
+    async fn exec_sync_receipt_event(&self, room: Room, event: SyncReceiptEvent) {
+        log::debug!(
+            "Processing SyncReceiptEvent {event:?} inside room {:?}",
+            room.room_id(),
+        )
+    }
+
+    async fn exec_fully_read_event(&self, room: Room, event: FullyReadEvent) {
+        let fully_read_event_id = event.content.event_id;
+        log::debug!(
+            "Processing fully read event for room: {}, event_id: {}",
+            room.room_id(),
+            fully_read_event_id
+        );
+    }
+
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
         let mut builder = RoomChangeEventBuilder::new(room_id.to_string());
 
@@ -960,3 +1005,15 @@ impl_event_handler!(
 );
 
 impl_room_event_handler!(TagEvent, tag_event_handler, process_tag_event);
+
+impl_room_event_handler!(
+    SyncReceiptEvent,
+    sync_receipt_event_handler,
+    process_sync_receipt_event
+);
+
+impl_room_event_handler!(
+    FullyReadEvent,
+    fully_read_event_handler,
+    process_fully_read_event
+);
