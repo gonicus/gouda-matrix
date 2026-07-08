@@ -23,3 +23,5 @@ pub use runner::Runner;
 
 /// A chat result.
 pub type Result<T> = std::result::Result<T, gouda_proto::chat::Error>;
+/// A runner result.
+pub use error::{RunnerError, RunnerResult};

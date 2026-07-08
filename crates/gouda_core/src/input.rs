@@ -44,7 +44,7 @@ impl InputProcessor {
                     result = self.read_input() => {
                         if let Err(err) = result {
                             log::error!("Error reading from input: {err}");
-                            break;
+                            return Err(err);
                         }
                     }
                 }
