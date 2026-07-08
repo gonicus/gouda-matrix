@@ -220,17 +220,11 @@ mod tests {
         let (executor_tx, mut executor_rx) = mpsc::channel(64);
         let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
 
-        let cancellation_token = CancellationToken::new();
-
         // Act
-        input_processor
-            .run(cancellation_token.clone())
-            .await
-            .unwrap()
-            .unwrap();
+        let result = input_processor.run(CancellationToken::new()).await.unwrap();
 
         // Assert
+        assert!(matches!(result, Err(RunnerError::RequestChannelClosed)));
         assert_eq!(executor_rx.recv().await.unwrap(), expected);
-        assert!(cancellation_token.is_cancelled());
     }
 }
