@@ -62,10 +62,14 @@ impl Runner {
         };
 
         let executor = async {
-            let result = executor_handle.await.map_err(|_| RunnerError::TaskPanicked)?;
+            let result = executor_handle
+                .await
+                .map_err(|_| RunnerError::TaskPanicked)?;
+
             if result.is_err() {
                 cancellation_token.cancel();
             }
+
             result
         };
 

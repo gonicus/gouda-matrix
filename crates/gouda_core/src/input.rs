@@ -120,7 +120,10 @@ mod tests {
     async fn test_read_size_early_eof() {
         let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
         let result = read_size(&mut data).await;
-        assert!(matches!(result.unwrap_err(), RunnerError::RequestChannelClosed));
+        assert!(matches!(
+            result.unwrap_err(),
+            RunnerError::RequestChannelClosed
+        ));
     }
 
     #[tokio::test]
@@ -164,7 +167,10 @@ mod tests {
         let result = read_request(&mut data, 36).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), RunnerError::RequestChannelClosed));
+        assert!(matches!(
+            result.unwrap_err(),
+            RunnerError::RequestChannelClosed
+        ));
     }
 
     #[tokio::test]
