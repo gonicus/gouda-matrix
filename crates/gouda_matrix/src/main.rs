@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use gouda_core::Runner;
+use gouda_core::{Runner, RunnerError};
 use gouda_matrix::MatrixClient;
 use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream};
@@ -55,7 +55,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = MatrixClient::new();
     let runner = Runner::new(Arc::new(client), Box::new(recv), Box::new(send));
 
-    runner.run().await.map(|_| ()).map_err(|err| err.into())
+    let result = runner.run().await;
+
+    if matches!(result, Err(RunnerError::RequestChannelClosed)) {
+        return Ok(());
+    }
+
+    result.map_err(|err| err.into())
 }
 
 fn setup_logging(args: &Args) {

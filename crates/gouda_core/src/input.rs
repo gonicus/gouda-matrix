@@ -2,9 +2,10 @@ use gouda_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
+use tokio_util::sync::CancellationToken;
 
+use crate::error::{RunnerError, RunnerResult};
 use crate::executor::ExecutorTask;
-use crate::output::OutputTask;
 
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
@@ -16,101 +17,85 @@ pub struct InputProcessor {
     reader: BufReader<Box<Reader>>,
     /// Where to send the decoded input.
     executor_sender: Sender<ExecutorTask>,
-    /// Where to send output. This is currently only used when reaching an EOF.
-    output_sender: Sender<OutputTask>,
 }
 
 impl InputProcessor {
-    pub fn new(
-        reader: Box<Reader>,
-        executor_sender: Sender<ExecutorTask>,
-        output_sender: Sender<OutputTask>,
-    ) -> Self {
+    pub fn new(reader: Box<Reader>, executor_sender: Sender<ExecutorTask>) -> Self {
         Self {
             reader: BufReader::new(reader),
             executor_sender,
-            output_sender,
         }
     }
 
     /// Spawns an asynchronous tokio task and starts the input processor
     /// to wait for input to decode.
     /// This method is executed until the program ends.
-    pub fn run(mut self) -> tokio::task::JoinHandle<Self> {
+    pub fn run(
+        mut self,
+        cancellation_token: CancellationToken,
+    ) -> tokio::task::JoinHandle<RunnerResult<Self>> {
         tokio::spawn(async move {
             loop {
-                if self.read_input().await {
-                    break;
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        log::info!("InputProcessor was cancelled");
+                        break;
+                    }
+                    result = self.read_input() => {
+                        if let Err(err) = result {
+                            log::error!("Error reading from input: {err}");
+                            return Err(err);
+                        }
+                    }
                 }
             }
-            self
+
+            Ok(self)
         })
     }
 
-    async fn read_input(&mut self) -> bool {
+    async fn read_input(&mut self) -> RunnerResult<()> {
         log::debug!("Waiting for input...");
 
-        let size = match read_size(&mut self.reader).await {
-            Ok(size) => size,
-            Err(err) => {
-                log::error!("Exiting as an IO error was received: {err}");
-                self.exit().await;
-                return true;
-            }
-        };
-
-        let request = match read_request(&mut self.reader, size).await {
-            Ok(request) => request,
-            Err(err) => {
-                log::error!("Error reading request: {err}");
-                self.exit().await;
-                return true;
-            }
-        };
+        let size = read_size(&mut self.reader).await?;
+        let request = read_request(&mut self.reader, size).await?;
 
         log::info!("Read request: {request:?}");
         log::debug!("Sending event to executor");
 
-        let result = self
-            .executor_sender
+        self.executor_sender
             .send(ExecutorTask::Request(Box::new(request)))
-            .await;
-
-        if let Err(err) = result {
-            log::error!("Error sending executor event: {err}");
-            return true;
-        }
+            .await
+            .map_err(|_| RunnerError::InternalChannelClosed)?;
 
         log::debug!("Successfully send event to executor");
 
-        false
-    }
-
-    async fn exit(&mut self) {
-        log::debug!("Sending exit task to executor");
-        if let Err(e) = self.executor_sender.send(ExecutorTask::Exit).await {
-            log::error!("Error sending exit event to executor: {e}");
-        }
-
-        log::debug!("Sending exit task to output processor");
-        if let Err(e) = self.output_sender.send(OutputTask::Exit).await {
-            log::error!("Error sending exit event to output processor: {e}");
-        }
+        Ok(())
     }
 }
 
-async fn read_size(reader: &mut Reader) -> Result<u64, tokio::io::Error> {
+async fn read_size(reader: &mut Reader) -> RunnerResult<u64> {
     let mut buf = [0; 8];
-    reader.read_exact(&mut buf).await?;
+
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|_| RunnerError::RequestChannelClosed)?;
+
     Ok(u64::from_le_bytes(buf))
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> Result<RequestContainer, tokio::io::Error> {
+async fn read_request(reader: &mut Reader, len: u64) -> RunnerResult<RequestContainer> {
     let mut buf = vec![0; len as usize];
-    reader.read_exact(&mut buf).await?;
+
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|_| RunnerError::RequestChannelClosed)?;
 
     RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
-        .map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::InvalidData, e))
+        .inspect_err(|err| log::error!("Error decoding request container: {err}"))
+        .map_err(|_| RunnerError::InvalidData)
 }
 
 #[allow(clippy::unwrap_used)]
@@ -135,10 +120,10 @@ mod tests {
     async fn test_read_size_early_eof() {
         let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
         let result = read_size(&mut data).await;
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::UnexpectedEof
-        );
+        assert!(matches!(
+            result.unwrap_err(),
+            RunnerError::RequestChannelClosed
+        ));
     }
 
     #[tokio::test]
@@ -182,10 +167,10 @@ mod tests {
         let result = read_request(&mut data, 36).await;
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::UnexpectedEof
-        );
+        assert!(matches!(
+            result.unwrap_err(),
+            RunnerError::RequestChannelClosed
+        ));
     }
 
     #[tokio::test]
@@ -200,10 +185,7 @@ mod tests {
         let result = read_request(&mut data, len).await;
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::InvalidData
-        );
+        assert!(matches!(result.unwrap_err(), RunnerError::InvalidData));
     }
 
     #[tokio::test]
@@ -236,16 +218,13 @@ mod tests {
         }));
 
         let (executor_tx, mut executor_rx) = mpsc::channel(64);
-        let (output_tx, mut output_rx) = mpsc::channel(64);
-        let input_processor =
-            InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
+        let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
 
         // Act
-        input_processor.run().await.unwrap();
+        let result = input_processor.run(CancellationToken::new()).await.unwrap();
 
         // Assert
+        assert!(matches!(result, Err(RunnerError::RequestChannelClosed)));
         assert_eq!(executor_rx.recv().await.unwrap(), expected);
-        assert_eq!(executor_rx.recv().await.unwrap(), ExecutorTask::Exit);
-        assert_eq!(output_rx.recv().await.unwrap(), OutputTask::Exit);
     }
 }
