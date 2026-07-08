@@ -49,9 +49,9 @@ impl Runner {
     pub async fn run(self) -> std::result::Result<(), Error> {
         let cancellation_token = CancellationToken::new();
 
-        let input_handle = self.input_processor.run(cancellation_token.child_token());
-        let executor_handle = self.executor.run(cancellation_token.child_token());
-        let output_handle = self.output_processor.run(cancellation_token.child_token());
+        let input_handle = self.input_processor.run(cancellation_token.clone());
+        let executor_handle = self.executor.run(cancellation_token.clone());
+        let output_handle = self.output_processor.run(cancellation_token.clone());
 
         let input = async {
             let result = input_handle.await?;
