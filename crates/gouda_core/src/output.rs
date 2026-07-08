@@ -96,12 +96,12 @@ impl OutputProcessor {
         self.writer
             .write_all(&size)
             .await
-            .map_err(|_| RunnerError::WriterDropped)?;
+            .map_err(|_| RunnerError::ResponseChannelClosed)?;
 
         self.writer
             .write_all(&serialized)
             .await
-            .map_err(|_| RunnerError::WriterDropped)?;
+            .map_err(|_| RunnerError::ResponseChannelClosed)?;
 
         log::trace!("Flushing writer");
 

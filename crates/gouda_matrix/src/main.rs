@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = runner.run().await;
 
-    if matches!(result, Err(RunnerError::ReaderDropped)) {
+    if matches!(result, Err(RunnerError::RequestChannelClosed)) {
         return Ok(());
     }
 

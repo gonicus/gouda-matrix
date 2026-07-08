@@ -66,7 +66,7 @@ impl InputProcessor {
         self.executor_sender
             .send(ExecutorTask::Request(Box::new(request)))
             .await
-            .map_err(|_| RunnerError::ChannelClosed)?;
+            .map_err(|_| RunnerError::InternalChannelClosed)?;
 
         log::debug!("Successfully send event to executor");
 
@@ -80,7 +80,7 @@ async fn read_size(reader: &mut Reader) -> RunnerResult<u64> {
     reader
         .read_exact(&mut buf)
         .await
-        .map_err(|_| RunnerError::ReaderDropped)?;
+        .map_err(|_| RunnerError::RequestChannelClosed)?;
 
     Ok(u64::from_le_bytes(buf))
 }
@@ -91,7 +91,7 @@ async fn read_request(reader: &mut Reader, len: u64) -> RunnerResult<RequestCont
     reader
         .read_exact(&mut buf)
         .await
-        .map_err(|_| RunnerError::ReaderDropped)?;
+        .map_err(|_| RunnerError::RequestChannelClosed)?;
 
     RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
         .inspect_err(|err| log::error!("Error decoding request container: {err}"))
@@ -120,7 +120,7 @@ mod tests {
     async fn test_read_size_early_eof() {
         let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
         let result = read_size(&mut data).await;
-        assert!(matches!(result.unwrap_err(), RunnerError::ReaderDropped));
+        assert!(matches!(result.unwrap_err(), RunnerError::RequestChannelClosed));
     }
 
     #[tokio::test]
@@ -164,7 +164,7 @@ mod tests {
         let result = read_request(&mut data, 36).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), RunnerError::ReaderDropped));
+        assert!(matches!(result.unwrap_err(), RunnerError::RequestChannelClosed));
     }
 
     #[tokio::test]

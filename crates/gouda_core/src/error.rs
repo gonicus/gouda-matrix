@@ -4,12 +4,12 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum RunnerError {
     #[allow(missing_docs)]
-    #[error("Request reader dropped")]
-    ReaderDropped,
+    #[error("Channel for receiving requests closed")]
+    RequestChannelClosed,
 
     #[allow(missing_docs)]
-    #[error("Response writer dropped")]
-    WriterDropped,
+    #[error("Channel for sending responses closed")]
+    ResponseChannelClosed,
 
     #[allow(missing_docs)]
     #[error("Received invalid data on the input reader")]
@@ -17,11 +17,11 @@ pub enum RunnerError {
 
     #[allow(missing_docs)]
     #[error("An internal task panicked or was unexpectedly cancelled")]
-    TaskPanic,
+    TaskPanicked,
 
     #[allow(missing_docs)]
     #[error("An internal channel was unexpectedly closed")]
-    ChannelClosed,
+    InternalChannelClosed,
 }
 
 /// A result returned from the runner.
