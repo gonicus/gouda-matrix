@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::InternalResult;
+use crate::error::{Error, InternalResult};
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
 
@@ -113,18 +113,28 @@ impl InputProcessor {
     }
 }
 
-async fn read_size(reader: &mut Reader) -> Result<u64, tokio::io::Error> {
+async fn read_size(reader: &mut Reader) -> InternalResult<u64> {
     let mut buf = [0; 8];
-    reader.read_exact(&mut buf).await?;
+
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|_| Error::ReaderDropped)?;
+
     Ok(u64::from_le_bytes(buf))
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> Result<RequestContainer, tokio::io::Error> {
+async fn read_request(reader: &mut Reader, len: u64) -> InternalResult<RequestContainer> {
     let mut buf = vec![0; len as usize];
-    reader.read_exact(&mut buf).await?;
+
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|_| Error::ReaderDropped)?;
 
     RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
-        .map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::InvalidData, e))
+        .inspect_err(|err| log::error!("Error decoding request container: {err}"))
+        .map_err(|_| Error::InvalidData)
 }
 
 #[allow(clippy::unwrap_used)]
@@ -149,10 +159,7 @@ mod tests {
     async fn test_read_size_early_eof() {
         let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
         let result = read_size(&mut data).await;
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::UnexpectedEof
-        );
+        assert!(matches!(result.unwrap_err(), Error::ReaderDropped));
     }
 
     #[tokio::test]
@@ -196,10 +203,7 @@ mod tests {
         let result = read_request(&mut data, 36).await;
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::UnexpectedEof
-        );
+        assert!(matches!(result.unwrap_err(), Error::ReaderDropped));
     }
 
     #[tokio::test]
@@ -214,10 +218,7 @@ mod tests {
         let result = read_request(&mut data, len).await;
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            tokio::io::ErrorKind::InvalidData
-        );
+        assert!(matches!(result.unwrap_err(), Error::InvalidData));
     }
 
     #[tokio::test]
@@ -255,7 +256,11 @@ mod tests {
             InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
 
         // Act
-        input_processor.run(CancellationToken::new()).await.unwrap();
+        input_processor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         assert_eq!(executor_rx.recv().await.unwrap(), expected);

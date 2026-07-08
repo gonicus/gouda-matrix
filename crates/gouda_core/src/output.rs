@@ -174,6 +174,7 @@ mod tests {
         output_processor
             .run(CancellationToken::new())
             .await
+            .unwrap()
             .unwrap();
 
         // Assert

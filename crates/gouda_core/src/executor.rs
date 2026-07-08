@@ -100,9 +100,9 @@ impl Executor {
             ExecutorTask::Request(container) => {
                 let tag = container.tag;
 
-                let content = container
-                    .content
-                    .expect("Received client container without content");
+                let Some(content) = container.content else {
+                    return Err(Error::InvalidData);
+                };
 
                 let processor = RequestProcessor::new(
                     self.client.clone(),
@@ -465,7 +465,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        executor.run(CancellationToken::new()).await.unwrap();
+        executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         assert_eq!(
