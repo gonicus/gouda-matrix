@@ -8,7 +8,7 @@ pub enum RunnerError {
     WriterDropped,
     #[error("Received invalid data on the input reader")]
     InvalidData,
-    #[error("An inernal task panicked or was unexpectedly cancelled")]
+    #[error("An internal task panicked or was unexpectedly cancelled")]
     TaskPanic,
 }
 
