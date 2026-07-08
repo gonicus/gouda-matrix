@@ -49,6 +49,9 @@ pub enum MemoryCacheError {
     #[error("cache lock poisoined")]
     CachePoisoined,
 
+    #[error("the requested room was not found")]
+    RoomNotFound,
+
     #[error("unable to assemble a requested message")]
     UnableToAssembleMessage,
 
@@ -211,9 +214,24 @@ impl MemoryCache {
         self.inner.get_cached_notification_settings()
     }
 
+    /// Gets the unread count of the given room by room_id.
+    pub fn get_room_unread_count_by_id(&self, room_id: impl AsRef<str>) -> Result<u32> {
+        self.inner.get_room_unread_count_by_id(room_id.as_ref())
+    }
+
     /// Sets the unread count of the given room.
     pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
         self.inner.set_room_unread_count(room, unread_count)
+    }
+
+    /// Sets the unread count of the room with the given room id.
+    pub fn set_room_unread_count_by_id(
+        &self,
+        room_id: impl AsRef<str>,
+        unread_count: u32,
+    ) -> Result<()> {
+        self.inner
+            .set_room_unread_count_by_id(room_id.as_ref(), unread_count)
     }
 }
 
@@ -387,8 +405,25 @@ impl MemoryCacheInner {
         Ok(guard.clone())
     }
 
+    pub fn get_room_unread_count_by_id(&self, room_id: &str) -> Result<u32> {
+        let room = self
+            .get_room(room_id)?
+            .ok_or(MemoryCacheError::RoomNotFound)?;
+        let guard = room.unread_count.lock()?;
+        Ok(*guard)
+    }
+
     pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
         let room = self.get_or_create_room(room)?;
+        let mut guard = room.unread_count.lock()?;
+        *guard = unread_count;
+        Ok(())
+    }
+
+    pub fn set_room_unread_count_by_id(&self, room_id: &str, unread_count: u32) -> Result<()> {
+        let room = self
+            .get_room(room_id)?
+            .ok_or(MemoryCacheError::RoomNotFound)?;
         let mut guard = room.unread_count.lock()?;
         *guard = unread_count;
         Ok(())
