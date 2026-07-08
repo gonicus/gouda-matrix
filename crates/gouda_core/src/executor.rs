@@ -6,7 +6,7 @@ use gouda_proto::chat::{RequestContainer, ResponseContainer};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 
-use crate::error::{Error, InternalResult};
+use crate::error::{RunnerError, RunnerResult};
 use crate::output::OutputTask;
 use crate::{Client, RequestContext, Result};
 
@@ -58,7 +58,7 @@ impl Executor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
+    ) -> tokio::task::JoinHandle<RunnerResult<Self>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -93,7 +93,7 @@ impl Executor {
         })
     }
 
-    async fn process_task(&mut self, task: ExecutorTask) -> InternalResult<()> {
+    async fn process_task(&mut self, task: ExecutorTask) -> RunnerResult<()> {
         match task {
             // ExecutorTask::Exit is handled by the `Self::run` method
             ExecutorTask::Exit => Ok(()),
@@ -101,7 +101,7 @@ impl Executor {
                 let tag = container.tag;
 
                 let Some(content) = container.content else {
-                    return Err(Error::InvalidData);
+                    return Err(RunnerError::InvalidData);
                 };
 
                 let processor = RequestProcessor::new(
@@ -144,7 +144,7 @@ impl RequestProcessor {
         }
     }
 
-    pub async fn exec_request(self, tag: u64, request: RequestContent) -> InternalResult<()> {
+    pub async fn exec_request(self, tag: u64, request: RequestContent) -> RunnerResult<()> {
         let ctx = RequestContext::new(tag, self.task_sender.clone());
 
         match request {
@@ -329,7 +329,7 @@ impl RequestProcessor {
         Ok(())
     }
 
-    async fn send_result(self, tag: u64, content: Result<ResponseContent>) -> InternalResult<()> {
+    async fn send_result(self, tag: u64, content: Result<ResponseContent>) -> RunnerResult<()> {
         let content = match content {
             Ok(c) => Some(c),
             Err(err) => Some(ResponseContent::Error(err)),
@@ -345,7 +345,7 @@ async fn send_response(
     client: Arc<dyn Client>,
     sender: &Sender<OutputTask>,
     response: ResponseContainer,
-) -> InternalResult<()> {
+) -> RunnerResult<()> {
     log::debug!("Preparing response: {response:?}");
 
     let response_handler = response.clone();
@@ -360,7 +360,7 @@ async fn send_response(
     sender
         .send(OutputTask::Response(Box::new(response)))
         .await
-        .map_err(|_| Error::WriterDropped)
+        .map_err(|_| RunnerError::WriterDropped)
 }
 
 #[allow(clippy::unwrap_used)]

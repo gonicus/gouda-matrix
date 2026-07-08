@@ -2,7 +2,7 @@ use thiserror::Error;
 use tokio::task::JoinError;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum RunnerError {
     #[error("Request reader dropped")]
     ReaderDropped,
     #[error("Response writer dropped")]
@@ -13,4 +13,4 @@ pub enum Error {
     JoinError(#[from] JoinError),
 }
 
-pub type InternalResult<T> = std::result::Result<T, Error>;
+pub type RunnerResult<T> = std::result::Result<T, RunnerError>;

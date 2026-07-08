@@ -6,7 +6,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::{Error, InternalResult};
+use crate::error::{RunnerError, RunnerResult};
 
 pub type Writer = dyn AsyncWrite + Send + Unpin;
 
@@ -44,7 +44,7 @@ impl OutputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
+    ) -> tokio::task::JoinHandle<RunnerResult<Self>> {
         tokio::spawn(async move {
             log::debug!("Waiting for tasks...");
 
@@ -79,7 +79,7 @@ impl OutputProcessor {
         })
     }
 
-    async fn process_task(&mut self, task: OutputTask) -> InternalResult<()> {
+    async fn process_task(&mut self, task: OutputTask) -> RunnerResult<()> {
         match task {
             // OutputTask::Exit is handled by the `Self::run` method.
             OutputTask::Exit => Ok(()),
@@ -87,7 +87,7 @@ impl OutputProcessor {
         }
     }
 
-    async fn write_response(&mut self, response: ResponseContainer) -> InternalResult<()> {
+    async fn write_response(&mut self, response: ResponseContainer) -> RunnerResult<()> {
         log::info!("Writing response container: {response:?}");
 
         let serialized = response.encode_to_vec();
@@ -96,12 +96,12 @@ impl OutputProcessor {
         self.writer
             .write_all(&size)
             .await
-            .map_err(|_| Error::WriterDropped)?;
+            .map_err(|_| RunnerError::WriterDropped)?;
 
         self.writer
             .write_all(&serialized)
             .await
-            .map_err(|_| Error::WriterDropped)?;
+            .map_err(|_| RunnerError::WriterDropped)?;
 
         log::trace!("Flushing writer");
 

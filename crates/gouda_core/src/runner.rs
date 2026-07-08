@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::Error;
+use crate::error::RunnerError;
 use crate::executor::Executor;
 use crate::input::{InputProcessor, Reader};
 use crate::output::{OutputProcessor, Writer};
@@ -46,7 +46,7 @@ impl Runner {
     /// This method starts the actual processing and execution of incoming requests.
     /// It blocks until an end-of-file (EOF) is received from the input reader or another
     /// error occurs. Normally, it blocks for the entire duration of the client's runtime.
-    pub async fn run(self) -> std::result::Result<(), Error> {
+    pub async fn run(self) -> std::result::Result<(), RunnerError> {
         let cancellation_token = CancellationToken::new();
 
         let input_handle = self.input_processor.run(cancellation_token.clone());

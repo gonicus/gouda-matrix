@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::{Error, InternalResult};
+use crate::error::{RunnerError, RunnerResult};
 use crate::executor::ExecutorTask;
 use crate::output::OutputTask;
 
@@ -41,7 +41,7 @@ impl InputProcessor {
     pub fn run(
         mut self,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<InternalResult<Self>> {
+    ) -> tokio::task::JoinHandle<RunnerResult<Self>> {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -113,28 +113,28 @@ impl InputProcessor {
     }
 }
 
-async fn read_size(reader: &mut Reader) -> InternalResult<u64> {
+async fn read_size(reader: &mut Reader) -> RunnerResult<u64> {
     let mut buf = [0; 8];
 
     reader
         .read_exact(&mut buf)
         .await
-        .map_err(|_| Error::ReaderDropped)?;
+        .map_err(|_| RunnerError::ReaderDropped)?;
 
     Ok(u64::from_le_bytes(buf))
 }
 
-async fn read_request(reader: &mut Reader, len: u64) -> InternalResult<RequestContainer> {
+async fn read_request(reader: &mut Reader, len: u64) -> RunnerResult<RequestContainer> {
     let mut buf = vec![0; len as usize];
 
     reader
         .read_exact(&mut buf)
         .await
-        .map_err(|_| Error::ReaderDropped)?;
+        .map_err(|_| RunnerError::ReaderDropped)?;
 
     RequestContainer::decode(&mut std::io::Cursor::new(&buf as &[u8]))
         .inspect_err(|err| log::error!("Error decoding request container: {err}"))
-        .map_err(|_| Error::InvalidData)
+        .map_err(|_| RunnerError::InvalidData)
 }
 
 #[allow(clippy::unwrap_used)]
@@ -159,7 +159,7 @@ mod tests {
     async fn test_read_size_early_eof() {
         let mut data: &'static [u8] = &[0x61, 0x96, 0x0a, 0x00, 0x00];
         let result = read_size(&mut data).await;
-        assert!(matches!(result.unwrap_err(), Error::ReaderDropped));
+        assert!(matches!(result.unwrap_err(), RunnerError::ReaderDropped));
     }
 
     #[tokio::test]
@@ -203,7 +203,7 @@ mod tests {
         let result = read_request(&mut data, 36).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::ReaderDropped));
+        assert!(matches!(result.unwrap_err(), RunnerError::ReaderDropped));
     }
 
     #[tokio::test]
@@ -218,7 +218,7 @@ mod tests {
         let result = read_request(&mut data, len).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::InvalidData));
+        assert!(matches!(result.unwrap_err(), RunnerError::InvalidData));
     }
 
     #[tokio::test]
