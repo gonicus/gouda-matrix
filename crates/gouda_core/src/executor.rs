@@ -421,7 +421,11 @@ mod tests {
 
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -500,7 +504,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -540,7 +548,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -582,7 +594,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -622,7 +638,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -661,7 +681,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -701,7 +725,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -741,7 +769,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -782,7 +814,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -821,7 +857,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -861,7 +901,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -903,7 +947,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -945,7 +993,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -984,7 +1036,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1024,7 +1080,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1062,7 +1122,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1100,7 +1164,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1137,7 +1205,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1174,7 +1246,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1214,7 +1290,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1254,7 +1334,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1293,7 +1377,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1333,7 +1421,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1375,7 +1467,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1415,7 +1511,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1467,7 +1567,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1507,7 +1611,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1543,7 +1651,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1579,7 +1691,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1625,7 +1741,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1665,7 +1785,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1719,7 +1843,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1759,7 +1887,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1795,7 +1927,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1831,7 +1967,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1906,7 +2046,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1946,7 +2090,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -1999,7 +2147,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2039,7 +2191,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2092,7 +2248,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2132,7 +2292,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2186,7 +2350,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2226,7 +2394,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2267,7 +2439,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2307,7 +2483,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2360,7 +2540,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2400,7 +2584,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2436,7 +2624,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2472,7 +2664,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2508,7 +2704,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2544,7 +2744,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2598,7 +2802,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2638,7 +2846,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2674,7 +2886,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2710,7 +2926,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2749,7 +2969,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2789,7 +3013,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2825,7 +3053,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2861,7 +3093,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2897,7 +3133,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2933,7 +3173,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -2969,7 +3213,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -3005,7 +3253,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -3041,7 +3293,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -3077,7 +3333,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -3117,7 +3377,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
@@ -3157,7 +3421,11 @@ mod tests {
             .unwrap();
         executor_tx.try_send(ExecutorTask::Exit).unwrap();
 
-        let Executor { client, .. } = executor.run(CancellationToken::new()).await.unwrap().unwrap();
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
 
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();

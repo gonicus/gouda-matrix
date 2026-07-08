@@ -87,10 +87,7 @@ impl OutputProcessor {
         }
     }
 
-    async fn write_response(
-        &mut self,
-        response: ResponseContainer,
-    ) -> InternalResult<()> {
+    async fn write_response(&mut self, response: ResponseContainer) -> InternalResult<()> {
         log::info!("Writing response container: {response:?}");
 
         let serialized = response.encode_to_vec();
