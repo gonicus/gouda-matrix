@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::u32;
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::builder::RoomChangeEventBuilder;
