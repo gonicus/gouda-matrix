@@ -54,7 +54,7 @@ impl Runner {
         let output_handle = self.output_processor.run(cancellation_token.clone());
 
         let input = async {
-            let result = input_handle.await?;
+            let result = input_handle.await.map_err(|_| RunnerError::TaskPanic)?;
             if result.is_err() {
                 cancellation_token.cancel();
             }
@@ -62,7 +62,7 @@ impl Runner {
         };
 
         let executor = async {
-            let result = executor_handle.await?;
+            let result = executor_handle.await.map_err(|_| RunnerError::TaskPanic)?;
             if result.is_err() {
                 cancellation_token.cancel();
             }
@@ -70,7 +70,7 @@ impl Runner {
         };
 
         let output = async {
-            let result = output_handle.await?;
+            let result = output_handle.await.map_err(|_| RunnerError::TaskPanic)?;
             if result.is_err() {
                 cancellation_token.cancel();
             }

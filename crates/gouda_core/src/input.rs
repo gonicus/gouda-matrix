@@ -2,6 +2,7 @@ use gouda_proto::chat::RequestContainer;
 use prost::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{RunnerError, RunnerResult};
