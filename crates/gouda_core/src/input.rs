@@ -6,7 +6,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{RunnerError, RunnerResult};
 use crate::executor::ExecutorTask;
-use crate::output::OutputTask;
 
 pub type Reader = dyn AsyncRead + Send + Unpin;
 
@@ -18,20 +17,13 @@ pub struct InputProcessor {
     reader: BufReader<Box<Reader>>,
     /// Where to send the decoded input.
     executor_sender: Sender<ExecutorTask>,
-    /// Where to send output. This is currently only used when reaching an EOF.
-    output_sender: Sender<OutputTask>,
 }
 
 impl InputProcessor {
-    pub fn new(
-        reader: Box<Reader>,
-        executor_sender: Sender<ExecutorTask>,
-        output_sender: Sender<OutputTask>,
-    ) -> Self {
+    pub fn new(reader: Box<Reader>, executor_sender: Sender<ExecutorTask>) -> Self {
         Self {
             reader: BufReader::new(reader),
             executor_sender,
-            output_sender,
         }
     }
 
@@ -50,7 +42,8 @@ impl InputProcessor {
                         break;
                     }
                     result = self.read_input() => {
-                        if result {
+                        if let Err(err) = result {
+                            log::error!("Error reading from input: {err}");
                             break;
                         }
                     }
@@ -61,55 +54,23 @@ impl InputProcessor {
         })
     }
 
-    async fn read_input(&mut self) -> bool {
+    async fn read_input(&mut self) -> RunnerResult<()> {
         log::debug!("Waiting for input...");
 
-        let size = match read_size(&mut self.reader).await {
-            Ok(size) => size,
-            Err(err) => {
-                log::error!("Exiting as an IO error was received: {err}");
-                self.exit().await;
-                return true;
-            }
-        };
-
-        let request = match read_request(&mut self.reader, size).await {
-            Ok(request) => request,
-            Err(err) => {
-                log::error!("Error reading request: {err}");
-                self.exit().await;
-                return true;
-            }
-        };
+        let size = read_size(&mut self.reader).await?;
+        let request = read_request(&mut self.reader, size).await?;
 
         log::info!("Read request: {request:?}");
         log::debug!("Sending event to executor");
 
-        let result = self
-            .executor_sender
+        self.executor_sender
             .send(ExecutorTask::Request(Box::new(request)))
-            .await;
-
-        if let Err(err) = result {
-            log::error!("Error sending executor event: {err}");
-            return true;
-        }
+            .await
+            .map_err(|_| RunnerError::ChannelClosed)?;
 
         log::debug!("Successfully send event to executor");
 
-        false
-    }
-
-    async fn exit(&mut self) {
-        log::debug!("Sending exit task to executor");
-        if let Err(e) = self.executor_sender.send(ExecutorTask::Exit).await {
-            log::error!("Error sending exit event to executor: {e}");
-        }
-
-        log::debug!("Sending exit task to output processor");
-        if let Err(e) = self.output_sender.send(OutputTask::Exit).await {
-            log::error!("Error sending exit event to output processor: {e}");
-        }
+        Ok(())
     }
 }
 
@@ -251,20 +212,19 @@ mod tests {
         }));
 
         let (executor_tx, mut executor_rx) = mpsc::channel(64);
-        let (output_tx, mut output_rx) = mpsc::channel(64);
-        let input_processor =
-            InputProcessor::new(Box::new(Cursor::new(data)), executor_tx, output_tx);
+        let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
+
+        let cancellation_token = CancellationToken::new();
 
         // Act
         input_processor
-            .run(CancellationToken::new())
+            .run(cancellation_token.clone())
             .await
             .unwrap()
             .unwrap();
 
         // Assert
         assert_eq!(executor_rx.recv().await.unwrap(), expected);
-        assert_eq!(executor_rx.recv().await.unwrap(), ExecutorTask::Exit);
-        assert_eq!(output_rx.recv().await.unwrap(), OutputTask::Exit);
+        assert!(cancellation_token.is_cancelled());
     }
 }

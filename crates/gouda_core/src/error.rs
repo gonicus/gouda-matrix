@@ -10,6 +10,8 @@ pub enum RunnerError {
     InvalidData,
     #[error("An internal task panicked or was unexpectedly cancelled")]
     TaskPanic,
+    #[error("An internal channel was unexpectedly closed")]
+    ChannelClosed,
 }
 
 pub type RunnerResult<T> = std::result::Result<T, RunnerError>;

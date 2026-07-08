@@ -360,7 +360,7 @@ async fn send_response(
     sender
         .send(OutputTask::Response(Box::new(response)))
         .await
-        .map_err(|_| RunnerError::WriterDropped)
+        .map_err(|_| RunnerError::ChannelClosed)
 }
 
 #[allow(clippy::unwrap_used)]

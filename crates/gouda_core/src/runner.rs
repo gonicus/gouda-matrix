@@ -37,7 +37,7 @@ impl Runner {
         let (output_tx, output_rx) = mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
 
         Self {
-            input_processor: InputProcessor::new(reader, executor_tx.clone(), output_tx.clone()),
+            input_processor: InputProcessor::new(reader, executor_tx.clone()),
             executor: Executor::new(client, executor_rx, executor_tx, output_tx),
             output_processor: OutputProcessor::new(writer, output_rx),
         }
