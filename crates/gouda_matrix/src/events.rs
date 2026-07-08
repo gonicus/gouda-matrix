@@ -894,12 +894,24 @@ impl EventExecutor {
     }
 
     async fn exec_fully_read_event(&self, room: Room, event: FullyReadEvent) {
-        let fully_read_event_id = event.content.event_id;
-        log::debug!(
-            "Processing fully read event for room: {}, event_id: {}",
-            room.room_id(),
-            fully_read_event_id
-        );
+        let room_id = room.room_id().to_string();
+
+        log::debug!("Resetting unread count of room {room_id}");
+
+        // TODO: We have to check if the fully read event is actually for the latest event.
+
+        if let Err(err) = self.memory_cache.set_room_unread_count(room, 0) {
+            log::error!("Error updating room unread count: {err}");
+            return;
+        }
+
+        let proto = RoomChangeEventBuilder::new(room_id)
+            .change_unread_count(0)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
