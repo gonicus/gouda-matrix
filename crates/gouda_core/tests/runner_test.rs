@@ -5,7 +5,7 @@ use std::io;
 use std::sync::Arc;
 
 use gouda_core::test_utils::ClientMock;
-use gouda_core::{Client, Runner};
+use gouda_core::{Client, Runner, RunnerError};
 use gouda_proto::chat::error::ErrorType;
 use gouda_proto::chat::request_container::Content as RequestContent;
 use gouda_proto::chat::response_container::Content as ResponseContent;
@@ -86,7 +86,6 @@ async fn read_payload_from_stream(recv: &mut RecvHalf) -> Vec<u8> {
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_on_invalid_data() {
     // arrange
     let client = ClientMock::new();
@@ -102,7 +101,7 @@ async fn test_on_invalid_data() {
     let result = setup.runner.run().await;
 
     // assert
-    assert!(result.is_err());
+    assert!(matches!(result, Err(RunnerError::InvalidData)));
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
@@ -11,12 +12,14 @@ use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
-use tokio::task::JoinSet;
 
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
 use crate::{notifications, user};
+
+/// How many rooms to fetch at most at the same time.
+const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
 
 #[derive(Clone)]
 pub struct RoomManager {
@@ -41,32 +44,30 @@ impl RoomManager {
             return Err(Error::Authorization);
         };
 
-        let mut join_set = JoinSet::new();
-
-        for room in self.client.rooms() {
-            if room.is_space() {
-                continue;
-            }
-
+        let rooms = stream::iter(
+            self.client
+                .rooms()
+                .into_iter()
+                .filter(|room| !room.is_space()),
+        )
+        .map(|room| {
             let media_manager = self.media_manager.clone();
             let user_id = user_id.clone();
 
-            join_set.spawn(async move { convert_to_proto(&media_manager, room, &user_id).await });
-        }
-
-        let mut rooms = Vec::new();
-
-        while let Some(result) = join_set.join_next().await {
-            let Ok(room) = result else {
-                log::error!("Encountered join error when processing room");
-                continue;
-            };
-
-            match room {
-                Ok(room) => rooms.push(room),
-                Err(err) => log::error!("Error fetching room: {err}"),
+            async move { convert_to_proto(&media_manager, room, &user_id).await }
+        })
+        .buffer_unordered(MAX_CONCURRENT_ROOM_FETCHES)
+        .filter_map(|result| async {
+            match result {
+                Ok(room) => Some(room),
+                Err(err) => {
+                    log::error!("Error fetching room: {err}");
+                    None
+                }
             }
-        }
+        })
+        .collect::<Vec<_>>()
+        .await;
 
         Ok(rooms)
     }
