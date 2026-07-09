@@ -893,7 +893,7 @@ impl EventExecutor {
         )
     }
 
-    async fn exec_fully_read_event(&self, room: Room, event: FullyReadEvent) {
+    async fn exec_fully_read_event(&self, room: Room, _event: FullyReadEvent) {
         let room_id = room.room_id().to_string();
 
         log::debug!("Resetting unread count of room {room_id}");
