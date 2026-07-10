@@ -1326,7 +1326,7 @@ impl MatrixClientInner {
             return Err(Error::NotLoggedIn);
         };
 
-        let room_manager = rooms::RoomManager::from_session(session.as_ref());
+        let room_manager = rooms::RoomsManager::from_session(session.as_ref());
         let room_list = room_manager.fetch_all_rooms().await?;
 
         let mut result = Vec::new();

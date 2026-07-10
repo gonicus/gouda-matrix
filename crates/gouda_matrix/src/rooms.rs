@@ -22,12 +22,12 @@ use crate::{notifications, user};
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
 
 #[derive(Clone)]
-pub struct RoomManager {
+pub struct RoomsManager {
     client: Client,
     media_manager: MediaManager,
 }
 
-impl RoomManager {
+impl RoomsManager {
     pub fn from_session(session: &SessionContext) -> Self {
         Self {
             client: session.client.clone(),
