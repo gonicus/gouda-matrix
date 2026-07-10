@@ -87,7 +87,8 @@ impl RoomsManager {
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
         let members = get_members(&room).await?;
         let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
-        let latest_message_timestamp: Option<u64> = room.latest_event_timestamp().map(|f| f.0.into());
+        let latest_message_timestamp: Option<u64> =
+            room.latest_event_timestamp().map(|f| f.0.into());
         let avatar_path = self.media_manager.get_room_avatar_path(&room).await;
 
         let is_direct = if members.len() > 2 {

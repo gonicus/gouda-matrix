@@ -1495,10 +1495,7 @@ impl MatrixClientInner {
 
     async fn join_room(&self, _ctx: RequestContext, request: RoomJoinRequest) -> Result<Room> {
         let session = self.session()?;
-        let SessionContext {
-            client,
-            ..
-        } = session.as_ref();
+        let SessionContext { client, .. } = session.as_ref();
 
         let room_id = RoomId::parse(&request.room_id).map_err(|_| Error::RoomNotFound)?;
         let room = client.join_room_by_id(&room_id).await?;
