@@ -26,6 +26,7 @@ use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::memory_cache::{self, MemoryCache};
 use crate::proto_cache::ProtoCache;
+use crate::rooms::RoomsManager;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
@@ -1284,16 +1285,6 @@ impl MatrixClientInner {
 
     async fn invitation_reply(&self, ctx: RequestContext, request: InvitedReply) -> Result<()> {
         let session = self.session()?;
-        let SessionContext {
-            client,
-            media_manager,
-            ..
-        } = session.as_ref();
-
-        let Some(user_id) = client.user_id() else {
-            return Err(Error::NotLoggedIn);
-        };
-
         let InvitedReply { room_id, accepted } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
@@ -1307,7 +1298,8 @@ impl MatrixClientInner {
         room.join().await?;
         log::info!("Successfully accepted invitation for room: {room_id:?}");
 
-        let proto = rooms::convert_to_proto(media_manager, room, user_id).await?;
+        let manager = RoomsManager::from_session(&*session);
+        let proto = manager.matrix_room_to_proto(room).await?;
 
         ctx.send_event(ResponseContent::RoomCreatedEvent(proto))
             .await;
@@ -1365,10 +1357,6 @@ impl MatrixClientInner {
             ..
         } = session.as_ref();
 
-        let Some(user_id) = client.user_id() else {
-            return Err(Error::NotLoggedIn);
-        };
-
         let RoomCreateGroupRequest {
             display_name,
             invitees,
@@ -1398,7 +1386,8 @@ impl MatrixClientInner {
             }
         }
 
-        rooms::convert_to_proto(media_manager, room, user_id).await
+        let manager = RoomsManager::from_session(&*session);
+        manager.matrix_room_to_proto(room).await
     }
 
     async fn create_direct_room(
@@ -1412,10 +1401,6 @@ impl MatrixClientInner {
             media_manager,
             ..
         } = session.as_ref();
-
-        let Some(our_user_id) = client.user_id() else {
-            return Err(Error::NotLoggedIn);
-        };
 
         let invitee_user_id = UserId::parse(&request.invitee).map_err(|_| Error::InvalidUserId)?;
 
@@ -1434,7 +1419,8 @@ impl MatrixClientInner {
             }
         }
 
-        rooms::convert_to_proto(media_manager, room, our_user_id).await
+        let manager = RoomsManager::from_session(&*session);
+        manager.matrix_room_to_proto(room).await
     }
 
     async fn change_room(
@@ -1511,18 +1497,14 @@ impl MatrixClientInner {
         let session = self.session()?;
         let SessionContext {
             client,
-            media_manager,
             ..
         } = session.as_ref();
 
-        let Some(user_id) = client.user_id().map(|f| f.to_owned()) else {
-            return Err(Error::NotLoggedIn);
-        };
-
         let room_id = RoomId::parse(&request.room_id).map_err(|_| Error::RoomNotFound)?;
-
         let room = client.join_room_by_id(&room_id).await?;
-        rooms::convert_to_proto(media_manager, room, &user_id).await
+
+        let manager = RoomsManager::from_session(&*session);
+        manager.matrix_room_to_proto(room).await
     }
 
     async fn knock_room(&self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {
