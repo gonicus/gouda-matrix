@@ -1,6 +1,8 @@
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use matrix_sdk::ruma::events::room::message::{FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent};
+use matrix_sdk::ruma::events::room::message::{
+    FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent,
+};
 use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
