@@ -1,3 +1,5 @@
+use gouda_proto::chat;
+
 pub trait FromMatrix<T> {
     fn from_matrix(value: T) -> Self;
 }
@@ -30,4 +32,29 @@ where
     fn into_chat(self) -> U {
         U::from_chat(self)
     }
+}
+
+impl FromMatrix<matrix_sdk::ruma::room::JoinRule> for chat::RoomJoinRule {
+    fn from_matrix(value: matrix_sdk::ruma::room::JoinRule) -> Self {
+        match value {
+            matrix_sdk::ruma::room::JoinRule::Invite => chat::RoomJoinRule::Invite,
+            matrix_sdk::ruma::room::JoinRule::Knock => chat::RoomJoinRule::Knock,
+            matrix_sdk::ruma::room::JoinRule::Public => chat::RoomJoinRule::Public,
+            _ => chat::RoomJoinRule::Invite,
+        }
+    }
+}
+
+impl FromChat<chat::RoomJoinRule> for matrix_sdk::ruma::room::JoinRule {
+    fn from_chat(value: chat::RoomJoinRule) -> Self {
+        match value {
+            chat::RoomJoinRule::Invite => matrix_sdk::ruma::room::JoinRule::Invite,
+            chat::RoomJoinRule::Knock => matrix_sdk::ruma::room::JoinRule::Knock,
+            chat::RoomJoinRule::Public => matrix_sdk::ruma::room::JoinRule::Public,
+        }
+    }
+}
+
+fn test() {
+    let matrix: matrix_sdk::ruma::room::JoinRule = chat::RoomJoinRule::Invite.into_matrix();
 }
