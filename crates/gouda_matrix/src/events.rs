@@ -33,10 +33,10 @@ use ruma_common::serde::Raw;
 use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::bridge::IntoChat;
+use crate::bridge::{IntoChat, TryIntoChat};
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
-use crate::{messages, rooms, unwrap_or_log_return, user};
+use crate::{messages, rooms, unwrap_or_log_return};
 
 // After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -611,8 +611,7 @@ impl EventExecutor {
             .send_event(ResponseContent::RoomChangeEvent(proto))
             .await;
 
-        let membership_change = user::convert_membership_change(&event.membership_change());
-        let Some(membership_change) = membership_change else {
+        let Ok(membership_change) = event.membership_change().try_into_chat() else {
             log::warn!("Unknown membership change: {:?}", event.membership_change());
             return;
         };
@@ -848,7 +847,7 @@ impl EventExecutor {
 
     async fn exec_presence_event(&mut self, event: PresenceEvent) {
         let user_id = event.sender.to_string();
-        let presence = user::matrix_presence_state_to_chat(event.content.presence);
+        let presence = event.content.presence.into_chat();
 
         let user_status = UserStatus {
             state: presence.into(),

@@ -4,10 +4,11 @@ use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::encryption::verification::SasVerification;
 use matrix_sdk::stream::StreamExt;
-use matrix_sdk_crypto::{Emoji, EmojiShortAuthString, SasState};
+use matrix_sdk_crypto::{EmojiShortAuthString, SasState};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::verification::{self, VerificationAction};
+use crate::bridge::IntoChat;
 use crate::verification::send_verification_end_event_err;
 
 /// Manages a SAS verification process until its completion.
@@ -158,7 +159,7 @@ impl<'a> SasVerificationManager<'a> {
         };
 
         let verification_code = if let Some(emojis) = emojis {
-            VerificationCode::Symbols(emojis_to_chat_symbols(emojis.emojis))
+            VerificationCode::Symbols(emojis.emojis.into_chat())
         } else {
             VerificationCode::StringCode(format!("{} {} {}", decimals.0, decimals.1, decimals.2))
         };
@@ -196,18 +197,4 @@ impl<'a> SasVerificationManager<'a> {
             .await;
         }
     }
-}
-
-/// Converts SAS emojis received from the matrix-sdk to a VerificationSymbolSequence.
-fn emojis_to_chat_symbols(emojis: [Emoji; 7]) -> VerificationSymbolSequence {
-    let mut symbols = Vec::new();
-
-    for emoji in emojis {
-        symbols.push(VerificationSymbol {
-            symbol: emoji.symbol.to_owned(),
-            description: Some(emoji.description.to_owned()),
-        });
-    }
-
-    VerificationSymbolSequence { symbols }
 }

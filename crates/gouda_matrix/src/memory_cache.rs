@@ -27,9 +27,10 @@ use ruma_common::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
+use crate::bridge::TryIntoChat;
 use crate::error::chat_err;
 use crate::media::MediaManager;
-use crate::{messages, user};
+use crate::messages;
 
 /// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -887,7 +888,7 @@ impl CachedRoom {
             return Ok(None);
         };
 
-        let Some(change) = user::convert_membership_change(&original.membership_change()) else {
+        let Ok(change) = original.membership_change().try_into_chat() else {
             log::debug!("Event does not contain a relevant membership change, nothing to do");
             return Ok(None);
         };

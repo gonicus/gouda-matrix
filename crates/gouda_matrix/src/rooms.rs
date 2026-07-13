@@ -14,7 +14,7 @@ use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::{notifications, user};
+use crate::notifications;
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
@@ -84,7 +84,10 @@ impl RoomsManager {
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
         let members = get_room_members(&room).await?;
-        let join_rule = room.join_rule().unwrap_or(MatrixJoinRule::Invite).into_chat();
+        let join_rule = room
+            .join_rule()
+            .unwrap_or(MatrixJoinRule::Invite)
+            .into_chat();
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
         let avatar_path = self.media_manager.get_room_avatar_path(&room).await;
@@ -120,7 +123,7 @@ pub async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String,
     for member in members {
         result.insert(
             member.user_id().to_string(),
-            user::membership_state_to_user_room_state(member.membership()).into(),
+            member.membership().clone().into_chat().into(),
         );
     }
 
