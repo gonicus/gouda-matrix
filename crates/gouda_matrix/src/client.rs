@@ -1298,7 +1298,7 @@ impl MatrixClientInner {
         room.join().await?;
         log::info!("Successfully accepted invitation for room: {room_id:?}");
 
-        let manager = RoomsManager::from_session(&*session);
+        let manager = RoomsManager::from_session(&session);
         let proto = manager.assemble_chat_room(room).await?;
 
         ctx.send_event(ResponseContent::RoomCreatedEvent(proto))
@@ -1386,7 +1386,7 @@ impl MatrixClientInner {
             }
         }
 
-        let manager = RoomsManager::from_session(&*session);
+        let manager = RoomsManager::from_session(&session);
         manager.assemble_chat_room(room).await
     }
 
@@ -1419,7 +1419,7 @@ impl MatrixClientInner {
             }
         }
 
-        let manager = RoomsManager::from_session(&*session);
+        let manager = RoomsManager::from_session(&session);
         manager.assemble_chat_room(room).await
     }
 
@@ -1500,7 +1500,7 @@ impl MatrixClientInner {
         let room_id = RoomId::parse(&request.room_id).map_err(|_| Error::RoomNotFound)?;
         let room = client.join_room_by_id(&room_id).await?;
 
-        let manager = RoomsManager::from_session(&*session);
+        let manager = RoomsManager::from_session(&session);
         manager.assemble_chat_room(room).await
     }
 
