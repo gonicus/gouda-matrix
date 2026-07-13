@@ -119,3 +119,41 @@ impl<'a> TryIntoChat<chat::message_content_membership_change::MembershipChange>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matrix_join_rule_to_chat_join_rule() {
+        use ruma_common::room::Restricted;
+
+        let value = matrix_sdk::ruma::room::JoinRule::Invite.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Invite);
+
+        let value = matrix_sdk::ruma::room::JoinRule::Knock.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Knock);
+
+        let value = matrix_sdk::ruma::room::JoinRule::Public.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Public);
+
+        let value =
+            matrix_sdk::ruma::room::JoinRule::KnockRestricted(Restricted::default()).into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Invite);
+
+        let value = matrix_sdk::ruma::room::JoinRule::Restricted(Restricted::default()).into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Invite);
+    }
+
+    #[test]
+    fn test_chat_join_rule_to_matrix_join_rule() {
+        let value = chat::RoomJoinRule::Invite.into_matrix();
+        assert_eq!(value, matrix_sdk::ruma::room::JoinRule::Invite);
+
+        let value = chat::RoomJoinRule::Knock.into_matrix();
+        assert_eq!(value, matrix_sdk::ruma::room::JoinRule::Knock);
+
+        let value = chat::RoomJoinRule::Public.into_matrix();
+        assert_eq!(value, matrix_sdk::ruma::room::JoinRule::Public);
+    }
+}
