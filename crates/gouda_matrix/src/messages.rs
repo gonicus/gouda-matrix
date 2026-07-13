@@ -1,6 +1,8 @@
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use matrix_sdk::ruma::events::room::message::{Relation, ReplyMetadata, RoomMessageEventContent};
+use matrix_sdk::ruma::events::room::message::{
+    FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent,
+};
 use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
@@ -183,6 +185,12 @@ pub async fn send_text_message(
     content: MessageContentText,
 ) -> Result<MessageSendResponse> {
     let mut event = RoomMessageEventContent::text_markdown(content.content);
+
+    if let MessageType::Text(text) = &mut event.msgtype {
+        if text.formatted.is_none() {
+            text.formatted = Some(FormattedBody::html(text.body.clone()));
+        }
+    }
 
     if let Some(related_message_id) = related_message_id {
         let metadata = generate_reply_metadata(&room, &related_message_id).await?;

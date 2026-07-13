@@ -246,10 +246,7 @@ impl MemoryCacheInner {
 
         match content {
             ResponseContent::MessageReceivedEvent(message) => {
-                let user_id = self.client.user_id().map(|f| f.as_str());
-                if response.tag == 0 && Some(message.sender_id.as_str()) != user_id {
-                    self.cache_proto_message(message).await?;
-                }
+                self.cache_proto_message(response.tag, message).await?;
             }
             ResponseContent::RoomListResponse(response) => {
                 self.cache_proto_room_list(&response.room_list)?;
@@ -394,7 +391,7 @@ impl MemoryCacheInner {
         Ok(())
     }
 
-    async fn cache_proto_message(&self, event: &Message) -> Result<()> {
+    async fn cache_proto_message(&self, tag: u64, event: &Message) -> Result<()> {
         log::debug!("Caching proto message: {event:?}");
 
         let Some(room) = self.get_room(&event.room_id)? else {
@@ -402,22 +399,7 @@ impl MemoryCacheInner {
             return Ok(());
         };
 
-        let user_id = self.client.user_id().map(|f| f.as_str());
-        if Some(event.sender_id.as_str()) == user_id {
-            log::debug!("Message is send by our own user, no changes to unread count needed");
-            return Ok(());
-        }
-
-        let new_count = {
-            let mut guard = room.unread_count.lock()?;
-            *guard += 1;
-            *guard
-        };
-
-        log::debug!("Updated room unread count to: {new_count}");
-
-        self.notify_app_about_room_unread_count(&event.room_id, new_count)
-            .await;
+        room.cache_message_event(tag, event).await?;
 
         Ok(())
     }
@@ -473,18 +455,6 @@ impl MemoryCacheInner {
     fn get_matrix_room(&self, room_id: &str) -> Option<MatrixRoom> {
         let room_id = OwnedRoomId::try_from(room_id).ok()?;
         self.client.get_room(&room_id)
-    }
-
-    async fn notify_app_about_room_unread_count(&self, room_id: &str, unread_count: u32) {
-        log::debug!("Notifying app about new unread count {unread_count} for room {room_id:?}");
-
-        let proto = RoomChangeEventBuilder::new(room_id)
-            .change_unread_count(unread_count)
-            .to_proto();
-
-        self.ctx
-            .send_event(ResponseContent::RoomChangeEvent(proto))
-            .await;
     }
 }
 
@@ -1262,14 +1232,6 @@ impl CachedRoom {
     fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
         log::debug!("Caching encrypted event {event_id:?}");
 
-        // let request = matrix_sdk::event_cache::DecryptionRetryRequest {
-        //     room_id: self.room.room_id().to_owned(),
-        //     utd_session_ids: BTreeSet::from([event_id.clone()]),
-        //     refresh_info_session_ids: BTreeSet::new(),
-        // };
-
-        // self.room.client().event_cache().request_decryption(request);
-
         let mut guard = self.encrypted_events.lock()?;
         guard.insert(event_id, event);
 
@@ -1282,6 +1244,46 @@ impl CachedRoom {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
         Ok(())
+    }
+
+    /// Caches a message event.
+    pub async fn cache_message_event(&self, tag: u64, message: &Message) -> Result<()> {
+        let client = self.room.client();
+        let user_id = client.user_id().map(|f| f.as_str());
+
+        if tag == 0 && Some(message.sender_id.as_str()) != user_id {
+            log::debug!("Message is not from our own user, increasing unread count");
+            self.increase_unread_count(message).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn increase_unread_count(&self, message: &Message) -> Result<()> {
+        let new_count = {
+            let mut guard = self.unread_count.lock()?;
+            *guard += 1;
+            *guard
+        };
+
+        log::debug!("Updated room unread count to: {new_count}");
+
+        self.notify_app_about_room_unread_count(&message.room_id, new_count)
+            .await;
+
+        Ok(())
+    }
+
+    async fn notify_app_about_room_unread_count(&self, room_id: &str, unread_count: u32) {
+        log::debug!("Notifying app about new unread count {unread_count} for room {room_id:?}");
+
+        let proto = RoomChangeEventBuilder::new(room_id)
+            .change_unread_count(unread_count)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 }
 
