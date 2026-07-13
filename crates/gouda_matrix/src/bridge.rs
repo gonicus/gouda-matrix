@@ -156,4 +156,167 @@ mod tests {
         let value = chat::RoomJoinRule::Public.into_matrix();
         assert_eq!(value, matrix_sdk::ruma::room::JoinRule::Public);
     }
+
+    #[test]
+    fn test_matrix_join_rule_kind_to_chat_join_rule() {
+        let value = matrix_sdk::ruma::room::JoinRuleKind::Invite.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Invite);
+
+        let value = matrix_sdk::ruma::room::JoinRuleKind::Knock.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Knock);
+
+        let value = matrix_sdk::ruma::room::JoinRuleKind::Public.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Public);
+
+        let value = matrix_sdk::ruma::room::JoinRuleKind::Private.into_chat();
+        assert_eq!(value, chat::RoomJoinRule::Invite);
+    }
+
+    #[test]
+    fn test_membership_state_to_user_room_state() {
+        use matrix_sdk::ruma::events::room::member::MembershipState;
+
+        let value = MembershipState::Ban.into_chat();
+        assert_eq!(value, chat::UserRoomState::Banned);
+
+        let value = MembershipState::Invite.into_chat();
+        assert_eq!(value, chat::UserRoomState::Invited);
+
+        let value = MembershipState::Join.into_chat();
+        assert_eq!(value, chat::UserRoomState::Joined);
+
+        let value = MembershipState::Knock.into_chat();
+        assert_eq!(value, chat::UserRoomState::Knocked);
+
+        let value = MembershipState::Leave.into_chat();
+        assert_eq!(value, chat::UserRoomState::Unjoined);
+    }
+
+    #[test]
+    fn test_presence_state_to_chat() {
+        let value = ruma_common::presence::PresenceState::Offline.into_chat();
+        assert_eq!(value, chat::PresenceState::Offline);
+
+        let value = ruma_common::presence::PresenceState::Online.into_chat();
+        assert_eq!(value, chat::PresenceState::Online);
+
+        let value = ruma_common::presence::PresenceState::Unavailable.into_chat();
+        assert_eq!(value, chat::PresenceState::Away);
+    }
+
+    #[test]
+    fn test_chat_presence_state_to_matrix() {
+        let value = chat::PresenceState::Away.try_into_matrix().unwrap();
+        assert_eq!(value, ruma_common::presence::PresenceState::Unavailable);
+
+        let value = chat::PresenceState::Offline.try_into_matrix().unwrap();
+        assert_eq!(value, ruma_common::presence::PresenceState::Offline);
+
+        let value = chat::PresenceState::Online.try_into_matrix().unwrap();
+        assert_eq!(value, ruma_common::presence::PresenceState::Online);
+
+        let err = chat::PresenceState::Unknown.try_into_matrix();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_verification_emoji_sequence_to_chat() {
+        let dog = matrix_sdk_crypto::Emoji {
+            symbol: "🐶",
+            description: "Dog",
+        };
+        let cat = matrix_sdk_crypto::Emoji {
+            symbol: "🐱",
+            description: "Cat",
+        };
+        let rabbit = matrix_sdk_crypto::Emoji {
+            symbol: "🐰",
+            description: "Rabbit",
+        };
+
+        let emojis: &[matrix_sdk_crypto::Emoji] = &[dog, cat, rabbit];
+
+        let result = emojis.into_chat();
+        assert_eq!(result.symbols.len(), 3);
+
+        assert_eq!(result.symbols[0].symbol, "🐶");
+        assert_eq!(result.symbols[0].description, Some("Dog".to_string()));
+
+        assert_eq!(result.symbols[1].symbol, "🐱");
+        assert_eq!(result.symbols[1].description, Some("Cat".to_string()));
+
+        assert_eq!(result.symbols[2].symbol, "🐰");
+        assert_eq!(result.symbols[2].description, Some("Rabbit".to_string()));
+    }
+
+    #[test]
+    fn test_verification_emoji_sequence_empty() {
+        let emojis: &[matrix_sdk_crypto::Emoji] = &[];
+        let result = emojis.into_chat();
+        assert_eq!(result.symbols.len(), 0);
+    }
+
+    #[test]
+    fn test_membership_change_to_chat() {
+        use matrix_sdk::ruma::events::room::member::MembershipChange;
+
+        let value = MembershipChange::Joined.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Joined
+        );
+
+        let value = MembershipChange::InvitationAccepted
+            .try_into_chat()
+            .unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Joined
+        );
+
+        let value = MembershipChange::KnockAccepted.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Joined
+        );
+
+        let value = MembershipChange::Left.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Left
+        );
+
+        let value = MembershipChange::Banned.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Banned
+        );
+
+        let value = MembershipChange::KickedAndBanned.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Banned
+        );
+
+        let value = MembershipChange::Kicked.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Kicked
+        );
+
+        let value = MembershipChange::Invited.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Invited
+        );
+
+        let value = MembershipChange::Knocked.try_into_chat().unwrap();
+        assert_eq!(
+            value,
+            chat::message_content_membership_change::MembershipChange::Knocked
+        );
+
+        let err = MembershipChange::None.try_into_chat();
+        assert!(err.is_err());
+    }
 }
