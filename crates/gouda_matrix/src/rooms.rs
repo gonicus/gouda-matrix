@@ -48,7 +48,7 @@ impl RoomsManager {
         )
         .map(|room| {
             let manager = self.clone();
-            async move { manager.matrix_room_to_proto(room).await }
+            async move { manager.assemble_chat_room(room).await }
         })
         .buffer_unordered(MAX_CONCURRENT_ROOM_FETCHES)
         .filter_map(|result| async {
@@ -68,7 +68,7 @@ impl RoomsManager {
 
     /// Converts the given matrix room to a proto room.
     /// This will download all necessary data, including avatar image, users, etc.
-    pub async fn matrix_room_to_proto(&self, room: matrix_sdk::Room) -> Result<Room> {
+    pub async fn assemble_chat_room(&self, room: matrix_sdk::Room) -> Result<Room> {
         let display_name = room
             .display_name()
             .await
@@ -85,7 +85,7 @@ impl RoomsManager {
         };
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        let members = get_members(&room).await?;
+        let members = get_room_members(&room).await?;
         let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
@@ -105,16 +105,16 @@ impl RoomsManager {
             unread_count,
             is_direct,
             join_rule: join_rule.into(),
-            permissions: Some(get_permissions(&room, user_id).await?),
+            permissions: Some(get_room_permissions(&room, user_id).await?),
             latest_message_timestamp,
             avatar_path,
             is_favorite: room.is_favourite(),
-            room_settings: Some(get_settings(&room).await),
+            room_settings: Some(get_room_settings(&room).await),
         })
     }
 }
 
-pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
+pub async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>> {
     let members = room.members(matrix_sdk::RoomMemberships::all()).await?;
 
     let mut result: HashMap<String, i32> = HashMap::new();
@@ -129,7 +129,10 @@ pub async fn get_members(room: &matrix_sdk::Room) -> Result<HashMap<String, i32>
     Ok(result)
 }
 
-pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Result<RoomPermissions> {
+pub async fn get_room_permissions(
+    room: &matrix_sdk::Room,
+    user_id: &UserId,
+) -> Result<RoomPermissions> {
     use matrix_sdk::ruma::events::StateEventType;
 
     let room_power_levels = room.power_levels_or_default().await;
@@ -145,7 +148,7 @@ pub async fn get_permissions(room: &matrix_sdk::Room, user_id: &UserId) -> Resul
     })
 }
 
-async fn get_settings(room: &matrix_sdk::Room) -> RoomSettings {
+async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     let notification = room
         .notification_mode()
         .await

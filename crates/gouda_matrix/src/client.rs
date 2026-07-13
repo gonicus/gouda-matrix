@@ -1274,7 +1274,7 @@ impl MatrixClientInner {
 
         // Refresh the room
         let room = self.get_matrix_room(&request.room_id).await?;
-        let members = rooms::get_members(&room).await?;
+        let members = rooms::get_room_members(&room).await?;
 
         Ok(
             builder::RoomChangeEventBuilder::new(request.room_id.clone())
@@ -1299,7 +1299,7 @@ impl MatrixClientInner {
         log::info!("Successfully accepted invitation for room: {room_id:?}");
 
         let manager = RoomsManager::from_session(&*session);
-        let proto = manager.matrix_room_to_proto(room).await?;
+        let proto = manager.assemble_chat_room(room).await?;
 
         ctx.send_event(ResponseContent::RoomCreatedEvent(proto))
             .await;
@@ -1387,7 +1387,7 @@ impl MatrixClientInner {
         }
 
         let manager = RoomsManager::from_session(&*session);
-        manager.matrix_room_to_proto(room).await
+        manager.assemble_chat_room(room).await
     }
 
     async fn create_direct_room(
@@ -1420,7 +1420,7 @@ impl MatrixClientInner {
         }
 
         let manager = RoomsManager::from_session(&*session);
-        manager.matrix_room_to_proto(room).await
+        manager.assemble_chat_room(room).await
     }
 
     async fn change_room(
@@ -1501,7 +1501,7 @@ impl MatrixClientInner {
         let room = client.join_room_by_id(&room_id).await?;
 
         let manager = RoomsManager::from_session(&*session);
-        manager.matrix_room_to_proto(room).await
+        manager.assemble_chat_room(room).await
     }
 
     async fn knock_room(&self, _ctx: RequestContext, request: RoomKnockRequest) -> Result<()> {

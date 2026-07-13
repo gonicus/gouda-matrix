@@ -598,7 +598,7 @@ impl EventExecutor {
         log::debug!("General room member change, sending a RoomChangeEvent");
 
         let members = unwrap_or_log_return!(
-            rooms::get_members(&room).await,
+            rooms::get_room_members(&room).await,
             "Error retrieving room members"
         );
 
