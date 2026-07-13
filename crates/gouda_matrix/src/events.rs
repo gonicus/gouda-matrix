@@ -33,6 +33,7 @@ use ruma_common::serde::Raw;
 use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use crate::bridge::IntoChat;
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
 use crate::{messages, rooms, unwrap_or_log_return, user};
@@ -748,7 +749,7 @@ impl EventExecutor {
     }
 
     async fn exec_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
-        let join_rule = rooms::convert_join_rule(event.content.join_rule.clone());
+        let join_rule = event.content.join_rule.clone().into_chat();
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_join_rule(join_rule)
