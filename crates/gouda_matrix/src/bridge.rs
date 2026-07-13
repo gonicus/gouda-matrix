@@ -121,6 +121,7 @@ impl<'a> TryIntoChat<chat::message_content_membership_change::MembershipChange>
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
