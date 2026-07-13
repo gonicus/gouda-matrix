@@ -1,14 +1,12 @@
 use std::collections::HashMap;
-use std::time::Duration;
 
 use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
-use matrix_sdk::ruma::events::{AnySyncStateEvent, StateEventType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
-use matrix_sdk::{Client, Room as MatrixRoom};
+use matrix_sdk::Client;
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
