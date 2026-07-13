@@ -167,7 +167,7 @@ impl MessagesWindow {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.2;
             ui.label("🔑");
-            let re = ui.label(format!("  {}", &message.message_id));
+            let re = ui.label(format!("  {}", message.message_id));
 
             re.on_hover_ui(|ui| {
                 ui.label(format!("{message:?}"));

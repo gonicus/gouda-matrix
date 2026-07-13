@@ -236,7 +236,7 @@ impl ProtoCacheInner {
 
     /// Reads the cache information from the file system.
     async fn read_info(&self) -> Result<()> {
-        log::info!("Reading cache info from: {:?}", &self.info_file);
+        log::info!("Reading cache info from: {:?}", self.info_file);
 
         let decrypted = crypto::decrypt_file(&self.info_file, &self.passphrase).await?;
         let storage: Info = serde_json::from_slice(&decrypted)?;
@@ -251,7 +251,7 @@ impl ProtoCacheInner {
 
     /// Reads the cached users from the file system.
     async fn read_users(&self) -> Result<()> {
-        log::info!("Reading cached users from: {:?}", &self.users_file);
+        log::info!("Reading cached users from: {:?}", self.users_file);
 
         let encoded = crypto::decrypt_file(&self.users_file, &self.passphrase).await?;
         let decoded = decode_proto_messages::<User>(&encoded)?;
