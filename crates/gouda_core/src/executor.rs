@@ -443,6 +443,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_executor_run_cancellation() {
+        // Arrange
+        let client = ClientMock::new();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        let token = CancellationToken::new();
+
+        // Act
+        token.cancel();
+
+        executor
+            .run(token.clone())
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Assert
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
     async fn test_client_context() {
         // Arrange
         let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
