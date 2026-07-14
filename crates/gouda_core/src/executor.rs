@@ -376,7 +376,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{Arc, Executor, ExecutorTask, OutputTask};
-    use crate::test_utils::ClientMock;
+    use crate::{RunnerError, test_utils::ClientMock};
 
     fn create_executor_task(tag: u64, content: RequestContent) -> ExecutorTask {
         ExecutorTask::Request(Box::new(RequestContainer {
@@ -472,7 +472,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_client_context() {
+    async fn test_executor_run_empty_request_content() {
+        // Arrange
+        let client = ClientMock::new();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, _) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        let request = RequestContainer {
+            content: None,
+            tag: 42,
+        };
+
+        // Act
+        executor_tx.try_send(ExecutorTask::Request(Box::new(request))).unwrap();
+
+        let result = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap();
+
+        // Assert
+        assert!(matches!(result, Err(RunnerError::InvalidData)));
+    }
+
+    #[tokio::test]
+    async fn test_executor_request_context() {
         // Arrange
         let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
 
