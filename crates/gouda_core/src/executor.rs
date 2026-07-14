@@ -503,6 +503,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_executor_client_on_response() {
+        // Arrange
+        let client = ClientMock::new();
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let (output_tx, mut output_rx) = mpsc::channel(64);
+
+        let executor = Executor::new(
+            Arc::new(client),
+            executor_rx,
+            executor_tx.clone(),
+            output_tx,
+        );
+
+        let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());
+        let response =
+            ResponseContent::IdentityProvidersResponse(IdentityProvidersResponse::default());
+        let response_container = ResponseContainer {
+            content: Some(response.clone()),
+            tag: 12,
+        };
+
+        // Act
+        executor_tx
+            .try_send(create_executor_task(12, request.clone()))
+            .unwrap();
+
+        executor_tx.try_send(ExecutorTask::Exit).unwrap();
+
+        let Executor { client, .. } = executor
+            .run(CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Assert
+        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
+        client.assert_get_identity_providers_called_n(1);
+        client.assert_received_response(response_container);
+
+        assert_eq!(
+            output_rx.recv().await.unwrap(),
+            create_output_task(12, response.clone())
+        );
+        assert!(output_rx.is_empty())
+    }
+
+    #[tokio::test]
     async fn test_executor_request_context() {
         // Arrange
         let request = RequestContent::IdentityProvidersRequest(IdentityProvidersRequest::default());

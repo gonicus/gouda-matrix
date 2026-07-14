@@ -45,6 +45,8 @@ where
 pub struct ClientMock {
     /// The context received from the latest request.
     received_ctx: Mutex<Option<RequestContext>>,
+    /// The response we have received with [`Self::on_response`]
+    received_response: Mutex<Option<ResponseContainer>>,
 
     initialize_response: Mutex<Result<StatusUpdate>>,
     initialize_call_count: Mutex<u32>,
@@ -150,6 +152,11 @@ impl ClientMock {
     /// Creates a new `ClientMock` object with default values.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The response received with the [`Self::on_response`] event handler.
+    pub fn assert_received_response(&self, response: ResponseContainer) {
+        assert_eq!(*self.received_response.lock().unwrap(), Some(response));
     }
 
     /// The response [`Self::initialize`] should return.
@@ -536,6 +543,10 @@ impl ClientMock {
 
 #[async_trait::async_trait]
 impl Client for ClientMock {
+    async fn on_response(&self, response: ResponseContainer) {
+        *self.received_response.lock().unwrap() = Some(response);
+    }
+
     async fn initialize(
         &self,
         ctx: RequestContext,
