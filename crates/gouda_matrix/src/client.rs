@@ -21,6 +21,7 @@ use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::OnceCell;
 use url::Url;
 
+use crate::bridge::TryIntoMatrix;
 use crate::error::{Error, Result};
 use crate::events::EventManager;
 use crate::media::MediaManager;
@@ -1202,9 +1203,7 @@ impl MatrixClientInner {
             return Err(Error::NotLoggedIn);
         };
 
-        let presence_state = user::chat_presence_state_to_matrix(request.state());
-
-        let Some(state) = presence_state else {
+        let Ok(state) = request.state().try_into_matrix() else {
             return Err(Error::internal("Invalid presence state"));
         };
 

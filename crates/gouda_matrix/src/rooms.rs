@@ -8,13 +8,13 @@ use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::Client;
 use ruma_common::directory::PublicRoomsChunk;
-use ruma_common::room::JoinRuleKind as MatrixJoinRuleKind;
 use ruma_common::UserId;
 
+use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::{notifications, user};
+use crate::notifications;
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
@@ -84,7 +84,10 @@ impl RoomsManager {
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
         let members = get_room_members(&room).await?;
-        let join_rule = convert_join_rule(room.join_rule().unwrap_or(MatrixJoinRule::Invite));
+        let join_rule = room
+            .join_rule()
+            .unwrap_or(MatrixJoinRule::Invite)
+            .into_chat();
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
         let avatar_path = self.media_manager.get_room_avatar_path(&room).await;
@@ -120,7 +123,7 @@ pub async fn get_room_members(room: &matrix_sdk::Room) -> Result<HashMap<String,
     for member in members {
         result.insert(
             member.user_id().to_string(),
-            user::membership_state_to_user_room_state(member.membership()).into(),
+            member.membership().clone().into_chat().into(),
         );
     }
 
@@ -158,32 +161,6 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-pub fn convert_join_rule(join_rule: MatrixJoinRule) -> RoomJoinRule {
-    match join_rule {
-        MatrixJoinRule::Invite => RoomJoinRule::Invite,
-        MatrixJoinRule::Knock => RoomJoinRule::Knock,
-        MatrixJoinRule::Public => RoomJoinRule::Public,
-        _ => RoomJoinRule::Invite,
-    }
-}
-
-pub fn convert_join_rule_kind(join_rule_kind: MatrixJoinRuleKind) -> RoomJoinRule {
-    match join_rule_kind {
-        MatrixJoinRuleKind::Invite => RoomJoinRule::Invite,
-        MatrixJoinRuleKind::Knock => RoomJoinRule::Knock,
-        MatrixJoinRuleKind::Public => RoomJoinRule::Public,
-        _ => RoomJoinRule::Invite,
-    }
-}
-
-pub fn convert_to_matrix_join_rule(join_rule: RoomJoinRule) -> MatrixJoinRule {
-    match join_rule {
-        RoomJoinRule::Invite => MatrixJoinRule::Invite,
-        RoomJoinRule::Knock => MatrixJoinRule::Knock,
-        RoomJoinRule::Public => MatrixJoinRule::Public,
-    }
-}
-
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
     if join_rule == MatrixJoinRule::Public || join_rule == MatrixJoinRule::Knock {
         matrix_sdk::ruma::api::client::room::Visibility::Public
@@ -206,7 +183,7 @@ pub fn create_room_request(
     use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
     use matrix_sdk::ruma::events::InitialStateEvent;
 
-    let join_rule = convert_to_matrix_join_rule(join_rule);
+    let join_rule = join_rule.into_matrix();
     let visibility = matrix_join_rule_to_visibility(join_rule.clone());
 
     let mut request = MatrixCreateRoomRequest::new();
@@ -248,7 +225,7 @@ pub fn create_dm_room_request(
 /// Updates the visibility of a room.
 /// This changes the rooms `JoinRule` as well as the `Visibility`.
 pub async fn update_room_join_rule(room: &matrix_sdk::Room, join_rule: RoomJoinRule) -> Result<()> {
-    let join_rule = convert_to_matrix_join_rule(join_rule);
+    let join_rule = join_rule.into_matrix();
 
     room.privacy_settings()
         .update_join_rule(join_rule.clone())
@@ -273,7 +250,7 @@ pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoo
             num_joined_members: room.num_joined_members.try_into().unwrap_or(u32::MAX),
             room_id: room.room_id.to_string(),
             topic: room.topic,
-            join_rule: convert_join_rule_kind(room.join_rule).into(),
+            join_rule: room.join_rule.into_chat().into(),
         });
     }
 
