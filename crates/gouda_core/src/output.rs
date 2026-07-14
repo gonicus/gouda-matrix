@@ -195,10 +195,7 @@ mod tests {
         // Act
         token.cancel();
 
-        let result = output_processor
-            .run(token)
-            .await
-            .unwrap();
+        let result = output_processor.run(token).await.unwrap();
 
         // Assert
         assert!(result.is_ok());
