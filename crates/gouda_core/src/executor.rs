@@ -376,7 +376,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{Arc, Executor, ExecutorTask, OutputTask};
-    use crate::{RunnerError, test_utils::ClientMock};
+    use crate::test_utils::ClientMock;
+    use crate::RunnerError;
 
     fn create_executor_task(tag: u64, content: RequestContent) -> ExecutorTask {
         ExecutorTask::Request(Box::new(RequestContainer {
@@ -461,11 +462,7 @@ mod tests {
         // Act
         token.cancel();
 
-        executor
-            .run(token.clone())
-            .await
-            .unwrap()
-            .unwrap();
+        executor.run(token.clone()).await.unwrap().unwrap();
 
         // Assert
         assert!(output_rx.is_empty())
@@ -491,12 +488,11 @@ mod tests {
         };
 
         // Act
-        executor_tx.try_send(ExecutorTask::Request(Box::new(request))).unwrap();
-
-        let result = executor
-            .run(CancellationToken::new())
-            .await
+        executor_tx
+            .try_send(ExecutorTask::Request(Box::new(request)))
             .unwrap();
+
+        let result = executor.run(CancellationToken::new()).await.unwrap();
 
         // Assert
         assert!(matches!(result, Err(RunnerError::InvalidData)));
