@@ -1559,7 +1559,7 @@ mod tests {
         client.assert_get_global_settings_called_n(1);
         client.assert_received_response(ResponseContainer {
             tag: 0,
-            content: Some(ResponseContent::GlobalSettingsEvent(response.clone())),
+            content: Some(ResponseContent::GlobalSettingsEvent(response)),
         });
 
         assert_eq!(
