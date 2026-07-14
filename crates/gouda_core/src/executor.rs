@@ -620,6 +620,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_initialize_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::StatusUpdate(response)),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -664,6 +668,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_initialize_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -710,6 +718,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_login_flows_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::LoginFlowsResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -754,6 +766,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_login_flows_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -797,6 +813,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_identity_providers_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::IdentityProvidersResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -841,6 +861,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_identity_providers_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -973,6 +997,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_login_sso_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::LoginSsoResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1017,6 +1045,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_login_sso_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1063,6 +1095,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_recovery_key_verification_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::VerificationEndEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1109,6 +1145,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_recovery_key_verification_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1152,6 +1192,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_cross_signing_start_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::CrossSigningStartResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1196,6 +1240,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_cross_signing_start_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1280,6 +1328,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_cross_signing_select_method_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1362,6 +1414,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_cross_signing_confirm_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1406,6 +1462,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_abort_verification_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::VerificationEndEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1450,6 +1510,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_abort_verification_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1493,6 +1557,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_global_settings_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::GlobalSettingsEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1537,6 +1605,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_global_settings_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1583,6 +1655,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_user_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::UserResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1627,6 +1703,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_user_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1683,6 +1763,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_search_users_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::UserSearchResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1727,92 +1811,16 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_search_users_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
             create_output_task(2, ResponseContent::Error(response))
         );
         assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
-    async fn test_user_status_set_own_request() {
-        // Arrange
-        let request = RequestContent::UserStatusSetOwnRequest(UserStatus::default());
-
-        let client = ClientMock::new().set_status_response(Ok(()));
-
-        let (executor_tx, executor_rx) = mpsc::channel(64);
-        let (output_tx, output_rx) = mpsc::channel(64);
-
-        let executor = Executor::new(
-            Arc::new(client),
-            executor_rx,
-            executor_tx.clone(),
-            output_tx,
-        );
-
-        // Act
-        executor_tx
-            .try_send(create_executor_task(2, request))
-            .unwrap();
-        executor_tx.try_send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor
-            .run(CancellationToken::new())
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_set_status_called_n(1);
-
-        assert!(output_rx.is_empty())
-    }
-
-    #[tokio::test]
-    async fn test_user_status_set_own_request_err() {
-        // Arrange
-        let request = RequestContent::UserStatusSetOwnRequest(UserStatus::default());
-        let response = Error {
-            r#type: ErrorType::Unknown as i32,
-            error_string: Some("Test error".to_owned()),
-        };
-
-        let client = ClientMock::new().set_status_response(Err(response.clone()));
-
-        let (executor_tx, executor_rx) = mpsc::channel(64);
-        let (output_tx, mut output_rx) = mpsc::channel(64);
-
-        let executor = Executor::new(
-            Arc::new(client),
-            executor_rx,
-            executor_tx.clone(),
-            output_tx,
-        );
-
-        // Act
-        executor_tx
-            .try_send(create_executor_task(2, request))
-            .unwrap();
-        executor_tx.try_send(ExecutorTask::Exit).unwrap();
-
-        let Executor { client, .. } = executor
-            .run(CancellationToken::new())
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Assert
-        let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
-        client.assert_set_status_called_n(1);
-
-        assert_eq!(
-            output_rx.recv().await.unwrap(),
-            create_output_task(2, ResponseContent::Error(response))
-        );
-        assert!(output_rx.is_empty());
     }
 
     #[tokio::test]
@@ -1857,6 +1865,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_public_rooms_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::PublicRoomListResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1901,6 +1913,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_public_rooms_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -1959,6 +1975,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_invite_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomChangeEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2003,6 +2023,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_invite_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2083,6 +2107,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_invitation_reply_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2162,6 +2190,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_rooms_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomListResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2206,6 +2238,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_rooms_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2263,6 +2299,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_create_group_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomCreatedEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2307,6 +2347,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_create_group_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2364,6 +2408,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_create_direct_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomCreatedEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2408,6 +2456,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_create_direct_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2466,6 +2518,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_change_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomChangeEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2510,6 +2566,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_change_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2555,6 +2615,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_leave_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomLeftEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2599,6 +2663,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_leave_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2656,6 +2724,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_join_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomCreatedEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2700,6 +2772,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_join_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2780,6 +2856,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_knock_room_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2860,6 +2940,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_room_messages_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2918,6 +3002,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_mark_as_read_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::RoomChangeEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -2962,6 +3050,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_mark_as_read_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3042,6 +3134,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_activate_typing_notice_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3085,6 +3181,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_send_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::MessageSendResponse(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3129,6 +3229,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_send_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3209,6 +3313,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_remove_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3289,6 +3397,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_change_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3369,6 +3481,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_create_reaction_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3449,6 +3565,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_remove_reaction_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3493,6 +3613,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::MessageReceivedEvent(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
@@ -3537,6 +3661,10 @@ mod tests {
         // Assert
         let client = client.as_any().downcast_ref::<ClientMock>().unwrap();
         client.assert_get_message_called_n(1);
+        client.assert_received_response(ResponseContainer {
+            tag: 2,
+            content: Some(ResponseContent::Error(response.clone())),
+        });
 
         assert_eq!(
             output_rx.recv().await.unwrap(),
