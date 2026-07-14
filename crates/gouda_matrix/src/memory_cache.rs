@@ -1481,3 +1481,259 @@ fn calc_chunk_size(limit: u32) -> js_int::UInt {
     let chunk_size = chunk_size.clamp(ROOM_EVENTS_CHUNK_SIZE_MIN, ROOM_EVENTS_CHUNK_SIZE_MAX);
     chunk_size.into()
 }
+
+#[cfg(test)]
+mod tests {
+    use gouda_proto::chat::MessageContentText;
+
+    use super::*;
+
+    #[test]
+    fn test_calc_chunk_size_small_limit() {
+        let result = calc_chunk_size(5);
+        assert_eq!(result, js_int::uint!(10));
+    }
+
+    #[test]
+    fn test_calc_chunk_size_medium_limit() {
+        let result = calc_chunk_size(50);
+        assert_eq!(result, js_int::uint!(15));
+    }
+
+    #[test]
+    fn test_calc_chunk_size_large_limit() {
+        let result = calc_chunk_size(500);
+        assert_eq!(result, js_int::uint!(100));
+    }
+
+    #[test]
+    fn test_calc_chunk_size_zero_limit() {
+        let result = calc_chunk_size(0);
+        assert_eq!(result, js_int::uint!(10));
+    }
+
+    #[test]
+    fn test_calc_chunk_size_max_limit() {
+        let result = calc_chunk_size(u32::MAX);
+        assert_eq!(result, js_int::uint!(100));
+    }
+
+    #[test]
+    fn test_cached_notification_settings_default() {
+        let settings = CachedNotificationSettings::default();
+        assert_eq!(settings.global_settings, NotificationSetting::AllMessages);
+        assert!(settings.room_settings.is_empty());
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_empty() {
+        let mut cached = CachedMessage::default();
+        let message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message.clone());
+
+        assert_eq!(result, message);
+        assert_eq!(cached.original, Some(message));
+    }
+
+    #[test]
+    fn test_cached_message_apply_reactions() {
+        let mut cached = CachedMessage::default();
+        cached.reactions.insert(
+            "$reaction1".to_string(),
+            CachedReaction {
+                user_id: "@alice:example.org".to_string(),
+                emoji: "👍".to_string(),
+            },
+        );
+        cached.reactions.insert(
+            "$reaction2".to_string(),
+            CachedReaction {
+                user_id: "@bob:example.org".to_string(),
+                emoji: "❤️".to_string(),
+            },
+        );
+
+        let mut message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            ..Default::default()
+        };
+
+        cached.apply_reactions(&mut message);
+
+        assert_eq!(message.reactions.len(), 2);
+    }
+
+    #[test]
+    fn test_cached_message_apply_replacements_empty() {
+        let mut cached = CachedMessage::default();
+        let mut message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            ..Default::default()
+        };
+
+        cached.apply_replacements(&mut message);
+
+        assert!(message.content.is_none());
+    }
+
+    #[test]
+    fn test_cached_message_apply_replacements_single() {
+        let mut cached = CachedMessage::default();
+        cached.replacements.insert(
+            "$replace1".to_string(),
+            CachedReplacement {
+                timestamp: 2000,
+                new_content: message::Content::Text(gouda_proto::chat::MessageContentText {
+                    content: "updated message".to_string(),
+                }),
+            },
+        );
+
+        let mut message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Text(
+                gouda_proto::chat::MessageContentText {
+                    content: "original message".to_string(),
+                },
+            )),
+            ..Default::default()
+        };
+
+        cached.apply_replacements(&mut message);
+
+        assert_eq!(
+            message.content,
+            Some(message::Content::Text(MessageContentText {
+                content: "updated message".to_string()
+            }))
+        );
+    }
+
+    #[test]
+    fn test_cached_message_apply_replacements_multiple_sorted_by_timestamp() {
+        let mut cached = CachedMessage::default();
+
+        cached.replacements.insert(
+            "$replace2".to_string(),
+            CachedReplacement {
+                timestamp: 3000,
+                new_content: message::Content::Text(gouda_proto::chat::MessageContentText {
+                    content: "latest".to_string(),
+                }),
+            },
+        );
+        cached.replacements.insert(
+            "$replace1".to_string(),
+            CachedReplacement {
+                timestamp: 2000,
+                new_content: message::Content::Text(gouda_proto::chat::MessageContentText {
+                    content: "middle".to_string(),
+                }),
+            },
+        );
+
+        let mut message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Text(
+                gouda_proto::chat::MessageContentText {
+                    content: "original".to_string(),
+                },
+            )),
+            ..Default::default()
+        };
+
+        cached.apply_replacements(&mut message);
+
+        assert_eq!(
+            message.content,
+            Some(message::Content::Text(MessageContentText {
+                content: "latest".to_string()
+            }))
+        );
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_with_reactions() {
+        let mut cached = CachedMessage::default();
+        cached.reactions.insert(
+            "$reaction1".to_string(),
+            CachedReaction {
+                user_id: "@alice:example.org".to_string(),
+                emoji: "🎉".to_string(),
+            },
+        );
+
+        let message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@bob:example.org".to_string(),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message.clone());
+
+        assert_eq!(cached.original, Some(message));
+        assert_eq!(result.reactions.len(), 1);
+        assert_eq!(result.reactions[0].reaction, "🎉");
+        assert_eq!(
+            result.reactions[0].user_id,
+            Some("@alice:example.org".to_string())
+        );
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_with_replacements() {
+        let mut cached = CachedMessage::default();
+        cached.replacements.insert(
+            "$replace1".to_string(),
+            CachedReplacement {
+                timestamp: 2000,
+                new_content: message::Content::Text(gouda_proto::chat::MessageContentText {
+                    content: "replaced body".to_string(),
+                }),
+            },
+        );
+
+        let message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@bob:example.org".to_string(),
+            content: Some(message::Content::Text(
+                gouda_proto::chat::MessageContentText {
+                    content: "original body".to_string(),
+                },
+            )),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message);
+
+        assert_eq!(
+            result.content,
+            Some(message::Content::Text(MessageContentText {
+                content: "replaced body".to_string()
+            }))
+        );
+    }
+}
