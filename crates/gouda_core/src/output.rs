@@ -178,8 +178,29 @@ mod tests {
             .unwrap();
 
         // Assert
-        let output = output.lock().unwrap();
-        let bytes = output.clone().into_inner();
+        let bytes = output.lock().unwrap().clone().into_inner();
         assert_eq!(expected_response, bytes.as_ref());
+    }
+
+    #[tokio::test]
+    async fn test_output_processor_cancellation_token() {
+        // Arrange
+        let (_, output_rx) = mpsc::channel(32);
+        let (writer, output) = test_utils::WriterMock::new();
+
+        let output_processor = OutputProcessor::new(Box::new(writer), output_rx);
+
+        let token = CancellationToken::new();
+
+        // Act
+        token.cancel();
+
+        let result = output_processor.run(token).await.unwrap();
+
+        // Assert
+        assert!(result.is_ok());
+
+        let bytes = output.lock().unwrap().clone().into_inner();
+        assert!(bytes.is_empty());
     }
 }

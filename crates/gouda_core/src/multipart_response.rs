@@ -63,3 +63,74 @@ impl Drop for MultipartResponse {
         });
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use gouda_proto::chat::{Message, ResponseContainer};
+    use tokio::sync::mpsc::Receiver;
+
+    use super::*;
+    use crate::ExecutorTask;
+
+    fn create_context(tag: u64) -> (RequestContext, Receiver<ExecutorTask>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        (RequestContext::new(tag, tx), rx)
+    }
+
+    #[tokio::test]
+    async fn test_multipart_response_send_item() {
+        let (ctx, mut rx) = create_context(42);
+        let mr = MultipartResponse::new(ctx);
+
+        let content = ResponseContent::MessageReceivedEvent(Message {
+            message_id: "message-1".to_string(),
+            ..Default::default()
+        });
+
+        let expected = ResponseContainer {
+            tag: 42,
+            content: Some(content.clone()),
+        };
+
+        mr.send_item(content).await;
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ExecutorTask::Response(Box::new(expected))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_multipart_response_drop() {
+        let (ctx, mut rx) = create_context(42);
+        let mr = MultipartResponse::new(ctx);
+
+        let content = ResponseContent::MessageReceivedEvent(Message {
+            message_id: "message-1".to_string(),
+            ..Default::default()
+        });
+
+        let expected_item = ResponseContainer {
+            tag: 42,
+            content: Some(content.clone()),
+        };
+
+        let expected_end = ResponseContainer {
+            tag: 42,
+            content: Some(ResponseContent::MultipartEnd(MultipartEnd::default())),
+        };
+
+        mr.send_item(content).await;
+        drop(mr);
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ExecutorTask::Response(Box::new(expected_item))
+        );
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ExecutorTask::Response(Box::new(expected_end))
+        );
+    }
+}
