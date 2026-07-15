@@ -578,14 +578,14 @@ impl EventExecutor {
     }
 
     async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
-        self.send_room_created_event_if_needed(&room).await;
-
         // Check if our user's membership has changed and if we need to handle this
         // change differently than a membership change for other users.
-        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string())
-            && self.process_own_membership_change(&room, &event).await
-        {
-            return;
+        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string()) {
+            self.send_room_created_event_if_needed(&room).await;
+
+            if self.process_own_membership_change(&room, &event).await {
+                return;
+            }
         }
 
         if let MembershipChange::ProfileChanged {
