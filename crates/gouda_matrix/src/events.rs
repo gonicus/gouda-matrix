@@ -951,7 +951,10 @@ impl EventExecutor {
             return;
         }
 
-        log::debug!("Sending RoomCreatedEvent for {} as room is not known", room.room_id());
+        log::debug!(
+            "Sending RoomCreatedEvent for {} as room is not known",
+            room.room_id()
+        );
 
         let assemble_result = RoomsManager::new(self.client.clone(), self.media_manager.clone())
             .assemble_chat_room(&room)
@@ -962,7 +965,9 @@ impl EventExecutor {
             return;
         };
 
-        self.ctx.send_event(ResponseContent::RoomCreatedEvent(proto)).await;
+        self.ctx
+            .send_event(ResponseContent::RoomCreatedEvent(proto))
+            .await;
     }
 }
 
