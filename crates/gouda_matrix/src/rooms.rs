@@ -26,6 +26,13 @@ pub struct RoomsManager {
 }
 
 impl RoomsManager {
+    pub fn new(client: Client, media_manager: MediaManager) -> Self {
+        Self {
+            client,
+            media_manager,
+        }
+    }
+
     pub fn from_session(session: &SessionContext) -> Self {
         Self {
             client: session.client.clone(),
@@ -46,7 +53,7 @@ impl RoomsManager {
         )
         .map(|room| {
             let manager = self.clone();
-            async move { manager.assemble_chat_room(room).await }
+            async move { manager.assemble_chat_room(&room).await }
         })
         .buffer_unordered(MAX_CONCURRENT_ROOM_FETCHES)
         .filter_map(|result| async {
@@ -66,7 +73,7 @@ impl RoomsManager {
 
     /// Converts the given matrix room to a proto room.
     /// This will download all necessary data, including avatar image, users, etc.
-    pub async fn assemble_chat_room(&self, room: matrix_sdk::Room) -> Result<Room> {
+    pub async fn assemble_chat_room(&self, room: &matrix_sdk::Room) -> Result<Room> {
         let display_name = room
             .display_name()
             .await
