@@ -957,7 +957,7 @@ impl EventExecutor {
         );
 
         let assemble_result = RoomsManager::new(self.client.clone(), self.media_manager.clone())
-            .assemble_chat_room(&room)
+            .assemble_chat_room(room)
             .await
             .inspect_err(|err| log::error!("Error assembling chat room: {err}"));
 
