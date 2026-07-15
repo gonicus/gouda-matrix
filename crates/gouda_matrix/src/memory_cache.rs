@@ -216,6 +216,11 @@ impl MemoryCache {
     pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
         self.inner.set_room_unread_count(room, unread_count)
     }
+
+    /// Check if the room with the given ID is known.
+    pub fn is_known_room(&self, room_id: impl AsRef<str>) -> Result<bool> {
+        self.inner.is_known_room(room_id.as_ref())
+    }
 }
 
 struct MemoryCacheInner {
@@ -390,6 +395,10 @@ impl MemoryCacheInner {
         let mut guard = room.unread_count.lock()?;
         *guard = unread_count;
         Ok(())
+    }
+
+    pub fn is_known_room(&self, room_id: &str) -> Result<bool> {
+        Ok(self.get_room(room_id)?.is_some())
     }
 
     async fn cache_proto_message(&self, tag: u64, event: &Message) -> Result<()> {

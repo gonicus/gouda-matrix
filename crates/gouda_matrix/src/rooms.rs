@@ -26,6 +26,13 @@ pub struct RoomsManager {
 }
 
 impl RoomsManager {
+    pub fn new(client: Client, media_manager: MediaManager) -> Self {
+        Self {
+            client,
+            media_manager,
+        }
+    }
+
     pub fn from_session(session: &SessionContext) -> Self {
         Self {
             client: session.client.clone(),
@@ -46,7 +53,7 @@ impl RoomsManager {
         )
         .map(|room| {
             let manager = self.clone();
-            async move { manager.assemble_chat_room(room).await }
+            async move { manager.assemble_chat_room(&room).await }
         })
         .buffer_unordered(MAX_CONCURRENT_ROOM_FETCHES)
         .filter_map(|result| async {
@@ -66,7 +73,7 @@ impl RoomsManager {
 
     /// Converts the given matrix room to a proto room.
     /// This will download all necessary data, including avatar image, users, etc.
-    pub async fn assemble_chat_room(&self, room: matrix_sdk::Room) -> Result<Room> {
+    pub async fn assemble_chat_room(&self, room: &matrix_sdk::Room) -> Result<Room> {
         let display_name = room
             .display_name()
             .await
@@ -83,14 +90,14 @@ impl RoomsManager {
         };
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        let members = get_room_members(&room).await?;
+        let members = get_room_members(room).await?;
         let join_rule = room
             .join_rule()
             .unwrap_or(MatrixJoinRule::Invite)
             .into_chat();
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
-        let avatar_path = self.media_manager.get_room_avatar_path(&room).await;
+        let avatar_path = self.media_manager.get_room_avatar_path(room).await;
 
         let is_direct = if members.len() > 2 {
             false
@@ -106,11 +113,11 @@ impl RoomsManager {
             unread_count,
             is_direct,
             join_rule: join_rule.into(),
-            permissions: Some(get_room_permissions(&room, user_id).await?),
+            permissions: Some(get_room_permissions(room, user_id).await?),
             latest_message_timestamp,
             avatar_path,
             is_favorite: room.is_favourite(),
-            room_settings: Some(get_room_settings(&room).await),
+            room_settings: Some(get_room_settings(room).await),
         })
     }
 }
