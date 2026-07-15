@@ -73,3 +73,57 @@ impl RequestContext {
         MultipartResponse::new(self.clone())
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use gouda_proto::chat::Message;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_request_context_send_event() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let ctx = RequestContext::new(42, tx);
+
+        let content = ResponseContent::MessageReceivedEvent(Message {
+            message_id: "message-1".to_string(),
+            ..Default::default()
+        });
+
+        let expected = ResponseContainer {
+            tag: 0,
+            content: Some(content.clone()),
+        };
+
+        ctx.send_event(content).await;
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ExecutorTask::Response(Box::new(expected))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_request_context_send_error() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let ctx = RequestContext::new(42, tx);
+
+        let error = gouda_proto::chat::Error {
+            r#type: 32,
+            error_string: Some("test error".to_string()),
+        };
+
+        let expected = ResponseContainer {
+            tag: 0,
+            content: Some(ResponseContent::Error(error.clone())),
+        };
+
+        ctx.send_error(error).await;
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ExecutorTask::Response(Box::new(expected))
+        );
+    }
+}

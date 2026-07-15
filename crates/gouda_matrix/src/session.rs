@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::status_update::StatusCode;
-use gouda_proto::chat::{builder, CapabilityEvent, StatusUpdate, VerificationStatusEvent};
+use gouda_proto::chat::{
+    builder, CapabilityEvent, PresenceState, StatusUpdate, VerificationStatusEvent,
+};
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::event_cache::RedecryptorReport;
@@ -13,10 +15,11 @@ use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
+use crate::bridge::TryIntoMatrix;
 use crate::client::SessionContext;
+use crate::crypto;
 use crate::error::{Error, Result};
 use crate::notifications::NotificationManager;
-use crate::{crypto, user};
 
 /// How long to wait before attempting the next sync if the previous sync failed
 /// due to a network error.
@@ -217,8 +220,9 @@ impl SyncProcess {
         }
 
         if let Some(user_status) = proto_cache.user_status() {
-            let presence_state = user_status.state.try_into().unwrap_or_default();
-            let matrix_presence = user::chat_presence_state_to_matrix(presence_state)
+            let presence_state: PresenceState = user_status.state.try_into().unwrap_or_default();
+            let matrix_presence = presence_state
+                .try_into_matrix()
                 .unwrap_or(ruma_common::presence::PresenceState::Online);
             sync_settings = sync_settings.set_presence(matrix_presence);
         }

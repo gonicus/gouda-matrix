@@ -33,9 +33,11 @@ use ruma_common::serde::Raw;
 use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use crate::bridge::{IntoChat, TryIntoChat};
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
-use crate::{messages, rooms, unwrap_or_log_return, user};
+use crate::rooms::RoomsManager;
+use crate::{messages, rooms, unwrap_or_log_return};
 
 // After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -578,10 +580,12 @@ impl EventExecutor {
     async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
         // Check if our user's membership has changed and if we need to handle this
         // change differently than a membership change for other users.
-        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string())
-            && self.process_own_membership_change(&room, &event).await
-        {
-            return;
+        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string()) {
+            self.send_room_created_event_if_needed(&room).await;
+
+            if self.process_own_membership_change(&room, &event).await {
+                return;
+            }
         }
 
         if let MembershipChange::ProfileChanged {
@@ -598,7 +602,7 @@ impl EventExecutor {
         log::debug!("General room member change, sending a RoomChangeEvent");
 
         let members = unwrap_or_log_return!(
-            rooms::get_members(&room).await,
+            rooms::get_room_members(&room).await,
             "Error retrieving room members"
         );
 
@@ -610,8 +614,7 @@ impl EventExecutor {
             .send_event(ResponseContent::RoomChangeEvent(proto))
             .await;
 
-        let membership_change = user::convert_membership_change(&event.membership_change());
-        let Some(membership_change) = membership_change else {
+        let Ok(membership_change) = event.membership_change().try_into_chat() else {
             log::warn!("Unknown membership change: {:?}", event.membership_change());
             return;
         };
@@ -748,7 +751,7 @@ impl EventExecutor {
     }
 
     async fn exec_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
-        let join_rule = rooms::convert_join_rule(event.content.join_rule.clone());
+        let join_rule = event.content.join_rule.clone().into_chat();
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id().to_string())
             .change_join_rule(join_rule)
@@ -847,7 +850,7 @@ impl EventExecutor {
 
     async fn exec_presence_event(&mut self, event: PresenceEvent) {
         let user_id = event.sender.to_string();
-        let presence = user::matrix_presence_state_to_chat(event.content.presence);
+        let presence = event.content.presence.into_chat();
 
         let user_status = UserStatus {
             state: presence.into(),
@@ -934,6 +937,36 @@ impl EventExecutor {
 
         self.ctx
             .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
+    }
+
+    async fn send_room_created_event_if_needed(&self, room: &Room) {
+        let Ok(is_known) = self.memory_cache.is_known_room(room.room_id()) else {
+            log::error!("Error checking if room {} is known", room.room_id());
+            return;
+        };
+
+        if is_known {
+            log::debug!("Room {} is already known", room.room_id());
+            return;
+        }
+
+        log::debug!(
+            "Sending RoomCreatedEvent for {} as room is not known",
+            room.room_id()
+        );
+
+        let assemble_result = RoomsManager::new(self.client.clone(), self.media_manager.clone())
+            .assemble_chat_room(room)
+            .await
+            .inspect_err(|err| log::error!("Error assembling chat room: {err}"));
+
+        let Ok(proto) = assemble_result else {
+            return;
+        };
+
+        self.ctx
+            .send_event(ResponseContent::RoomCreatedEvent(proto))
             .await;
     }
 }

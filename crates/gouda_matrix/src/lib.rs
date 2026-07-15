@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod bridge;
 mod client;
 mod crypto;
 mod error;

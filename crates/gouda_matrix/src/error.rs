@@ -84,6 +84,10 @@ pub enum Error {
     #[error("no supported cross signing method was set")]
     NoCrossSigningMethod,
 
+    #[error("generic conversion error")]
+    #[allow(clippy::enum_variant_names)]
+    ConversionError,
+
     #[error("internal error: {0}")]
     #[allow(clippy::enum_variant_names)]
     InternalError(Cow<'static, str>),
@@ -170,6 +174,7 @@ impl From<Error> for ChatError {
             Error::VerificationFlowNotFound => chat_err!(VerificationFlowNotFound),
             Error::UnsupportedCrossSigningMethod => chat_err!(Unknown, value),
             Error::NoCrossSigningMethod => chat_err!(Unknown, value),
+            Error::ConversionError => chat_err!(Unknown, "Internal conversion error"),
             Error::InternalError(err) => chat_err!(Unknown, err),
             Error::MediaError(err) => err.into(),
             Error::MemoryCacheError(err) => err.into(),

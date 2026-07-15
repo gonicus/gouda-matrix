@@ -227,4 +227,71 @@ mod tests {
         assert!(matches!(result, Err(RunnerError::RequestChannelClosed)));
         assert_eq!(executor_rx.recv().await.unwrap(), expected);
     }
+
+    #[tokio::test]
+    async fn test_input_processor_early_eof() {
+        #[rustfmt::skip]
+        let data: &'static [u8] = &[
+            // Size
+            0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Request
+            0x08, 0x57, 0x12, 0x5E, 0x0A, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x74,
+        ];
+
+        let (executor_tx, _) = mpsc::channel(64);
+        let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
+
+        // Act
+        let result = input_processor.run(CancellationToken::new()).await.unwrap();
+
+        // Assert
+        assert!(matches!(result, Err(RunnerError::RequestChannelClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_input_processor_executor_channel_closed() {
+        #[rustfmt::skip]
+        let data: &'static [u8] = &[
+            // Size
+            0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Request
+            0x08, 0x57, 0x12, 0x5E, 0x0A, 0x13, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x74,
+            0x65, 0x73, 0x74, 0x2E, 0x62, 0x61, 0x63, 0x6B, 0x65, 0x6E, 0x64, 0x12, 0x11, 0x2F,
+            0x74, 0x6D, 0x70, 0x2F, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x5F, 0x64, 0x61, 0x74,
+            0x61, 0x2F, 0x1A, 0x0F, 0x73, 0x6F, 0x6D, 0x65, 0x2D, 0x73, 0x65, 0x63, 0x72, 0x65,
+            0x74, 0x2D, 0x31, 0x32, 0x33, 0x22, 0x0F, 0x73, 0x6F, 0x6D, 0x65, 0x2D, 0x73, 0x65,
+            0x63, 0x72, 0x65, 0x74, 0x2D, 0x31, 0x32, 0x33, 0x2A, 0x12, 0x4D, 0x61, 0x74, 0x72,
+            0x69, 0x78, 0x20, 0x52, 0x75, 0x73, 0x74, 0x20, 0x43, 0x6C, 0x69, 0x65, 0x6E, 0x74,
+        ];
+
+        let (executor_tx, executor_rx) = mpsc::channel(64);
+        let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
+
+        // Act
+        drop(executor_rx);
+        let result = input_processor.run(CancellationToken::new()).await.unwrap();
+
+        // Assert
+        assert!(matches!(result, Err(RunnerError::InternalChannelClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_input_processor_run_invalid_data() {
+        #[rustfmt::skip]
+        let data: &'static [u8] = &[
+            // Size
+            0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Request
+            0x08, 0x57, 0x12, 0x5E, 0x0A, 0x13, 0x68, 0x74,
+        ];
+
+        let (executor_tx, _) = mpsc::channel(64);
+        let input_processor = InputProcessor::new(Box::new(Cursor::new(data)), executor_tx);
+
+        // Act
+        let result = input_processor.run(CancellationToken::new()).await.unwrap();
+
+        // Assert
+        assert!(matches!(result, Err(RunnerError::InvalidData)));
+    }
 }

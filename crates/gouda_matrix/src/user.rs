@@ -1,14 +1,10 @@
 use gouda_core::RequestContext;
-use gouda_proto::chat::message_content_membership_change::MembershipChange;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
-use matrix_sdk::ruma::events::room::member::{
-    MembershipChange as MatrixMembershipChange, MembershipState,
-};
 use matrix_sdk::Client;
-use ruma_common::presence::PresenceState as MatrixPresenceState;
 use ruma_common::{OwnedMxcUri, OwnedUserId, UserId};
 
+use crate::bridge::IntoChat;
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
@@ -116,55 +112,6 @@ impl UserManager {
     }
 }
 
-/// Converts a membership state to a room state.
-pub fn membership_state_to_user_room_state(membership_state: &MembershipState) -> UserRoomState {
-    match membership_state {
-        MembershipState::Ban => UserRoomState::Banned,
-        MembershipState::Invite => UserRoomState::Invited,
-        MembershipState::Join => UserRoomState::Joined,
-        MembershipState::Knock => UserRoomState::Knocked,
-        MembershipState::Leave => UserRoomState::Unjoined,
-        _ => UserRoomState::Unjoined,
-    }
-}
-
-/// project a matrix_sdk::ruma::events::room::member::MembershipChange variant on
-/// the less granular representation
-/// gouda_proto::chat::message_content_membership_change::MembershipChange
-pub fn convert_membership_change(change: &MatrixMembershipChange) -> Option<MembershipChange> {
-    match change {
-        MatrixMembershipChange::Joined
-        | MatrixMembershipChange::InvitationAccepted
-        | MatrixMembershipChange::KnockAccepted => Some(MembershipChange::Joined),
-        MatrixMembershipChange::Left => Some(MembershipChange::Left),
-        MatrixMembershipChange::Banned | MatrixMembershipChange::KickedAndBanned => {
-            Some(MembershipChange::Banned)
-        }
-        MatrixMembershipChange::Kicked => Some(MembershipChange::Kicked),
-        MatrixMembershipChange::Invited => Some(MembershipChange::Invited),
-        MatrixMembershipChange::Knocked => Some(MembershipChange::Knocked),
-        _ => None,
-    }
-}
-
-pub fn matrix_presence_state_to_chat(state: MatrixPresenceState) -> PresenceState {
-    match state {
-        MatrixPresenceState::Offline => PresenceState::Offline,
-        MatrixPresenceState::Online => PresenceState::Online,
-        MatrixPresenceState::Unavailable => PresenceState::Away,
-        _ => PresenceState::Away,
-    }
-}
-
-pub fn chat_presence_state_to_matrix(state: PresenceState) -> Option<MatrixPresenceState> {
-    match state {
-        PresenceState::Away => Some(MatrixPresenceState::Unavailable),
-        PresenceState::Offline => Some(MatrixPresenceState::Offline),
-        PresenceState::Online => Some(MatrixPresenceState::Online),
-        PresenceState::Unknown => None,
-    }
-}
-
 /// Retrieves the avatar URL from the user profile using the specified user ID.
 /// Returns Ok(None) if the user does not have an avatar set.
 pub async fn fetch_avatar_uri(
@@ -222,7 +169,7 @@ pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatu
     })?;
 
     Ok(UserStatus {
-        state: matrix_presence_state_to_chat(response.presence).into(),
+        state: response.presence.into_chat().into(),
         status_message: response.status_msg,
     })
 }

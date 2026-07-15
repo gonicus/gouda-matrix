@@ -168,7 +168,7 @@ impl MediaManager {
     /// has been uploaded to the Matrix server.
     /// Returns None if no avatar is set for the user.
     pub async fn get_user_directory_user_avatar_path(&self, user: &User) -> Option<String> {
-        log::info!("Receiving avatar for user: {}", &user.user_id);
+        log::info!("Receiving avatar for user: {}", user.user_id);
         self.inner
             .get_user_avatar_path(user.user_id.to_owned())
             .await
@@ -768,7 +768,7 @@ impl Asset for RoomAvatarAsset {
     }
 
     async fn download(&mut self) -> Result<Download> {
-        log::info!("Downloading avatar image for room: {}", &self.id);
+        log::info!("Downloading avatar image for room: {}", self.id);
 
         let avatar_url = self.room.avatar_url().ok_or(MediaError::NotFound)?;
 
@@ -879,7 +879,7 @@ impl Asset for UserAvatarAsset {
     }
 
     async fn download(&mut self) -> Result<Download> {
-        log::info!("Downloading user avatar for user: {}", &self.user_id);
+        log::info!("Downloading user avatar for user: {}", self.user_id);
 
         let avatar_uri = self.get_avatar_uri().await?.ok_or(MediaError::NotFound)?;
 
