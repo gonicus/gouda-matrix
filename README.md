@@ -28,16 +28,6 @@ B -- "Local Socket for Responses" --> A
 B <--> C
 ```
 
-## Crates
-
-This workspace contains the following crates:
-
-| Crate | Description |
-|-------|-------------|
-| [gouda_matrix](crates/gouda_matrix) | Implements the Matrix client that uses local sockets to communicate with a GOuda application. |
-| [gouda_core](crates/gouda_core) | Core functionality for GOuda rust clients, provides an abstraction layer over the GOuda API. |
-| [gouda_proto](crates/gouda_proto) | Contains the compiled Protocol Buffers of the GOuda API. |
-
 ## Getting Started
 
 ### Prerequisites
@@ -51,9 +41,7 @@ This workspace contains the following crates:
 ```bash
 # Clone the repository including submodules
 git clone --recursive https://github.com/gonicus/gouda-matrix.git
-
 cd gouda-matrix
-
 cargo build
 ```
 
@@ -75,21 +63,27 @@ just fmt
 
 ## Usage
 
-### Example: Rust GOuda Application
+GOuda Matrix connects to two local sockets managed by a GOuda application (e.g. GOnnect).
+The application acts as the server listening on these sockets,
+while GOuda Matrix connects as the client.
 
-A reference and testing implementation for a GOuda application is provided in
-[`examples/rust_gouda_app/`](./examples/rust_gouda_app/), demonstrating how a GOuda application can
-communicate with GOuda Clients over local sockets. It uses `egui` and `eframe` for a simple UI to execute
-requests and display received responses.
+| Argument | Description |
+|---|---|
+| `<request_socket>` | Path to the socket for receiving requests from the application |
+| `<response_socket>` | Path to the socket for sending responses and events back to the application |
+
+| Flag | Default | Description |
+|---|---|---|
+| `--log-level` | `WARN` | Log level: `OFF`, `ERROR`, `WARN`, `INFO`, `DEBUG`, or `TRACE` |
+| `--log-file-path` | `gouda_client.log` | Path to the log file |
+
+### Quick Start
+
+First, start a GOuda application that creates the local sockets. For development and testing,
+[`gouda_sandbox`](https://github.com/gonicus/gouda-core-rs/tree/main/gouda_sandbox) can be used.
+
+Once the GOuda app is started, connect GOuda Matrix to the sockets:
 
 ```bash
-cargo run --bin rust_gouda_app /tmp/gouda-request-socket /tmp/gouda-response-socket
-```
-
-### Running GOuda Matrix
-
-Once both local sockets are available for connection, GOuda Matrix can be started.
-
-```bash
-cargo run --bin gouda_matrix /tmp/gouda-request-socket /tmp/gouda-response-socket
+cargo run /tmp/gouda-request-socket /tmp/gouda-response-socket
 ```
