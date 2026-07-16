@@ -39,8 +39,7 @@ B <--> C
 ### Building
 
 ```bash
-# Clone the repository including submodules
-git clone --recursive https://github.com/gonicus/gouda-matrix.git
+git clone https://github.com/gonicus/gouda-matrix.git
 cd gouda-matrix
 cargo build
 ```
