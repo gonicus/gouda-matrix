@@ -1,8 +1,8 @@
 {
   "name": "gouda-matrix",
   "build": {
-		"dockerfile": "Dockerfile"
-	},
+    "dockerfile": "Dockerfile"
+  },
   "remoteUser": "devuser",
   "containerUser": "devuser",
   "customizations": {
