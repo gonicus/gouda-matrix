@@ -5,15 +5,6 @@
   },
   "remoteUser": "dev",
 	"containerUser": "dev",
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "username": "dev",
-      "userUid": "1000",
-      "userGid": "1000",
-      "installZsh": false,
-      "installOhMyZsh": false
-    }
-  },
   "customizations": {
     "zed": {
       "extensions": [
