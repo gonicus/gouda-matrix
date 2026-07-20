@@ -416,19 +416,6 @@ impl SyncProcess {
     }
 
     async fn send_capabilities_event(&self) {
-        use matrix_sdk::ruma::api::client::authenticated_media::get_media_config;
-
-        let request = get_media_config::v1::Request::new();
-
-        let media_size_limit: u64 = self
-            .session_ctx
-            .client
-            .send(request)
-            .await
-            .map(|f| f.upload_size.into())
-            .inspect_err(|err| log::error!("Error receiving media config: {err}"))
-            .unwrap_or(0);
-
         let re = CapabilityEvent {
             direct_rooms: false,
             group_rooms: true,
@@ -439,12 +426,25 @@ impl SyncProcess {
             client_verification: true,
             user_presence: true,
             mime_types: vec!["text/plain".to_owned()],
-            media_size_limit,
+            media_size_limit: self.get_media_size_limit().await,
         };
 
         self.request_ctx
             .send_event(ResponseContent::CapabilityEvent(re))
             .await;
+    }
+
+    async fn get_media_size_limit(&self) -> u64 {
+        use matrix_sdk::ruma::api::client::authenticated_media::get_media_config;
+        let request = get_media_config::v1::Request::new();
+
+        self.session_ctx
+            .client
+            .send(request)
+            .await
+            .map(|f| f.upload_size.into())
+            .inspect_err(|err| log::error!("Error receiving media config: {err}"))
+            .unwrap_or(0)
     }
 
     async fn send_verification_status_event(&self) -> Result<()> {
