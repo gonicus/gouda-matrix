@@ -1,0 +1,20 @@
+{
+  "name": "gouda-matrix",
+  "build": {
+		"dockerfile": "Dockerfile"
+	},
+  "remoteUser": "devuser",
+  "containerUser": "devuser",
+  "customizations": {
+    "zed": {
+      "extensions": [
+        "typos"
+      ]
+    },
+    "vscode": {
+      "extensions": [
+        "rust.rust-analyzer"
+      ]
+    }
+  }
+}
