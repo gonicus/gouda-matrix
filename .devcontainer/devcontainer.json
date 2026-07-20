@@ -3,8 +3,8 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "remoteUser": "devuser",
-  "containerUser": "devuser",
+  "remoteUser": "dev",
+	"containerUser": "dev",
   "customizations": {
     "zed": {
       "extensions": [
