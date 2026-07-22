@@ -10,7 +10,6 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain*'
       - '.github/workflows/**'
-      - 'protos/**'
       - 'rustfmt.toml'
 
 name: Rust
