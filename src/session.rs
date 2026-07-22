@@ -426,6 +426,7 @@ impl SyncProcess {
             client_verification: true,
             user_presence: true,
             mime_types: vec!["text/plain".to_owned()],
+            media_size_limit: 0,
         };
 
         self.request_ctx
