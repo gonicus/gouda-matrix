@@ -263,3 +263,240 @@ pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoo
 
     result
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    use js_int::UInt;
+    use matrix_sdk::ruma::api::client::room::create_room::v3::RoomPreset;
+    use matrix_sdk::ruma::room::JoinRuleKind;
+    use ruma_common::directory::{PublicRoomsChunk, PublicRoomsChunkInit};
+    use ruma_common::owned_user_id;
+    use ruma_common::room::Restricted;
+
+    fn initial_state_event(
+        request: &MatrixCreateRoomRequest,
+        event_type: &str,
+    ) -> Option<serde_json::Value> {
+        request.initial_state.iter().find_map(|event| {
+            let value: serde_json::Value = serde_json::from_str(event.json().get()).ok()?;
+
+            if value.get("type")?.as_str()? == event_type {
+                Some(value)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn public_rooms_chunk(
+        room_id: &str,
+        num_joined_members: UInt,
+        join_rule: JoinRuleKind,
+    ) -> PublicRoomsChunk {
+        let mut chunk: PublicRoomsChunk = PublicRoomsChunkInit {
+            num_joined_members,
+            room_id: room_id.try_into().unwrap(),
+            world_readable: false,
+            guest_can_join: false,
+        }
+        .into();
+
+        chunk.join_rule = join_rule;
+        chunk
+    }
+
+    #[test]
+    fn test_matrix_join_rule_to_visibility() {
+        let value = matrix_join_rule_to_visibility(MatrixJoinRule::Public);
+        assert_eq!(value, Visibility::Public);
+
+        let value = matrix_join_rule_to_visibility(MatrixJoinRule::Knock);
+        assert_eq!(value, Visibility::Public);
+
+        let value = matrix_join_rule_to_visibility(MatrixJoinRule::Invite);
+        assert_eq!(value, Visibility::Private);
+
+        let value = matrix_join_rule_to_visibility(MatrixJoinRule::Private);
+        assert_eq!(value, Visibility::Private);
+
+        let value =
+            matrix_join_rule_to_visibility(MatrixJoinRule::Restricted(Restricted::default()));
+        assert_eq!(value, Visibility::Private);
+
+        let value =
+            matrix_join_rule_to_visibility(MatrixJoinRule::KnockRestricted(Restricted::default()));
+        assert_eq!(value, Visibility::Private);
+    }
+
+    #[test]
+    fn test_create_room_request_sets_name_and_invitees() {
+        let invitees = vec![owned_user_id!("@alice:example.org")];
+
+        let request = create_room_request(
+            Some("Test room".to_owned()),
+            invitees.clone(),
+            RoomJoinRule::Invite,
+        );
+
+        assert_eq!(request.name, Some("Test room".to_owned()));
+        assert_eq!(request.invite, invitees);
+        assert!(!request.is_direct);
+        assert_eq!(request.preset, None);
+    }
+
+    #[test]
+    fn test_create_room_request_without_name_and_invitees() {
+        let request = create_room_request(None, Vec::new(), RoomJoinRule::Invite);
+
+        assert_eq!(request.name, None);
+        assert_eq!(request.invite, Vec::<OwnedUserId>::new());
+    }
+
+    #[test]
+    fn test_create_room_request_always_enables_encryption() {
+        for join_rule in [
+            RoomJoinRule::Invite,
+            RoomJoinRule::Knock,
+            RoomJoinRule::Public,
+        ] {
+            let request = create_room_request(None, Vec::new(), join_rule);
+
+            assert!(
+                initial_state_event(&request, "m.room.encryption").is_some(),
+                "encryption is not enabled for join rule {join_rule:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_room_request_sets_history_visibility_to_shared() {
+        let request = create_room_request(None, Vec::new(), RoomJoinRule::Invite);
+
+        let event = initial_state_event(&request, "m.room.history_visibility").unwrap();
+
+        assert_eq!(
+            event["content"]["history_visibility"].as_str(),
+            Some("shared")
+        );
+    }
+
+    #[test]
+    fn test_create_room_request_join_rule_and_visibility() {
+        let cases = [
+            (RoomJoinRule::Invite, "invite", Visibility::Private),
+            (RoomJoinRule::Knock, "knock", Visibility::Public),
+            (RoomJoinRule::Public, "public", Visibility::Public),
+        ];
+
+        for (join_rule, expected_rule, expected_visibility) in cases {
+            let request = create_room_request(None, Vec::new(), join_rule);
+
+            assert_eq!(
+                request.visibility, expected_visibility,
+                "unexpected visibility for join rule {join_rule:?}",
+            );
+
+            let event = initial_state_event(&request, "m.room.join_rules").unwrap();
+
+            assert_eq!(
+                event["content"]["join_rule"].as_str(),
+                Some(expected_rule),
+                "unexpected join rule content for join rule {join_rule:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_dm_room_request() {
+        let invitee = owned_user_id!("@alice:example.org");
+
+        let request = create_dm_room_request(Some("Alice".to_owned()), invitee.clone());
+
+        assert_eq!(request.name, Some("Alice".to_owned()));
+        assert_eq!(request.invite, vec![invitee]);
+        assert!(request.is_direct);
+        assert_eq!(request.preset, Some(RoomPreset::TrustedPrivateChat));
+
+        assert_eq!(request.visibility, Visibility::Private);
+        assert!(initial_state_event(&request, "m.room.encryption").is_some());
+
+        let event = initial_state_event(&request, "m.room.join_rules").unwrap();
+        assert_eq!(event["content"]["join_rule"].as_str(), Some("invite"));
+    }
+
+    #[test]
+    fn test_convert_public_rooms_chunk() {
+        let mut chunk =
+            public_rooms_chunk("!room:example.org", UInt::from(7u32), JoinRuleKind::Public);
+        chunk.name = Some("Test room".to_owned());
+        chunk.topic = Some("Some topic".to_owned());
+
+        let result = convert_public_rooms_chunk(vec![chunk]);
+
+        assert_eq!(
+            result,
+            vec![PublicRoom {
+                room_id: "!room:example.org".to_owned(),
+                display_name: Some("Test room".to_owned()),
+                topic: Some("Some topic".to_owned()),
+                num_joined_members: 7,
+                join_rule: RoomJoinRule::Public.into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_convert_public_rooms_chunk_without_optional_fields() {
+        let chunk = public_rooms_chunk("!room:example.org", UInt::from(0u32), JoinRuleKind::Knock);
+
+        let result = convert_public_rooms_chunk(vec![chunk]);
+
+        assert_eq!(
+            result,
+            vec![PublicRoom {
+                room_id: "!room:example.org".to_owned(),
+                display_name: None,
+                topic: None,
+                num_joined_members: 0,
+                join_rule: RoomJoinRule::Knock.into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_convert_public_rooms_chunk_saturates_member_count() {
+        let chunk = public_rooms_chunk("!room:example.org", UInt::MAX, JoinRuleKind::Public);
+
+        let result = convert_public_rooms_chunk(vec![chunk]);
+
+        assert_eq!(result[0].num_joined_members, u32::MAX);
+    }
+
+    #[test]
+    fn test_convert_public_rooms_chunk_empty() {
+        assert_eq!(
+            convert_public_rooms_chunk(Vec::new()),
+            Vec::<PublicRoom>::new()
+        );
+    }
+
+    #[test]
+    fn test_convert_public_rooms_chunk_preserves_order() {
+        let rooms = vec![
+            public_rooms_chunk("!first:example.org", UInt::from(1u32), JoinRuleKind::Public),
+            public_rooms_chunk(
+                "!second:example.org",
+                UInt::from(2u32),
+                JoinRuleKind::Invite,
+            ),
+        ];
+
+        let result = convert_public_rooms_chunk(rooms);
+
+        let room_ids: Vec<&str> = result.iter().map(|f| f.room_id.as_str()).collect();
+        assert_eq!(room_ids, vec!["!first:example.org", "!second:example.org"]);
+    }
+}
