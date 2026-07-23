@@ -33,7 +33,6 @@ B <--> C
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/) (latest stable)
-- [Protoc](https://github.com/protocolbuffers/protobuf) (for building protobuf definitions)
 - [just](https://github.com/casey/just) (optional, for running commands via the justfile)
 
 ### Building
@@ -61,10 +60,6 @@ just fmt
 ```
 
 ## Usage
-
-GOuda Matrix connects to two local sockets managed by a GOuda application (e.g. GOnnect).
-The application acts as the server listening on these sockets,
-while GOuda Matrix connects as the client.
 
 | Argument | Description |
 |---|---|
