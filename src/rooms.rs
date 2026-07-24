@@ -267,14 +267,14 @@ pub fn convert_public_rooms_chunk(chunk: Vec<PublicRoomsChunk>) -> Vec<PublicRoo
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use super::*;
-
     use js_int::UInt;
     use matrix_sdk::ruma::api::client::room::create_room::v3::RoomPreset;
     use matrix_sdk::ruma::room::JoinRuleKind;
     use ruma_common::directory::{PublicRoomsChunk, PublicRoomsChunkInit};
     use ruma_common::owned_user_id;
     use ruma_common::room::Restricted;
+
+    use super::*;
 
     fn initial_state_event(
         request: &MatrixCreateRoomRequest,
