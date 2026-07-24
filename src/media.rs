@@ -17,7 +17,7 @@ use tokio::fs;
 
 use crate::error::chat_err;
 use crate::{
-    debug_assert_or_log, unwrap_or_log_return, unwrap_or_log_return_err,
+    debug_assert_or_log, error, unwrap_or_log_return, unwrap_or_log_return_err,
     unwrap_or_log_return_option, user, utils,
 };
 
@@ -65,20 +65,22 @@ pub enum MediaError {
     #[error("the id of the asset is not specified")]
     AssetIdNotSpecified,
 
-    #[error("io error")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[error("serde json error")]
+    #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
-    #[error("matrix error")]
+    #[error(transparent)]
     MatrixError(#[from] matrix_sdk::Error),
 }
 
 impl From<MediaError> for ChatError {
-    // TODO: Improve error handling
     fn from(value: MediaError) -> ChatError {
-        chat_err!(Unknown, value)
+        match value {
+            MediaError::MatrixError(err) => error::convert_matrix_sdk_error(err),
+            _ => chat_err!(Unknown, value),
+        }
     }
 }
 

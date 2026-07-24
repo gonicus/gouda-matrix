@@ -233,17 +233,28 @@ fn convert_client_api_error(err: &ruma_common::api::error::Error) -> ChatError {
             chat_err!(Authorization)
         }
         Kind::Forbidden => chat_err!(NotAllowed),
+        Kind::TooLarge => chat_err!(MessageSizeLimitExceeded),
         _ => chat_err!(Network, err),
     }
 }
 
-fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> ChatError {
+fn convert_matrix_sdk_media_error(err: matrix_sdk::media::MediaError) -> ChatError {
+    use matrix_sdk::media::MediaError;
+
+    match err {
+        MediaError::MediaTooLargeToUpload { .. } => chat_err!(UploadSizeLimitExceeded),
+        _ => chat_err!(Unknown, err),
+    }
+}
+
+pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> ChatError {
     log::error!("Received matrix sdk Error: {err:?}");
 
     match err {
         matrix_sdk::Error::Http(err) => convert_http_error(*err),
         matrix_sdk::Error::AuthenticationRequired => chat_err!(Authorization),
         matrix_sdk::Error::Url(err) => chat_err!(InvalidUrl, err),
+        matrix_sdk::Error::Media(err) => convert_matrix_sdk_media_error(err),
         _ => chat_err!(Unknown, err),
     }
 }
