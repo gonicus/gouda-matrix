@@ -153,6 +153,7 @@ pub async fn get_room_permissions(
         can_invite: room_power_levels.user_can_invite(user_id),
         can_kick: room_power_levels.user_can_kick(user_id),
         can_ban: room_power_levels.user_can_ban(user_id),
+        can_mention_room: room_power_levels.user_can_trigger_room_notification(user_id),
     })
 }
 

@@ -128,6 +128,12 @@ pub async fn message_from_event(
 ) -> Message {
     let related_message_id = get_related_message_id(event);
     let mentioned_user_ids = matrix_mentions_to_proto_mentions(&event.content.mentions);
+    let room_mentioned = event
+        .content
+        .mentions
+        .as_ref()
+        .map(|m| m.room)
+        .unwrap_or(false);
 
     let content = generate_message_content!(
         media_manager,
@@ -148,6 +154,7 @@ pub async fn message_from_event(
         is_encrypted: false,
         reactions: Vec::new(),
         mentioned_user_ids,
+        room_mentioned,
     }
 }
 
@@ -165,7 +172,10 @@ fn get_related_message_id(
     Some(reply.in_reply_to.event_id.to_string())
 }
 
-pub fn proto_mentions_to_matrix_mentions(mentioned_user_ids: &[String]) -> Result<Mentions> {
+pub fn proto_mentions_to_matrix_mentions(
+    mentioned_user_ids: &[String],
+    room_mentioned: bool,
+) -> Result<Mentions> {
     let user_ids: Vec<OwnedUserId> = mentioned_user_ids
         .iter()
         .map(|f| {
@@ -175,13 +185,17 @@ pub fn proto_mentions_to_matrix_mentions(mentioned_user_ids: &[String]) -> Resul
         })
         .collect::<Result<Vec<OwnedUserId>>>()?;
 
-    Ok(Mentions::with_user_ids(user_ids))
+    let mut mentions = Mentions::with_user_ids(user_ids);
+    mentions.room = room_mentioned;
+
+    Ok(mentions)
 }
 
 pub async fn send_text_message(
     room: Room,
     related_message_id: Option<String>,
     mentioned_user_ids: Vec<String>,
+    room_mentioned: bool,
     content: MessageContentText,
 ) -> Result<MessageSendResponse> {
     let mut event = RoomMessageEventContent::text_markdown(content.content);
@@ -203,7 +217,7 @@ pub async fn send_text_message(
     }
 
     if !mentioned_user_ids.is_empty() {
-        let mentions = proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
+        let mentions = proto_mentions_to_matrix_mentions(&mentioned_user_ids, room_mentioned)?;
         event = event.add_mentions(mentions);
     }
 
