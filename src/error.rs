@@ -233,6 +233,7 @@ fn convert_client_api_error(err: &ruma_common::api::error::Error) -> ChatError {
             chat_err!(Authorization)
         }
         Kind::Forbidden => chat_err!(NotAllowed),
+        Kind::TooLarge => chat_err!(MessageSizeLimitExceeded),
         _ => chat_err!(Network, err),
     }
 }
