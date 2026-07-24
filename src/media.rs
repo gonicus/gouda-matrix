@@ -17,8 +17,8 @@ use tokio::fs;
 
 use crate::error::chat_err;
 use crate::{
-    debug_assert_or_log, unwrap_or_log_return, unwrap_or_log_return_err,
-    unwrap_or_log_return_option, user, utils, error
+    debug_assert_or_log, error, unwrap_or_log_return, unwrap_or_log_return_err,
+    unwrap_or_log_return_option, user, utils,
 };
 
 const ROOM_AVATARS_FOLDER: &str = "room_avatars";

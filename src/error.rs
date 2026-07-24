@@ -243,7 +243,7 @@ fn convert_matrix_sdk_media_error(err: matrix_sdk::media::MediaError) -> ChatErr
 
     match err {
         MediaError::MediaTooLargeToUpload { .. } => chat_err!(UploadSizeLimitExceeded),
-        _ => chat_err!(Unknown, err)
+        _ => chat_err!(Unknown, err),
     }
 }
 
