@@ -216,7 +216,7 @@ pub async fn send_text_message(
         );
     }
 
-    if !mentioned_user_ids.is_empty() {
+    if !mentioned_user_ids.is_empty() || room_mentioned {
         let mentions = proto_mentions_to_matrix_mentions(&mentioned_user_ids, room_mentioned)?;
         event = event.add_mentions(mentions);
     }
