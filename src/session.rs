@@ -227,6 +227,8 @@ impl SyncProcess {
             sync_settings = sync_settings.set_presence(matrix_presence);
         }
 
+        sync_settings = sync_settings.full_state(true);
+
         let response = client.sync_once(sync_settings).await?;
 
         proto_cache.set_sync_token(response.next_batch.clone());
