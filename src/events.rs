@@ -129,11 +129,14 @@ impl EventManager {
         client.add_event_handler(sync_receipt_event_handler);
         client.add_event_handler(fully_read_event_handler);
 
+        self.clone().subscibe_to_event_cache_generic_updates(client);
         self.clone().subscribe_to_room_updates(client);
     }
 
     fn subscribe_to_room_updates(self, client: &Client) {
         let mut stream = client.subscribe_to_all_room_updates();
+
+        log::debug!("Subscribing to room updates");
 
         tokio::spawn(async move {
             while let Ok(updates) = stream.recv().await {
@@ -141,7 +144,24 @@ impl EventManager {
                     self.process_joined_room_update(room_id, update);
                 }
             }
+
+            log::warn!("Stream of the room updates closed");
         });
+    }
+
+    fn subscibe_to_event_cache_generic_updates(self, client: &Client) {
+        let mut stream = client.event_cache().subscribe_to_room_generic_updates();
+
+        log::debug!("Subscribing to event cache generic updates");
+
+        tokio::spawn(async move {
+            while let Ok(update) = stream.recv().await {
+                log::debug!("RECEIVED_GENERIC_ROOM_UPDATE: {update:?}");
+            }
+
+            log::warn!("Stream of the event cache generic updates closed");
+        });
+
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
