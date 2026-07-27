@@ -157,6 +157,8 @@ impl EventManager {
         tokio::spawn(async move {
             while let Ok(update) = stream.recv().await {
                 log::debug!("RECEIVED_GENERIC_ROOM_UPDATE: {update:?}");
+
+                // TODO: Maybe retrieve room and check if there are relevant changes?
             }
 
             log::warn!("Stream of the event cache generic updates closed");
