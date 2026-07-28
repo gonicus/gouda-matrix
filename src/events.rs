@@ -981,6 +981,8 @@ impl EventExecutor {
             return;
         };
 
+        log::debug!("Received new unread count of room: {old}, old unread count: {old}");
+
         if new <= old {
             return;
         }
