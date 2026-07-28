@@ -129,7 +129,8 @@ impl EventManager {
         client.add_event_handler(sync_receipt_event_handler);
         client.add_event_handler(fully_read_event_handler);
 
-        self.clone().subscibe_to_event_cache_generic_updates(client);
+        self.clone()
+            .subscibe_to_event_cache_generic_updates(client.clone());
         self.clone().subscribe_to_room_updates(client);
     }
 
@@ -149,21 +150,21 @@ impl EventManager {
         });
     }
 
-    fn subscibe_to_event_cache_generic_updates(self, client: &Client) {
+    fn subscibe_to_event_cache_generic_updates(self, client: Client) {
         let mut stream = client.event_cache().subscribe_to_room_generic_updates();
-
         log::debug!("Subscribing to event cache generic updates");
 
         tokio::spawn(async move {
             while let Ok(update) = stream.recv().await {
-                log::debug!("RECEIVED_GENERIC_ROOM_UPDATE: {update:?}");
+                log::debug!("Received event cache generic room update: {update:?}");
 
-                // TODO: Maybe retrieve room and check if there are relevant changes?
+                let _ = self.action_sender.send(Action::EventCacheGenericUpdate {
+                    room_id: update.room_id,
+                });
             }
 
             log::warn!("Stream of the event cache generic updates closed");
         });
-
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
@@ -308,6 +309,9 @@ enum Action {
         room_id: OwnedRoomId,
         update: JoinedRoomUpdate,
     },
+    EventCacheGenericUpdate {
+        room_id: OwnedRoomId,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -430,6 +434,7 @@ impl EventExecutor {
             Action::JoinedRoomUpdate { room_id, update } => {
                 self.exec_joined_room_update(room_id, update).await
             }
+            Action::EventCacheGenericUpdate { room_id } => self.exec_event_cache_generic_update(room_id).await,
         }
     }
 
@@ -956,6 +961,38 @@ impl EventExecutor {
         }
 
         self.track_room_change(proto.clone());
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
+    }
+
+    async fn exec_event_cache_generic_update(&mut self, room_id: OwnedRoomId) {
+        let Some(room) = self.client.get_room(&room_id) else {
+            log::warn!("Unable to get matrix room of generic event cache update");
+            return;
+        };
+
+        let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
+        let old = self.memory_cache.get_room_unread_count(&room_id)
+            .inspect_err(|err| log::error!("Unable to retrieve unread count of room: {err}"));
+
+        let Ok(Some(old)) = old else {
+            return;
+        };
+
+        if new <= old {
+            return;
+        }
+
+        if let Err(err) = self.memory_cache.set_room_unread_count(room, new) {
+            log::error!("Unable to update room unread count: {err}");
+            return;
+        }
+
+        let proto = RoomChangeEventBuilder::new(room_id.to_string())
+            .change_unread_count(new)
+            .to_proto();
 
         self.ctx
             .send_event(ResponseContent::RoomChangeEvent(proto))

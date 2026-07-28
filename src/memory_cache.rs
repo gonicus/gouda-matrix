@@ -23,7 +23,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::{Client, Room as MatrixRoom};
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{EventId, OwnedEventId, OwnedRoomId};
+use ruma_common::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -217,6 +217,11 @@ impl MemoryCache {
         self.inner.set_room_unread_count(room, unread_count)
     }
 
+    /// Gets the unraed count of the given room.
+    pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
+        self.inner.get_room_unread_count(room)
+    }
+
     /// Check if the room with the given ID is known.
     pub fn is_known_room(&self, room_id: impl AsRef<str>) -> Result<bool> {
         self.inner.is_known_room(room_id.as_ref())
@@ -395,6 +400,15 @@ impl MemoryCacheInner {
         let mut guard = room.unread_count.lock()?;
         *guard = unread_count;
         Ok(())
+    }
+
+    pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
+        let room = self.get_room(room.as_str())?;
+        let Some(room) = room else {
+            return Ok(None);
+        };
+        let guard = room.unread_count.lock()?;
+        Ok(Some(*guard))
     }
 
     pub fn is_known_room(&self, room_id: &str) -> Result<bool> {
