@@ -997,6 +997,15 @@ impl EventExecutor {
             .change_unread_count(new)
             .to_proto();
 
+        if !self.is_new_room_change(&proto) {
+            log::debug!(
+                "Room change for {room_id} has already been processed before, nothing to do"
+            );
+            return;
+        }
+
+        self.track_room_change(proto.clone());
+
         self.ctx
             .send_event(ResponseContent::RoomChangeEvent(proto))
             .await;
