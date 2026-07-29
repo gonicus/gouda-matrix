@@ -1616,6 +1616,7 @@ impl MatrixClientInner {
             room_id,
             related_message_id,
             mentioned_user_ids,
+            room_mentioned,
             content,
         } = request;
 
@@ -1630,8 +1631,14 @@ impl MatrixClientInner {
 
         match content {
             Content::Text(content) => {
-                messages::send_text_message(room, related_message_id, mentioned_user_ids, content)
-                    .await
+                messages::send_text_message(
+                    room,
+                    related_message_id,
+                    mentioned_user_ids,
+                    room_mentioned,
+                    content,
+                )
+                .await
             }
             Content::File(content) => {
                 messages::send_file_message(media_manager, room, related_message_id, content).await
@@ -1668,6 +1675,7 @@ impl MatrixClientInner {
             message_id,
             has_mentioned_user_ids_changed,
             mentioned_user_ids,
+            room_mentioned,
             content,
         } = request;
 
@@ -1682,9 +1690,12 @@ impl MatrixClientInner {
             Content::Text(text) => {
                 let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
 
-                if has_mentioned_user_ids_changed {
-                    let mentions =
-                        messages::proto_mentions_to_matrix_mentions(&mentioned_user_ids)?;
+                if has_mentioned_user_ids_changed || room_mentioned.is_some() {
+                    let mentions = messages::proto_mentions_to_matrix_mentions(
+                        &mentioned_user_ids,
+                        room_mentioned.unwrap_or(false),
+                    )?;
+
                     event = event.add_mentions(mentions);
                 }
 
