@@ -930,10 +930,10 @@ impl EventExecutor {
 
         // TODO: We have to check if the fully read event is actually for the latest event.
 
-        if let Err(err) = self.memory_cache.set_room_unread_count(room, 0) {
-            log::error!("Error updating room unread count: {err}");
-            return;
-        }
+        // if let Err(err) = self.memory_cache.set_room_unread_count(room, 0) {
+        //     log::error!("Error updating room unread count: {err}");
+        //     return;
+        // }
 
         let proto = RoomChangeEventBuilder::new(room_id)
             .change_unread_count(0)
@@ -974,23 +974,24 @@ impl EventExecutor {
         };
 
         let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        let old = self.memory_cache.get_room_unread_count(&room_id)
-            .inspect_err(|err| log::error!("Unable to retrieve unread count of room: {err}"));
+        // let old = self.memory_cache.get_room_unread_count(&room_id)
+        //     .inspect_err(|err| log::error!("Unable to retrieve unread count of room: {err}"));
 
-        let Ok(Some(old)) = old else {
-            return;
-        };
+        // let Ok(Some(old)) = old else {
+        //     return;
+        // };
 
-        log::debug!("Received new unread count of room: {old}, old unread count: {old}");
+        // log::debug!("Received new unread count of room: {new}, old unread count: {old}");
+        log::debug!("Received new unread count of room: {new}");
 
-        if new <= old {
-            return;
-        }
+        // if new <= old {
+        //     return;
+        // }
 
-        if let Err(err) = self.memory_cache.set_room_unread_count(room, new) {
-            log::error!("Unable to update room unread count: {err}");
-            return;
-        }
+        // if let Err(err) = self.memory_cache.set_room_unread_count(room, new) {
+        //     log::error!("Unable to update room unread count: {err}");
+        //     return;
+        // }
 
         let proto = RoomChangeEventBuilder::new(room_id.to_string())
             .change_unread_count(new)

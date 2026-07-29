@@ -1581,9 +1581,9 @@ impl MatrixClientInner {
 
         room.send_multiple_receipts(receipts).await?;
 
-        if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
-            log::error!("Unable to update cached unread count for room: {err}");
-        }
+        // if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
+        //     log::error!("Unable to update cached unread count for room: {err}");
+        // }
 
         let proto = builder::RoomChangeEventBuilder::new(request.room_id.clone())
             .change_unread_count(0)

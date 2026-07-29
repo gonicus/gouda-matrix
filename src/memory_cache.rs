@@ -212,15 +212,15 @@ impl MemoryCache {
         self.inner.get_cached_notification_settings()
     }
 
-    /// Sets the unread count of the given room.
-    pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
-        self.inner.set_room_unread_count(room, unread_count)
-    }
+    // /// Sets the unread count of the given room.
+    // pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
+    //     self.inner.set_room_unread_count(room, unread_count)
+    // }
 
-    /// Gets the unraed count of the given room.
-    pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
-        self.inner.get_room_unread_count(room)
-    }
+    // /// Gets the unraed count of the given room.
+    // pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
+    //     self.inner.get_room_unread_count(room)
+    // }
 
     /// Check if the room with the given ID is known.
     pub fn is_known_room(&self, room_id: impl AsRef<str>) -> Result<bool> {
@@ -395,21 +395,21 @@ impl MemoryCacheInner {
         Ok(guard.clone())
     }
 
-    pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
-        let room = self.get_or_create_room(room)?;
-        let mut guard = room.unread_count.lock()?;
-        *guard = unread_count;
-        Ok(())
-    }
+    // pub fn set_room_unread_count(&self, room: MatrixRoom, unread_count: u32) -> Result<()> {
+    //     let room = self.get_or_create_room(room)?;
+    //     let mut guard = room.unread_count.lock()?;
+    //     *guard = unread_count;
+    //     Ok(())
+    // }
 
-    pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
-        let room = self.get_room(room.as_str())?;
-        let Some(room) = room else {
-            return Ok(None);
-        };
-        let guard = room.unread_count.lock()?;
-        Ok(Some(*guard))
-    }
+    // pub fn get_room_unread_count(&self, room: &RoomId) -> Result<Option<u32>> {
+    //     let room = self.get_room(room.as_str())?;
+    //     let Some(room) = room else {
+    //         return Ok(None);
+    //     };
+    //     let guard = room.unread_count.lock()?;
+    //     Ok(Some(*guard))
+    // }
 
     pub fn is_known_room(&self, room_id: &str) -> Result<bool> {
         Ok(self.get_room(room_id)?.is_some())
@@ -423,7 +423,7 @@ impl MemoryCacheInner {
             return Ok(());
         };
 
-        room.cache_message_event(tag, event).await?;
+        // room.cache_message_event(tag, event).await?;
 
         Ok(())
     }
@@ -447,8 +447,8 @@ impl MemoryCacheInner {
 
         let cached_room = self.get_or_create_room(matrix_room)?;
 
-        let mut guard = cached_room.unread_count.lock()?;
-        *guard = room.unread_count;
+        // let mut guard = cached_room.unread_count.lock()?;
+        // *guard = room.unread_count;
 
         Ok(())
     }
@@ -618,7 +618,7 @@ struct CachedRoom {
     /// as an encrypted message.
     encrypted_events: Mutex<HashMap<String, CachedEncryptedEvent>>,
     /// The current unread count of the room.
-    unread_count: Mutex<u32>,
+    // unread_count: Mutex<u32>,
 
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
@@ -634,7 +634,7 @@ impl CachedRoom {
 
             messages: Mutex::new(HashMap::new()),
             encrypted_events: Mutex::new(HashMap::new()),
-            unread_count: Mutex::new(0),
+            // unread_count: Mutex::new(0),
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
         }
@@ -1271,32 +1271,32 @@ impl CachedRoom {
     }
 
     /// Caches a message event.
-    pub async fn cache_message_event(&self, tag: u64, message: &Message) -> Result<()> {
-        let client = self.room.client();
-        let user_id = client.user_id().map(|f| f.as_str());
+    // pub async fn cache_message_event(&self, tag: u64, message: &Message) -> Result<()> {
+    //     let client = self.room.client();
+    //     let user_id = client.user_id().map(|f| f.as_str());
 
-        if tag == 0 && Some(message.sender_id.as_str()) != user_id {
-            log::debug!("Message is not from our own user, increasing unread count");
-            self.increase_unread_count(message).await?;
-        }
+    //     if tag == 0 && Some(message.sender_id.as_str()) != user_id {
+    //         log::debug!("Message is not from our own user, increasing unread count");
+    //         self.increase_unread_count(message).await?;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    async fn increase_unread_count(&self, message: &Message) -> Result<()> {
-        let new_count = {
-            let mut guard = self.unread_count.lock()?;
-            *guard += 1;
-            *guard
-        };
+    // async fn increase_unread_count(&self, message: &Message) -> Result<()> {
+    //     let new_count = {
+    //         let mut guard = self.unread_count.lock()?;
+    //         *guard += 1;
+    //         *guard
+    //     };
 
-        log::debug!("Updated room unread count to: {new_count}");
+    //     log::debug!("Updated room unread count to: {new_count}");
 
-        self.notify_app_about_room_unread_count(&message.room_id, new_count)
-            .await;
+    //     self.notify_app_about_room_unread_count(&message.room_id, new_count)
+    //         .await;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     async fn notify_app_about_room_unread_count(&self, room_id: &str, unread_count: u32) {
         log::debug!("Notifying app about new unread count {unread_count} for room {room_id:?}");
