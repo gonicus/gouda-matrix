@@ -192,7 +192,7 @@ pub fn proto_mentions_to_matrix_mentions(
 }
 
 pub async fn send_text_message(
-    room: Room,
+    room: &Room,
     related_message_id: Option<String>,
     mentioned_user_ids: Vec<String>,
     room_mentioned: bool,
@@ -207,7 +207,7 @@ pub async fn send_text_message(
     }
 
     if let Some(related_message_id) = related_message_id {
-        let metadata = generate_reply_metadata(&room, &related_message_id).await?;
+        let metadata = generate_reply_metadata(room, &related_message_id).await?;
 
         event = event.make_reply_to(
             metadata.metadata(),
@@ -230,7 +230,7 @@ pub async fn send_text_message(
 
 pub async fn send_file_message(
     media_manager: &MediaManager,
-    room: Room,
+    room: &Room,
     related_message_id: Option<String>,
     content: MessageContentFile,
 ) -> Result<MessageSendResponse> {
@@ -238,7 +238,7 @@ pub async fn send_file_message(
 
     let message_id = media_manager
         .send_room_attachment(
-            &room,
+            room,
             content.file_path,
             content.file_name,
             related_message_id,
