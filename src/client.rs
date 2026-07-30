@@ -564,7 +564,9 @@ impl MatrixClientInner {
             verification_requests: Mutex::new(Vec::new()),
         };
 
-        let status_code = obj.restore_session(ctx).await
+        let status_code = obj
+            .restore_session(ctx)
+            .await
             .inspect_err(|err| log::error!("Error restoring session: {err}"))?;
 
         let status = StatusUpdate {
