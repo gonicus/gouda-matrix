@@ -8,7 +8,7 @@ use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
-use matrix_sdk::reqwest::StatusCode;
+use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
@@ -564,17 +564,8 @@ impl MatrixClientInner {
             verification_requests: Mutex::new(Vec::new()),
         };
 
-        let status_code = if obj.get_auth_file().exists() {
-            match obj.restore_session(ctx).await {
-                Ok(()) => status_update::StatusCode::LoggedIn,
-                Err(err) => {
-                    log::error!("Error restoring session: {err:?}");
-                    status_update::StatusCode::LoggedOut
-                }
-            }
-        } else {
-            status_update::StatusCode::Connected
-        };
+        let status_code = obj.restore_session(ctx).await
+            .inspect_err(|err| log::error!("Error restoring session: {err}"))?;
 
         let status = StatusUpdate {
             code: status_code.into(),
@@ -609,14 +600,14 @@ impl MatrixClientInner {
         }
 
         if let matrix_sdk::HttpError::Reqwest(err) = &err {
-            if err.status() == Some(StatusCode::UNAUTHORIZED) {
+            if err.status() == Some(HttpStatusCode::UNAUTHORIZED) {
                 return true;
             }
         }
 
         if let matrix_sdk::HttpError::Api(err) = &err {
             if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
-                if err.status_code == StatusCode::UNAUTHORIZED {
+                if err.status_code == HttpStatusCode::UNAUTHORIZED {
                     return true;
                 }
             }
@@ -649,12 +640,19 @@ impl MatrixClientInner {
     }
 
     /// Restores the session from the session file.
-    async fn restore_session(&self, ctx: RequestContext) -> Result<()> {
+    async fn restore_session(&self, ctx: RequestContext) -> Result<status_update::StatusCode> {
         let session_file = self.get_auth_file();
+
+        if !session_file.exists() {
+            return Ok(status_update::StatusCode::Connected);
+        }
 
         log::debug!("Previous session found in '{session_file:?}'");
 
-        let session = Session::read_from_file(session_file, self.encryption_secret.clone()).await?;
+        let result = Session::read_from_file(session_file, self.encryption_secret.clone()).await;
+        let Ok(session) = result else {
+            return Ok(status_update::StatusCode::LoggedOut);
+        };
 
         log::info!(
             "Restoring session for {}",
@@ -665,6 +663,9 @@ impl MatrixClientInner {
             .client
             .restore_session(session.user_session.clone())
             .await?;
+
+        // TODO: Do not return expected auth errors when the saved session is invalid as errors.
+        // Return them as the StatusCode::LoggedOut instead.
 
         let session_context = self.session()?;
 
@@ -677,7 +678,7 @@ impl MatrixClientInner {
             .sync(ctx.clone(), (*session_context).clone())
             .await?;
 
-        Ok(())
+        Ok(status_update::StatusCode::LoggedIn)
     }
 
     /// Removes all data related to the current session.
