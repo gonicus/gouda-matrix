@@ -490,7 +490,7 @@ impl SessionContext {
         )
         .await;
 
-        let memory_cache = MemoryCache::new(ctx.clone(), client.clone(), media_manager.clone());
+        let memory_cache = MemoryCache::new(ctx.clone(), media_manager.clone());
 
         let event_manager = EventManager::new(
             client.clone(),
@@ -776,10 +776,6 @@ impl MatrixClientInner {
             log::error!("Unable to open session in on_response event handler");
             return;
         };
-
-        if let Err(err) = session.memory_cache.cache_response(&response).await {
-            log::error!("Unable to cache response content in memory cache: {err}");
-        }
 
         let Some(content) = response.content else {
             log::error!("Received response with no content: {response:?}");
@@ -1565,9 +1561,6 @@ impl MatrixClientInner {
     ) -> Result<RoomChangeEvent> {
         use matrix_sdk::room::Receipts;
 
-        let session = self.session()?;
-        let SessionContext { memory_cache, .. } = &*session;
-
         let room = self.get_matrix_room(&request.room_id).await?;
 
         let Some(event_id) = room.latest_event().event_id() else {
@@ -1580,10 +1573,6 @@ impl MatrixClientInner {
             .public_read_receipt(event_id);
 
         room.send_multiple_receipts(receipts).await?;
-
-        // if let Err(err) = memory_cache.set_room_unread_count(room, 0) {
-        //     log::error!("Unable to update cached unread count for room: {err}");
-        // }
 
         let proto = builder::RoomChangeEventBuilder::new(request.room_id.clone())
             .change_unread_count(0)
