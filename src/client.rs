@@ -1629,10 +1629,10 @@ impl MatrixClientInner {
             return Err(Error::internal("Message content not set"));
         };
 
-        match content {
+        let result = match content {
             Content::Text(content) => {
                 messages::send_text_message(
-                    room,
+                    &room,
                     related_message_id,
                     mentioned_user_ids,
                     room_mentioned,
@@ -1641,9 +1641,17 @@ impl MatrixClientInner {
                 .await
             }
             Content::File(content) => {
-                messages::send_file_message(media_manager, room, related_message_id, content).await
+                messages::send_file_message(media_manager, &room, related_message_id, content).await
             }
+        };
+
+        log::debug!("Disabling typing notice for room");
+
+        if let Err(err) = room.typing_notice(false).await {
+            log::error!("Error disabling typing notice for room: {err}");
         }
+
+        result
     }
 
     async fn remove_message(
