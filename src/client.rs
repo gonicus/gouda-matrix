@@ -1720,6 +1720,12 @@ impl MatrixClientInner {
 
         room.send(event).await?;
 
+        log::debug!("Disabling typing notice for room");
+
+        if let Err(err) = room.typing_notice(false).await {
+            log::error!("Error disabling typing notice for room: {err}");
+        }
+
         Ok(())
     }
 
