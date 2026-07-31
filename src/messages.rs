@@ -5,8 +5,9 @@ use matrix_sdk::ruma::events::room::message::{
 };
 use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
-use ruma_common::{EventId, OwnedEventId, OwnedUserId, UserId};
+use ruma_common::{EventId, OwnedEventId, OwnedUserId};
 
+use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
 
@@ -174,79 +175,107 @@ fn get_related_message_id(
 }
 
 pub fn proto_mentions_to_matrix_mentions(
-    mentioned_user_ids: &[String],
+    mentioned_user_ids: Vec<OwnedUserId>,
     room_mentioned: bool,
 ) -> Result<Mentions> {
-    let user_ids: Vec<OwnedUserId> = mentioned_user_ids
-        .iter()
-        .map(|f| {
-            UserId::parse(f)
-                .map(|f| f.to_owned())
-                .map_err(|_| Error::InvalidUserId)
-        })
-        .collect::<Result<Vec<OwnedUserId>>>()?;
-
-    let mut mentions = Mentions::with_user_ids(user_ids);
+    let mut mentions = Mentions::with_user_ids(mentioned_user_ids);
     mentions.room = room_mentioned;
-
     Ok(mentions)
 }
 
-pub async fn send_text_message(
-    room: &Room,
-    related_message_id: Option<String>,
-    mentioned_user_ids: Vec<String>,
-    room_mentioned: bool,
-    content: MessageContentText,
-) -> Result<MessageSendResponse> {
-    let mut event = RoomMessageEventContent::text_markdown(content.content);
+pub struct MessageBuilder<'a> {
+    media_manager: &'a MediaManager,
+    content: message_send_request::Content,
 
-    if let MessageType::Text(text) = &mut event.msgtype {
-        if text.formatted.is_none() {
-            text.formatted = Some(FormattedBody::html(text.body.clone()));
+    related_message_id: Option<OwnedEventId>,
+    mentioned_user_ids: Vec<OwnedUserId>,
+    room_mentioned: bool,
+    thread_id: Option<OwnedEventId>,
+}
+
+impl<'a> MessageBuilder<'a> {
+    pub fn new(ctx: &'a SessionContext, content: message_send_request::Content) -> Self {
+        Self {
+            media_manager: &ctx.media_manager,
+            content,
+
+            related_message_id: None,
+            mentioned_user_ids: Vec::new(),
+            room_mentioned: false,
+            thread_id: None,
         }
     }
 
-    if let Some(related_message_id) = related_message_id {
-        let metadata = generate_reply_metadata(room, &related_message_id).await?;
-
-        event = event.make_reply_to(
-            metadata.metadata(),
-            matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
-            matrix_sdk::ruma::events::room::message::AddMentions::Yes,
-        );
+    pub fn related_message_id(mut self, id: impl Into<OwnedEventId>) -> Self {
+        self.related_message_id = Some(id.into());
+        self
     }
 
-    if !mentioned_user_ids.is_empty() || room_mentioned {
-        let mentions = proto_mentions_to_matrix_mentions(&mentioned_user_ids, room_mentioned)?;
-        event = event.add_mentions(mentions);
+    pub fn mentioned_user_ids(mut self, ids: Vec<OwnedUserId>) -> Self {
+        self.mentioned_user_ids = ids;
+        self
     }
 
-    let re = room.send(event).await?;
+    pub fn room_mentioned(mut self, mentioned: bool) -> Self {
+        self.room_mentioned = mentioned;
+        self
+    }
 
-    Ok(MessageSendResponse {
-        message_id: re.response.event_id.to_string(),
-    })
-}
+    pub fn thread_id(mut self, thread_id: OwnedEventId) -> Self {
+        self.thread_id = Some(thread_id);
+        self
+    }
 
-pub async fn send_file_message(
-    media_manager: &MediaManager,
-    room: &Room,
-    related_message_id: Option<String>,
-    content: MessageContentFile,
-) -> Result<MessageSendResponse> {
-    let related_message_id = convert_related_message_id(related_message_id)?;
+    pub async fn send(mut self, room: &Room) -> Result<String> {
+        match std::mem::take(&mut self.content) {
+            message_send_request::Content::Text(c) => self.send_text(room, c).await,
+            message_send_request::Content::File(c) => self.send_file(room, c).await,
+        }
+    }
 
-    let message_id = media_manager
-        .send_room_attachment(
-            room,
-            content.file_path,
-            content.file_name,
-            related_message_id,
-        )
-        .await?;
+    async fn send_text(self, room: &Room, content: MessageContentText) -> Result<String> {
+        let mut event = RoomMessageEventContent::text_markdown(content.content);
 
-    Ok(MessageSendResponse { message_id })
+        if let MessageType::Text(text) = &mut event.msgtype {
+            if text.formatted.is_none() {
+                text.formatted = Some(FormattedBody::html(text.body.clone()));
+            }
+        }
+
+        if let Some(related_message_id) = &self.related_message_id {
+            let metadata = generate_reply_metadata(room, related_message_id).await?;
+
+            event = event.make_reply_to(
+                metadata.metadata(),
+                matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
+                matrix_sdk::ruma::events::room::message::AddMentions::Yes,
+            );
+        }
+
+        if !self.mentioned_user_ids.is_empty() || self.room_mentioned {
+            let mentions =
+                proto_mentions_to_matrix_mentions(self.mentioned_user_ids, self.room_mentioned)?;
+            event = event.add_mentions(mentions);
+        }
+
+        let re = room.send(event).await?;
+
+        Ok(re.response.event_id.to_string())
+    }
+
+    async fn send_file(self, room: &Room, content: MessageContentFile) -> Result<String> {
+        let message_id = self
+            .media_manager
+            .send_room_attachment(
+                room,
+                content.file_path,
+                content.file_name,
+                self.related_message_id,
+            )
+            .await?;
+
+        Ok(message_id)
+    }
 }
 
 pub fn matrix_mentions_to_proto_mentions(mentions: &Option<Mentions>) -> Vec<String> {
@@ -275,24 +304,12 @@ impl CustomReplyMetadata {
     }
 }
 
-fn convert_related_message_id(related_message_id: Option<String>) -> Result<Option<OwnedEventId>> {
-    let Some(related_message_id) = related_message_id else {
-        return Ok(None);
-    };
-
-    let event_id = EventId::parse(related_message_id).map_err(|_| Error::InvalidMessageId)?;
-
-    Ok(Some(event_id))
-}
-
 async fn generate_reply_metadata(
     room: &Room,
-    related_message_id: &str,
+    related_message_id: &EventId,
 ) -> Result<CustomReplyMetadata> {
-    let event_id = EventId::parse(related_message_id).map_err(|_| Error::InvalidMessageId)?;
-
     let event = room
-        .event(&event_id, None)
+        .event(related_message_id.as_ref(), None)
         .await
         .map_err(|_| Error::MessageNotFound)?;
 
