@@ -1629,7 +1629,13 @@ impl MatrixClientInner {
             return Err(Error::internal("Message content not set"));
         };
 
-        let result = match content {
+        log::debug!("Disabling typing notice for room");
+
+        if let Err(err) = room.typing_notice(false).await {
+            log::error!("Error disabling typing notice for room: {err}");
+        }
+
+        match content {
             Content::Text(content) => {
                 messages::send_text_message(
                     &room,
@@ -1643,15 +1649,7 @@ impl MatrixClientInner {
             Content::File(content) => {
                 messages::send_file_message(media_manager, &room, related_message_id, content).await
             }
-        };
-
-        log::debug!("Disabling typing notice for room");
-
-        if let Err(err) = room.typing_notice(false).await {
-            log::error!("Error disabling typing notice for room: {err}");
         }
-
-        result
     }
 
     async fn remove_message(
@@ -1694,6 +1692,12 @@ impl MatrixClientInner {
             return Err(Error::internal("Message content not set"));
         };
 
+        log::debug!("Disabling typing notice for room");
+
+        if let Err(err) = room.typing_notice(false).await {
+            log::error!("Error disabling typing notice for room: {err}");
+        }
+
         let content = match content {
             Content::Text(text) => {
                 let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
@@ -1719,12 +1723,6 @@ impl MatrixClientInner {
             .await?;
 
         room.send(event).await?;
-
-        log::debug!("Disabling typing notice for room");
-
-        if let Err(err) = room.typing_notice(false).await {
-            log::error!("Error disabling typing notice for room: {err}");
-        }
 
         Ok(())
     }
