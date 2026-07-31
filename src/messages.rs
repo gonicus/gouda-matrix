@@ -1,5 +1,6 @@
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
+use matrix_sdk::ruma::events::relation::Thread;
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent,
 };
@@ -242,8 +243,10 @@ impl<'a> MessageBuilder<'a> {
             }
         }
 
-        if let Some(related_message_id) = &self.related_message_id {
-            let metadata = generate_reply_metadata(room, related_message_id).await?;
+        if self.related_message_id.is_some() || self.thread_id.is_some() {
+            // NOTE: Very testy code! Likely not worky!
+            let related = self.related_message_id.unwrap_or(self.thread_id.clone().unwrap());
+            let metadata = generate_reply_metadata(room, &related, self.thread_id).await?;
 
             event = event.make_reply_to(
                 metadata.metadata(),
@@ -289,6 +292,7 @@ pub fn matrix_mentions_to_proto_mentions(mentions: &Option<Mentions>) -> Vec<Str
 struct CustomReplyMetadata {
     event_id: OwnedEventId,
     sender_id: OwnedUserId,
+    thread: Option<Thread>,
 }
 
 impl CustomReplyMetadata {
@@ -296,17 +300,24 @@ impl CustomReplyMetadata {
         Self {
             event_id,
             sender_id,
+            thread: None,
         }
     }
 
+    pub fn thread(mut self, thread: Thread) -> Self {
+        self.thread = Some(thread);
+        self
+    }
+
     pub fn metadata(&self) -> ReplyMetadata<'_> {
-        ReplyMetadata::new(&self.event_id, &self.sender_id, None)
+        ReplyMetadata::new(&self.event_id, &self.sender_id, self.thread.as_ref())
     }
 }
 
 async fn generate_reply_metadata(
     room: &Room,
     related_message_id: &EventId,
+    thread_id: Option<OwnedEventId>,
 ) -> Result<CustomReplyMetadata> {
     let event = room
         .event(related_message_id.as_ref(), None)
@@ -319,7 +330,14 @@ async fn generate_reply_metadata(
 
     let sender_id = sender_id_from_timeline_event(&event)?;
 
-    Ok(CustomReplyMetadata::new(event_id, sender_id))
+    let mut metadata = CustomReplyMetadata::new(event_id, sender_id);
+
+    if let Some(id) = thread_id {
+        let thread = Thread::without_fallback(id);
+        metadata = metadata.thread(thread);
+    }
+
+    Ok(metadata)
 }
 
 fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
