@@ -155,6 +155,7 @@ pub async fn message_from_event(
         reactions: Vec::new(),
         mentioned_user_ids,
         room_mentioned,
+        thread_id: None,
     }
 }
 

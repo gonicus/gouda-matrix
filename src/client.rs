@@ -1618,6 +1618,7 @@ impl MatrixClientInner {
             mentioned_user_ids,
             room_mentioned,
             content,
+            thread_id,
         } = request;
 
         let session = self.session()?;
