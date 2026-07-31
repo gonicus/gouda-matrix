@@ -128,7 +128,6 @@ pub async fn message_from_event(
     room: &Room,
     event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
 ) -> Message {
-    let related_message_id = get_related_message_id(event);
     let mentioned_user_ids = matrix_mentions_to_proto_mentions(&event.content.mentions);
     let room_mentioned = event
         .content
@@ -151,13 +150,13 @@ pub async fn message_from_event(
         sender_id: event.sender.to_string(),
         timestamp: event.origin_server_ts.get().into(),
         content,
-        related_message_id,
+        related_message_id: get_related_message_id(event),
         is_pinned: false,
         is_encrypted: false,
         reactions: Vec::new(),
         mentioned_user_ids,
         room_mentioned,
-        thread_id: None,
+        thread_id: get_thread_id(event),
     }
 }
 
@@ -173,6 +172,20 @@ fn get_related_message_id(
     };
 
     Some(reply.in_reply_to.event_id.to_string())
+}
+
+fn get_thread_id(
+    event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
+) -> Option<String> {
+    let Some(relation) = &event.content.relates_to else {
+        return None;
+    };
+
+    let Relation::Thread(thread) = relation else {
+        return None;
+    };
+
+    Some(thread.event_id.to_string())
 }
 
 pub fn proto_mentions_to_matrix_mentions(
