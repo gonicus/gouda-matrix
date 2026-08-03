@@ -1610,24 +1610,34 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: MessageSendRequest,
     ) -> Result<MessageSendResponse> {
-        use message_send_request::Content;
-
         let MessageSendRequest {
             room_id,
             related_message_id,
             mentioned_user_ids,
             room_mentioned,
             content,
+            thread_id,
         } = request;
-
-        let session = self.session()?;
-        let SessionContext { media_manager, .. } = session.as_ref();
-
-        let room = self.get_matrix_room(&room_id).await?;
 
         let Some(content) = content else {
             return Err(Error::internal("Message content not set"));
         };
+
+        let related_message_id = related_message_id
+            .map(|id| EventId::parse(id).map_err(|_| Error::InvalidMessageId))
+            .transpose()?;
+
+        let mentioned_user_ids: Vec<OwnedUserId> = mentioned_user_ids
+            .iter()
+            .map(|id| UserId::parse(id).map_err(|_| Error::InvalidUserId))
+            .collect::<Result<Vec<OwnedUserId>>>()?;
+
+        let thread_id = thread_id
+            .map(|id| EventId::parse(id).map_err(|_| Error::InvalidThreadId))
+            .transpose()?;
+
+        let session = self.session()?;
+        let room = self.get_matrix_room(&room_id).await?;
 
         log::debug!("Disabling typing notice for room");
 
@@ -1635,21 +1645,21 @@ impl MatrixClientInner {
             log::error!("Error disabling typing notice for room: {err}");
         }
 
-        match content {
-            Content::Text(content) => {
-                messages::send_text_message(
-                    &room,
-                    related_message_id,
-                    mentioned_user_ids,
-                    room_mentioned,
-                    content,
-                )
-                .await
-            }
-            Content::File(content) => {
-                messages::send_file_message(media_manager, &room, related_message_id, content).await
-            }
+        let mut builder = messages::MessageBuilder::new(session.as_ref(), content)
+            .mentioned_user_ids(mentioned_user_ids)
+            .room_mentioned(room_mentioned);
+
+        if let Some(id) = related_message_id {
+            builder = builder.related_message_id(id);
         }
+
+        if let Some(id) = thread_id {
+            builder = builder.thread_id(id);
+        }
+
+        let message_id = builder.send(&room).await?;
+
+        Ok(MessageSendResponse { message_id })
     }
 
     async fn remove_message(
@@ -1692,34 +1702,34 @@ impl MatrixClientInner {
             return Err(Error::internal("Message content not set"));
         };
 
+        let mentioned_user_ids: Vec<OwnedUserId> = mentioned_user_ids
+            .iter()
+            .map(|id| UserId::parse(id).map_err(|_| Error::InvalidUserId))
+            .collect::<Result<Vec<OwnedUserId>>>()?;
+
         log::debug!("Disabling typing notice for room");
 
         if let Err(err) = room.typing_notice(false).await {
             log::error!("Error disabling typing notice for room: {err}");
         }
 
-        let content = match content {
-            Content::Text(text) => {
-                let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
-
-                if has_mentioned_user_ids_changed || room_mentioned.is_some() {
-                    let mentions = messages::proto_mentions_to_matrix_mentions(
-                        &mentioned_user_ids,
-                        room_mentioned.unwrap_or(false),
-                    )?;
-
-                    event = event.add_mentions(mentions);
-                }
-
-                event
-            }
-            Content::File(_) => {
-                return Err(Error::NotImplemented);
-            }
+        let Content::Text(text) = content else {
+            return Err(Error::NotImplemented);
         };
 
+        let mut event = RoomMessageEventContentWithoutRelation::text_markdown(text.content);
+
+        if has_mentioned_user_ids_changed || room_mentioned.is_some() {
+            let mentions = messages::proto_mentions_to_matrix_mentions(
+                mentioned_user_ids,
+                room_mentioned.unwrap_or(false),
+            )?;
+
+            event = event.add_mentions(mentions);
+        }
+
         let event = room
-            .make_edit_event(&event_id, EditedContent::RoomMessage(content))
+            .make_edit_event(&event_id, EditedContent::RoomMessage(event))
             .await?;
 
         room.send(event).await?;
