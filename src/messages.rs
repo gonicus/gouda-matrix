@@ -1,6 +1,6 @@
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use matrix_sdk::ruma::events::relation::Thread;
+use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent,
 };
@@ -174,9 +174,7 @@ fn get_related_message_id(
     Some(reply.in_reply_to.event_id.to_string())
 }
 
-fn get_thread_id(
-    event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
-) -> Option<String> {
+fn get_thread_id(event: &OriginalMessageLikeEvent<RoomMessageEventContent>) -> Option<String> {
     let Some(relation) = &event.content.relates_to else {
         return None;
     };
@@ -256,11 +254,7 @@ impl<'a> MessageBuilder<'a> {
             }
         }
 
-        if self.related_message_id.is_some() || self.thread_id.is_some() {
-            // NOTE: Very testy code! Likely not worky!
-            let related = self.related_message_id.unwrap_or(self.thread_id.clone().unwrap());
-            let metadata = generate_reply_metadata(room, &related, self.thread_id).await?;
-
+        if let Some(metadata) = self.compose_reply_metadata(room).await? {
             event = event.make_reply_to(
                 metadata.metadata(),
                 matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
@@ -291,6 +285,54 @@ impl<'a> MessageBuilder<'a> {
             .await?;
 
         Ok(message_id)
+    }
+
+    async fn compose_reply_metadata(&self, room: &Room) -> Result<Option<CustomReplyMetadata>> {
+        if let Some(thread_id) = &self.thread_id {
+            return Ok(Some(self.get_thread_reply_metadata(room, thread_id).await?));
+        }
+
+        if let Some(related_message_id) = &self.related_message_id {
+            return Ok(Some(
+                self.get_main_reply_metadata(room, related_message_id)
+                    .await?,
+            ));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_main_reply_metadata(
+        &self,
+        room: &Room,
+        related_message_id: &EventId,
+    ) -> Result<CustomReplyMetadata> {
+        let sender_id = get_event_sender_id(room, related_message_id).await?;
+        let metadata = CustomReplyMetadata::new(related_message_id.to_owned(), sender_id);
+        Ok(metadata)
+    }
+
+    async fn get_thread_reply_metadata(
+        &self,
+        room: &Room,
+        thread_id: &EventId,
+    ) -> Result<CustomReplyMetadata> {
+        let related_message = self
+            .related_message_id
+            .clone()
+            .unwrap_or(thread_id.to_owned());
+
+        let sender_id = get_event_sender_id(room, &related_message).await?;
+
+        let mut thread = Thread::without_fallback(thread_id.to_owned());
+
+        if let Some(reply) = &self.related_message_id {
+            thread.in_reply_to = Some(InReplyTo::new(reply.to_owned()));
+        }
+
+        let metadata = CustomReplyMetadata::new(related_message, sender_id).thread(thread);
+
+        Ok(metadata)
     }
 }
 
@@ -327,30 +369,13 @@ impl CustomReplyMetadata {
     }
 }
 
-async fn generate_reply_metadata(
-    room: &Room,
-    related_message_id: &EventId,
-    thread_id: Option<OwnedEventId>,
-) -> Result<CustomReplyMetadata> {
+async fn get_event_sender_id(room: &Room, event_id: &EventId) -> Result<OwnedUserId> {
     let event = room
-        .event(related_message_id.as_ref(), None)
+        .event(event_id, None)
         .await
         .map_err(|_| Error::MessageNotFound)?;
 
-    let Some(event_id) = event.event_id() else {
-        return Err(Error::internal("Related message does not have an event id"));
-    };
-
-    let sender_id = sender_id_from_timeline_event(&event)?;
-
-    let mut metadata = CustomReplyMetadata::new(event_id, sender_id);
-
-    if let Some(id) = thread_id {
-        let thread = Thread::without_fallback(id);
-        metadata = metadata.thread(thread);
-    }
-
-    Ok(metadata)
+    sender_id_from_timeline_event(&event)
 }
 
 fn sender_id_from_timeline_event(event: &TimelineEvent) -> Result<OwnedUserId> {
