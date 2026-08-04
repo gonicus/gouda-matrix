@@ -75,6 +75,12 @@ pub enum Error {
     #[error("the requested reaction was not found")]
     ReactionNotFound,
 
+    #[error("the given thread ID is invalid")]
+    InvalidThreadId,
+
+    #[error("the requested thread was not found")]
+    ThreadNotFound,
+
     #[error("the requested verification flow was not found")]
     VerificationFlowNotFound,
 
@@ -171,6 +177,8 @@ impl From<Error> for ChatError {
             Error::InvalidMessageId => chat_err!(InvalidMessageId),
             Error::MessageNotFound => chat_err!(MessageNotFound),
             Error::ReactionNotFound => chat_err!(ReactionNotFound),
+            Error::InvalidThreadId => chat_err!(ThreadNotFound),
+            Error::ThreadNotFound => chat_err!(ThreadNotFound),
             Error::VerificationFlowNotFound => chat_err!(VerificationFlowNotFound),
             Error::UnsupportedCrossSigningMethod => chat_err!(Unknown, value),
             Error::NoCrossSigningMethod => chat_err!(Unknown, value),
