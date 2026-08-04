@@ -8,7 +8,7 @@ use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::*;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
-use matrix_sdk::reqwest::StatusCode;
+use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
@@ -564,65 +564,16 @@ impl MatrixClientInner {
             verification_requests: Mutex::new(Vec::new()),
         };
 
-        let status_code = if obj.get_auth_file().exists() {
-            match obj.restore_session(ctx).await {
-                Ok(()) => status_update::StatusCode::LoggedIn,
-                Err(err) => {
-                    log::error!("Error restoring session: {err:?}");
-                    status_update::StatusCode::LoggedOut
-                }
-            }
-        } else {
-            status_update::StatusCode::Connected
-        };
+        let status_code = obj
+            .restore_session(ctx)
+            .await
+            .inspect_err(|err| log::error!("Error restoring session: {err}"))?;
 
         let status = StatusUpdate {
             code: status_code.into(),
         };
 
         Ok((obj, status))
-    }
-
-    /// Checks if the client is currently logged in.
-    /// This sends a request to the matrix server.
-    async fn is_logged_in(&self) -> Result<bool> {
-        let result = self.session()?.client.whoami().await;
-
-        let Err(err) = result else {
-            return Ok(true);
-        };
-
-        log::warn!("Received error when checking if client is logged in: {err:?}");
-
-        if self.is_auth_err(&err) {
-            return Ok(false);
-        }
-
-        Err(err.into())
-    }
-
-    fn is_auth_err(&self, err: &matrix_sdk::HttpError) -> bool {
-        if let matrix_sdk::HttpError::IntoHttp(err) = &err {
-            if matches!(err, IntoHttpError::Authentication(_)) {
-                return true;
-            }
-        }
-
-        if let matrix_sdk::HttpError::Reqwest(err) = &err {
-            if err.status() == Some(StatusCode::UNAUTHORIZED) {
-                return true;
-            }
-        }
-
-        if let matrix_sdk::HttpError::Api(err) = &err {
-            if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
-                if err.status_code == StatusCode::UNAUTHORIZED {
-                    return true;
-                }
-            }
-        }
-
-        false
     }
 
     /// Deletes the persisted session and resets the matrix client.
@@ -649,22 +600,39 @@ impl MatrixClientInner {
     }
 
     /// Restores the session from the session file.
-    async fn restore_session(&self, ctx: RequestContext) -> Result<()> {
+    async fn restore_session(&self, ctx: RequestContext) -> Result<status_update::StatusCode> {
         let session_file = self.get_auth_file();
+
+        if !session_file.exists() {
+            return Ok(status_update::StatusCode::Connected);
+        }
 
         log::debug!("Previous session found in '{session_file:?}'");
 
-        let session = Session::read_from_file(session_file, self.encryption_secret.clone()).await?;
+        let result = Session::read_from_file(session_file, self.encryption_secret.clone()).await;
+        let Ok(session) = result else {
+            return Ok(status_update::StatusCode::LoggedOut);
+        };
 
         log::info!(
             "Restoring session for {}",
             session.user_session.meta.user_id
         );
 
-        self.session()?
+        let result = self
+            .session()?
             .client
             .restore_session(session.user_session.clone())
-            .await?;
+            .await;
+
+        if let Err(err) = result {
+            if self.is_auth_err(&err) {
+                log::info!("Restored session is invalid (auth error): {err}");
+                return Ok(status_update::StatusCode::LoggedOut);
+            }
+
+            return Err(err.into());
+        }
 
         let session_context = self.session()?;
 
@@ -677,7 +645,57 @@ impl MatrixClientInner {
             .sync(ctx.clone(), (*session_context).clone())
             .await?;
 
-        Ok(())
+        Ok(status_update::StatusCode::LoggedIn)
+    }
+
+    /// Checks if the client is currently logged in.
+    /// This sends a request to the matrix server.
+    async fn is_logged_in(&self) -> Result<bool> {
+        let result = self.session()?.client.whoami().await;
+
+        let Err(err) = result else {
+            return Ok(true);
+        };
+
+        log::warn!("Received error when checking if client is logged in: {err:?}");
+
+        if self.is_auth_err_http(&err) {
+            return Ok(false);
+        }
+
+        Err(err.into())
+    }
+
+    fn is_auth_err(&self, err: &matrix_sdk::Error) -> bool {
+        let matrix_sdk::Error::Http(err) = err else {
+            return false;
+        };
+
+        self.is_auth_err_http(err)
+    }
+
+    fn is_auth_err_http(&self, err: &matrix_sdk::HttpError) -> bool {
+        if let matrix_sdk::HttpError::IntoHttp(err) = &err {
+            if matches!(err, IntoHttpError::Authentication(_)) {
+                return true;
+            }
+        }
+
+        if let matrix_sdk::HttpError::Reqwest(err) = &err {
+            if err.status() == Some(HttpStatusCode::UNAUTHORIZED) {
+                return true;
+            }
+        }
+
+        if let matrix_sdk::HttpError::Api(err) = &err {
+            if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
+                if err.status_code == HttpStatusCode::UNAUTHORIZED {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Removes all data related to the current session.
