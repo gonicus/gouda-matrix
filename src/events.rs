@@ -130,7 +130,7 @@ impl EventManager {
         client.add_event_handler(fully_read_event_handler);
 
         self.clone()
-            .subscibe_to_event_cache_generic_updates(client.clone());
+            .subscribe_to_event_cache_generic_updates(client.clone());
         self.clone().subscribe_to_room_updates(client);
     }
 
@@ -150,7 +150,7 @@ impl EventManager {
         });
     }
 
-    fn subscibe_to_event_cache_generic_updates(self, client: Client) {
+    fn subscribe_to_event_cache_generic_updates(self, client: Client) {
         let mut stream = client.event_cache().subscribe_to_room_generic_updates();
         log::debug!("Subscribing to event cache generic updates");
 
