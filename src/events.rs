@@ -932,11 +932,6 @@ impl EventExecutor {
 
         // TODO: We have to check if the fully read event is actually for the latest event.
 
-        // if let Err(err) = self.memory_cache.set_room_unread_count(room, 0) {
-        //     log::error!("Error updating room unread count: {err}");
-        //     return;
-        // }
-
         let proto = RoomChangeEventBuilder::new(room_id)
             .change_unread_count(0)
             .to_proto();
