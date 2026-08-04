@@ -976,24 +976,8 @@ impl EventExecutor {
         };
 
         let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        // let old = self.memory_cache.get_room_unread_count(&room_id)
-        //     .inspect_err(|err| log::error!("Unable to retrieve unread count of room: {err}"));
 
-        // let Ok(Some(old)) = old else {
-        //     return;
-        // };
-
-        // log::debug!("Received new unread count of room: {new}, old unread count: {old}");
-        log::debug!("Received new unread count of room: {new}");
-
-        // if new <= old {
-        //     return;
-        // }
-
-        // if let Err(err) = self.memory_cache.set_room_unread_count(room, new) {
-        //     log::error!("Unable to update room unread count: {err}");
-        //     return;
-        // }
+        log::debug!("Received unread count of room: {new}");
 
         let proto = RoomChangeEventBuilder::new(room_id.to_string())
             .change_unread_count(new)
