@@ -434,7 +434,9 @@ impl EventExecutor {
             Action::JoinedRoomUpdate { room_id, update } => {
                 self.exec_joined_room_update(room_id, update).await
             }
-            Action::EventCacheGenericUpdate { room_id } => self.exec_event_cache_generic_update(room_id).await,
+            Action::EventCacheGenericUpdate { room_id } => {
+                self.exec_event_cache_generic_update(room_id).await
+            }
         }
     }
 
