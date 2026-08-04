@@ -118,6 +118,7 @@ impl RoomsManager {
             avatar_path,
             is_favorite: room.is_favourite(),
             room_settings: Some(get_room_settings(room).await),
+            invitation_text: None,
         })
     }
 }
