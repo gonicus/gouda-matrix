@@ -925,28 +925,12 @@ impl EventExecutor {
         )
     }
 
-    async fn exec_fully_read_event(&self, room: Room, event: FullyReadEvent) {
-        let room_id = room.room_id().to_string();
-
-        if room.latest_event().event_id() != Some(event.content.event_id) {
-            log::debug!("Received fully read event for not the latest event");
-            return;
-        }
-
-        log::debug!("Received fully read event for the latest event inside the room");
-        log::debug!("Resetting unread count of room {room_id}");
-
-        let proto = RoomChangeEventBuilder::new(room_id)
-            .change_unread_count(0)
-            .to_proto();
-
-        self.ctx
-            .send_event(ResponseContent::RoomChangeEvent(proto))
-            .await;
+    async fn exec_fully_read_event(&mut self, room: Room, _event: FullyReadEvent) {
+        self.update_room_unread_count(&room).await;
     }
 
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
-        self.update_room_unread_count(&room_id).await;
+        self.update_room_unread_count_by_id(&room_id).await;
 
         let Some(list) = get_user_typing_list(&update) else {
             return;
@@ -971,15 +955,19 @@ impl EventExecutor {
     }
 
     async fn exec_event_cache_generic_update(&mut self, room_id: OwnedRoomId) {
-        self.update_room_unread_count(&room_id).await;
+        self.update_room_unread_count_by_id(&room_id).await;
     }
 
-    async fn update_room_unread_count(&mut self, room_id: &RoomId) {
+    async fn update_room_unread_count_by_id(&mut self, room_id: &RoomId) {
         let Some(room) = self.client.get_room(&room_id) else {
             log::warn!("Unable to find matrix room to update unread count");
             return;
         };
 
+        self.update_room_unread_count(&room).await;
+    }
+
+    async fn update_room_unread_count(&mut self, room: &Room) {
         let room_id = room.room_id();
         let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
 
