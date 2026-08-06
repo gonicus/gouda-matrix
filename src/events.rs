@@ -925,12 +925,16 @@ impl EventExecutor {
         )
     }
 
-    async fn exec_fully_read_event(&self, room: Room, _event: FullyReadEvent) {
+    async fn exec_fully_read_event(&self, room: Room, event: FullyReadEvent) {
         let room_id = room.room_id().to_string();
 
-        log::debug!("Resetting unread count of room {room_id}");
+        if room.latest_event().event_id() != Some(event.content.event_id) {
+            log::debug!("Received fully read event for not the latest event");
+            return;
+        }
 
-        // TODO: We have to check if the fully read event is actually for the latest event.
+        log::debug!("Received fully read event for the latest event inside the room");
+        log::debug!("Resetting unread count of room {room_id}");
 
         let proto = RoomChangeEventBuilder::new(room_id)
             .change_unread_count(0)
