@@ -30,7 +30,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
 use ruma_common::serde::Raw;
-use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId};
+use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId, RoomId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::bridge::{IntoChat, TryIntoChat};
@@ -946,6 +946,8 @@ impl EventExecutor {
     }
 
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
+        self.update_room_unread_count(&room_id).await;
+
         let Some(list) = get_user_typing_list(&update) else {
             return;
         };
@@ -969,14 +971,19 @@ impl EventExecutor {
     }
 
     async fn exec_event_cache_generic_update(&mut self, room_id: OwnedRoomId) {
+        self.update_room_unread_count(&room_id).await;
+    }
+
+    async fn update_room_unread_count(&mut self, room_id: &RoomId) {
         let Some(room) = self.client.get_room(&room_id) else {
-            log::warn!("Unable to get matrix room of generic event cache update");
+            log::warn!("Unable to find matrix room to update unread count");
             return;
         };
 
+        let room_id = room.room_id();
         let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
 
-        log::debug!("Received unread count of room: {new}");
+        log::debug!("Received new unread count of room: {new}");
 
         let proto = RoomChangeEventBuilder::new(room_id.to_string())
             .change_unread_count(new)
