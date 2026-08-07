@@ -959,7 +959,7 @@ impl EventExecutor {
     }
 
     async fn update_room_unread_count_by_id(&mut self, room_id: &RoomId) {
-        let Some(room) = self.client.get_room(&room_id) else {
+        let Some(room) = self.client.get_room(room_id) else {
             log::warn!("Unable to find matrix room to update unread count");
             return;
         };
