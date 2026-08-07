@@ -2,7 +2,7 @@ use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
-    FormattedBody, MessageType, Relation, ReplyMetadata, RoomMessageEventContent,
+    FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
 };
 use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
@@ -254,12 +254,12 @@ impl<'a> MessageBuilder<'a> {
             }
         }
 
-        if let Some(metadata) = self.compose_reply_metadata(room).await? {
-            event = event.make_reply_to(
-                metadata.metadata(),
-                matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
-                matrix_sdk::ruma::events::room::message::AddMentions::Yes,
-            );
+        if let Some(thread_id) = &self.thread_id {
+            event = self.add_thread_metadata(room, event, thread_id).await?;
+        } else if let Some(related_message_id) = &self.related_message_id {
+            event = self
+                .add_reply_metadata(room, event, related_message_id)
+                .await?;
         }
 
         if !self.mentioned_user_ids.is_empty() || self.room_mentioned {
@@ -287,19 +287,46 @@ impl<'a> MessageBuilder<'a> {
         Ok(message_id)
     }
 
-    async fn compose_reply_metadata(&self, room: &Room) -> Result<Option<CustomReplyMetadata>> {
-        if let Some(thread_id) = &self.thread_id {
-            return Ok(Some(self.get_thread_reply_metadata(room, thread_id).await?));
-        }
+    async fn add_thread_metadata(
+        &self,
+        room: &Room,
+        event: RoomMessageEventContent,
+        thread_id: &EventId,
+    ) -> Result<RoomMessageEventContent> {
+        let metadata = self.get_thread_reply_metadata(room, thread_id).await?;
 
-        if let Some(related_message_id) = &self.related_message_id {
-            return Ok(Some(
-                self.get_main_reply_metadata(room, related_message_id)
-                    .await?,
-            ));
-        }
+        let is_reply = if self.related_message_id.is_some() {
+            ReplyWithinThread::Yes
+        } else {
+            ReplyWithinThread::No
+        };
 
-        Ok(None)
+        let event = event.make_for_thread(
+            metadata.metadata(),
+            is_reply,
+            matrix_sdk::ruma::events::room::message::AddMentions::Yes,
+        );
+
+        Ok(event)
+    }
+
+    async fn add_reply_metadata(
+        &self,
+        room: &Room,
+        event: RoomMessageEventContent,
+        related_message_id: &EventId,
+    ) -> Result<RoomMessageEventContent> {
+        let metadata = self
+            .get_main_reply_metadata(room, related_message_id)
+            .await?;
+
+        let event = event.make_reply_to(
+            metadata.metadata(),
+            matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
+            matrix_sdk::ruma::events::room::message::AddMentions::Yes,
+        );
+
+        Ok(event)
     }
 
     async fn get_main_reply_metadata(
