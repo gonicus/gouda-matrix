@@ -175,6 +175,13 @@ impl EventManager {
 
         match content {
             ResponseContent::RoomListResponse(re) => self.process_room_list_response(re),
+            ResponseContent::RoomCreatedEvent(room) => {
+                let action = Action::RoomDiscorved {
+                    room_id: room.room_id.clone(),
+                };
+
+                let _ = self.action_sender.send(action);
+            }
             _ => (),
         }
     }
