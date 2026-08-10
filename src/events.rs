@@ -502,11 +502,11 @@ impl EventExecutor {
 
     fn is_new_room_change(&self, change: &RoomChangeEvent) -> bool {
         let Some(queue) = self.room_changes.get(&change.room_id) else {
-            return false;
+            return true;
         };
 
         let Some(old) = queue.back() else {
-            return false;
+            return true;
         };
 
         old != change
