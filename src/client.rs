@@ -800,6 +800,7 @@ impl MatrixClientInner {
             return;
         };
 
+        session.event_manager.process_response(&content);
         session.proto_cache.cache_response_content(content);
     }
 

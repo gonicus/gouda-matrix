@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;
@@ -39,8 +39,11 @@ use crate::memory_cache::{MemoryCache, ReactionMetadata};
 use crate::rooms::RoomsManager;
 use crate::{messages, rooms, unwrap_or_log_return};
 
-// After how many seconds does an event count as historical?
+/// After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
+
+/// How many room change events should be queued per room?
+const MAX_QUEUED_ROOM_CHANGES: usize = 15;
 
 macro_rules! impl_room_event_handler {
     ($event:ident, $handler_name:ident, $processor_name:ident) => {
@@ -167,6 +170,32 @@ impl EventManager {
         });
     }
 
+    pub fn process_response(&self, content: &ResponseContent) {
+        log::debug!("Processing response: {content:?}");
+
+        match content {
+            ResponseContent::RoomListResponse(re) => self.process_room_list_response(re),
+            ResponseContent::RoomCreatedEvent(room) => {
+                let action = Action::RoomDiscorved {
+                    room_id: room.room_id.clone(),
+                };
+
+                let _ = self.action_sender.send(action);
+            }
+            _ => (),
+        }
+    }
+
+    pub fn process_room_list_response(&self, response: &RoomListResponse) {
+        for room in &response.room_list {
+            let action = Action::RoomDiscorved {
+                room_id: room.room_id.clone(),
+            };
+
+            let _ = self.action_sender.send(action);
+        }
+    }
+
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
         log::debug!("Received OriginalSyncRoomRedactionEvent: {event:?}");
         let _ = self
@@ -260,6 +289,9 @@ impl EventManager {
 }
 
 enum Action {
+    RoomDiscorved {
+        room_id: String,
+    },
     RoomRedactionEvent {
         room: Room,
         event: OriginalSyncRoomRedactionEvent,
@@ -372,7 +404,7 @@ struct EventExecutor {
     media_manager: MediaManager,
 
     user_changes: HashMap<String, UserChange>,
-    room_changes: HashMap<String, RoomChangeEvent>,
+    room_changes: HashMap<String, VecDeque<RoomChangeEvent>>,
 }
 
 impl EventExecutor {
@@ -405,6 +437,7 @@ impl EventExecutor {
 
     async fn exec_event(&mut self, event: Action) {
         match event {
+            Action::RoomDiscorved { room_id } => self.exec_queued_room_changes(room_id).await,
             Action::RoomRedactionEvent { room, event } => {
                 self.exec_room_redaction_event(room, event).await
             }
@@ -457,20 +490,47 @@ impl EventExecutor {
     fn track_room_change(&mut self, change: RoomChangeEvent) {
         let room_id = change.room_id.clone();
         log::debug!("Tracking change for room {room_id}: {change:?}");
-        self.room_changes.insert(room_id, change);
+
+        let entry = self.room_changes.entry(room_id).or_default();
+
+        if entry.len() >= MAX_QUEUED_ROOM_CHANGES {
+            entry.pop_front();
+        }
+
+        entry.push_back(change);
     }
 
     fn is_new_room_change(&self, change: &RoomChangeEvent) -> bool {
-        if let Some(old) = self.room_changes.get(&change.room_id) {
-            old != change
-        } else {
-            true
-        }
+        let Some(queue) = self.room_changes.get(&change.room_id) else {
+            return true;
+        };
+
+        let Some(old) = queue.back() else {
+            return true;
+        };
+
+        old != change
     }
 }
 
 /// Implements the actual event execution methods.
 impl EventExecutor {
+    async fn exec_queued_room_changes(&mut self, room_id: String) {
+        log::debug!("Executing queued room changes for room: {room_id}");
+
+        let Some(changes) = self.room_changes.get_mut(&room_id) else {
+            log::debug!("No changes for room queued");
+            return;
+        };
+
+        for change in std::mem::take(changes) {
+            log::debug!("Executing queued room change: {change:?}");
+            self.ctx
+                .send_event(ResponseContent::RoomChangeEvent(change))
+                .await;
+        }
+    }
+
     async fn exec_room_redaction_event(
         &mut self,
         room: Room,
