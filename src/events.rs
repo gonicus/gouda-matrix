@@ -170,12 +170,22 @@ impl EventManager {
         });
     }
 
-    pub fn process_response(&self, content: ResponseContent) {
+    pub fn process_response(&self, content: &ResponseContent) {
         log::debug!("Processing response: {content:?}");
 
         match content {
-            ResponseContent::RoomListResponse(re) => todo!(),
+            ResponseContent::RoomListResponse(re) => self.process_room_list_response(re),
             _ => (),
+        }
+    }
+
+    pub fn process_room_list_response(&self, response: &RoomListResponse) {
+        for room in &response.room_list {
+            let action = Action::RoomDiscorved {
+                room_id: room.room_id.clone(),
+            };
+
+            let _ = self.action_sender.send(action);
         }
     }
 
@@ -272,6 +282,9 @@ impl EventManager {
 }
 
 enum Action {
+    RoomDiscorved {
+        room_id: String,
+    },
     RoomRedactionEvent {
         room: Room,
         event: OriginalSyncRoomRedactionEvent,
@@ -417,6 +430,7 @@ impl EventExecutor {
 
     async fn exec_event(&mut self, event: Action) {
         match event {
+            Action::RoomDiscorved { room_id } => self.exec_queued_room_changes(room_id).await,
             Action::RoomRedactionEvent { room, event } => {
                 self.exec_room_redaction_event(room, event).await
             }
@@ -494,6 +508,22 @@ impl EventExecutor {
 
 /// Implements the actual event execution methods.
 impl EventExecutor {
+    async fn exec_queued_room_changes(&mut self, room_id: String) {
+        log::debug!("Executing queued room changes for room: {room_id}");
+
+        let Some(changes) = self.room_changes.get_mut(&room_id) else {
+            log::debug!("No changes for room queued");
+            return;
+        };
+
+        for change in std::mem::take(changes) {
+            log::debug!("Executing queued room change: {change:?}");
+            self.ctx
+                .send_event(ResponseContent::RoomChangeEvent(change))
+                .await;
+        }
+    }
+
     async fn exec_room_redaction_event(
         &mut self,
         room: Room,
