@@ -22,7 +22,7 @@ use matrix_sdk::ruma::events::room::message::{
     OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContentWithoutRelation,
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
-use matrix_sdk::ruma::events::room::pinned_events::{OriginalSyncRoomPinnedEventsEvent, RoomPinnedEventsEvent};
+use matrix_sdk::ruma::events::room::pinned_events::OriginalSyncRoomPinnedEventsEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
