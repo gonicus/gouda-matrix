@@ -22,6 +22,7 @@ use matrix_sdk::ruma::events::room::message::{
     OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContentWithoutRelation,
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
+use matrix_sdk::ruma::events::room::pinned_events::OriginalSyncRoomPinnedEventsEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
@@ -126,6 +127,7 @@ impl EventManager {
         client.add_event_handler(room_join_rules_event_handler);
         client.add_event_handler(room_avatar_event_handler);
         client.add_event_handler(room_message_event_handler);
+        client.add_event_handler(room_pinned_events_event_handler);
         client.add_event_handler(reaction_event_handler);
         client.add_event_handler(presence_event_handler);
         client.add_event_handler(tag_event_handler);
@@ -249,6 +251,17 @@ impl EventManager {
             .send(Action::RoomMessageEvent { room, event });
     }
 
+    pub fn process_room_pinned_events_event(
+        &self,
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
+    ) {
+        log::debug!("Received RoomPinnedEventsEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Action::RoomPinnedEventsEvent { room, event });
+    }
+
     pub fn process_reaction_event(&self, room: Room, event: OriginalSyncReactionEvent) {
         log::debug!("Received OriginalSyncReactionEvent: {event:?}");
         let _ = self
@@ -343,6 +356,10 @@ enum Action {
     },
     EventCacheGenericUpdate {
         room_id: OwnedRoomId,
+    },
+    RoomPinnedEventsEvent {
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
     },
 }
 
@@ -456,6 +473,9 @@ impl EventExecutor {
             }
             Action::RoomMessageEvent { room, event } => {
                 self.exec_room_message_event(room, event).await
+            }
+            Action::RoomPinnedEventsEvent { room, event } => {
+                self.exec_room_pinned_events_event(room, event).await
             }
             Action::ReactionEvent { room, event } => self.exec_reaction_event(room, event).await,
             Action::PresenceEvent(event) => self.exec_presence_event(event).await,
@@ -881,6 +901,22 @@ impl EventExecutor {
         self.process_new_message(room, event).await;
     }
 
+    async fn exec_room_pinned_events_event(
+        &self,
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
+    ) {
+        let ids = event.content.pinned.iter().map(|i| i.to_string()).collect();
+
+        let proto = RoomChangeEventBuilder::new(room.room_id())
+            .change_pinned_messages(ids)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
+    }
+
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         let event = event.into_full_event(room.room_id().to_owned());
         let message = messages::message_from_event(&self.media_manager, &room, &event).await;
@@ -1146,6 +1182,12 @@ impl_room_event_handler!(
     OriginalSyncRoomMessageEvent,
     room_message_event_handler,
     process_room_message_event
+);
+
+impl_room_event_handler!(
+    OriginalSyncRoomPinnedEventsEvent,
+    room_pinned_events_event_handler,
+    process_room_pinned_events_event
 );
 
 impl_room_event_handler!(

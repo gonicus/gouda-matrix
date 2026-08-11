@@ -105,6 +105,13 @@ impl RoomsManager {
             room.is_direct().await?
         };
 
+        let pinned_messages = room
+            .pinned_event_ids()
+            .unwrap_or_default()
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>();
+
         Ok(Room {
             room_id: room.room_id().to_string(),
             display_name,
@@ -119,6 +126,7 @@ impl RoomsManager {
             is_favorite: room.is_favourite(),
             room_settings: Some(get_room_settings(room).await),
             invitation_text: None,
+            pinned_messages,
         })
     }
 }
