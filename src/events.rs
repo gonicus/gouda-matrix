@@ -899,7 +899,15 @@ impl EventExecutor {
     }
 
     async fn exec_room_pinned_events_event(&self, room: Room, event: OriginalSyncRoomPinnedEventsEvent) {
-        todo!()
+        let ids = event.content.pinned.iter().map(|i| i.to_string()).collect();
+
+        let proto = RoomChangeEventBuilder::new(room.room_id())
+            .change_pinned_messages(ids)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
