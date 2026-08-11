@@ -105,8 +105,6 @@ impl RoomsManager {
             room.is_direct().await?
         };
 
-        // TODO: Measure time
-
         let pinned_messages = room
             .pinned_event_ids()
             .unwrap_or_default()
