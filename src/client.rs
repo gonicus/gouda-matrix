@@ -380,6 +380,17 @@ impl ClientAbstraction for MatrixClient {
             .map_err(|err| err.into())
     }
 
+    async fn pin_unpin_message(
+        &self,
+        ctx: RequestContext,
+        request: RoomPinRequest,
+    ) -> gouda_core::Result<RoomChangeEvent> {
+        self.inner()?
+            .pin_unpin_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
+    }
+
     async fn send_message(
         &self,
         ctx: RequestContext,
@@ -1612,6 +1623,33 @@ impl MatrixClientInner {
 
         Ok(())
     }
+
+    async fn pin_unpin_message(
+        &self,
+        _ctx: RequestContext,
+        request: RoomPinRequest,
+    ) -> Result<RoomChangeEvent> {
+        let RoomPinRequest { room_id, message_id, pinned } = request;
+
+        let room = self.get_matrix_room(&room_id).await?;
+
+        let event_id = EventId::parse(message_id).map_err(|_| Error::InvalidMessageId)?;
+
+        if pinned {
+            room.pin_event(&event_id).await?;
+        } else {
+            room.unpin_event(&event_id).await?;
+        }
+
+        let ids = room.pinned_event_ids().unwrap_or_default().iter().map(|i| i.to_string()).collect();
+
+        let proto = builder::RoomChangeEventBuilder::new(room.room_id())
+            .change_pinned_messages(ids)
+            .to_proto();
+
+        Ok(proto)
+    }
+
 
     async fn send_message(
         &self,
