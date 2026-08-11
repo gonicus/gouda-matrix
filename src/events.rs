@@ -251,7 +251,11 @@ impl EventManager {
             .send(Action::RoomMessageEvent { room, event });
     }
 
-    pub fn process_room_pinned_events_event(&self, room: Room, event: OriginalSyncRoomPinnedEventsEvent) {
+    pub fn process_room_pinned_events_event(
+        &self,
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
+    ) {
         log::debug!("Received RoomPinnedEventsEvent: {event:?}");
         let _ = self
             .action_sender
@@ -295,7 +299,6 @@ impl EventManager {
             .action_sender
             .send(Action::JoinedRoomUpdate { room_id, update });
     }
-
 }
 
 enum Action {
@@ -357,7 +360,7 @@ enum Action {
     RoomPinnedEventsEvent {
         room: Room,
         event: OriginalSyncRoomPinnedEventsEvent,
-    }
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -898,7 +901,11 @@ impl EventExecutor {
         self.process_new_message(room, event).await;
     }
 
-    async fn exec_room_pinned_events_event(&self, room: Room, event: OriginalSyncRoomPinnedEventsEvent) {
+    async fn exec_room_pinned_events_event(
+        &self,
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
+    ) {
         let ids = event.content.pinned.iter().map(|i| i.to_string()).collect();
 
         let proto = RoomChangeEventBuilder::new(room.room_id())

@@ -1629,7 +1629,11 @@ impl MatrixClientInner {
         _ctx: RequestContext,
         request: RoomPinRequest,
     ) -> Result<RoomChangeEvent> {
-        let RoomPinRequest { room_id, message_id, pinned } = request;
+        let RoomPinRequest {
+            room_id,
+            message_id,
+            pinned,
+        } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
 
@@ -1641,7 +1645,12 @@ impl MatrixClientInner {
             room.unpin_event(&event_id).await?;
         }
 
-        let ids = room.pinned_event_ids().unwrap_or_default().iter().map(|i| i.to_string()).collect();
+        let ids = room
+            .pinned_event_ids()
+            .unwrap_or_default()
+            .iter()
+            .map(|i| i.to_string())
+            .collect();
 
         let proto = builder::RoomChangeEventBuilder::new(room.room_id())
             .change_pinned_messages(ids)
@@ -1649,7 +1658,6 @@ impl MatrixClientInner {
 
         Ok(proto)
     }
-
 
     async fn send_message(
         &self,
