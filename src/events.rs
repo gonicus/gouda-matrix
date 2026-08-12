@@ -23,6 +23,7 @@ use matrix_sdk::ruma::events::room::message::{
 };
 use matrix_sdk::ruma::events::room::name::OriginalSyncRoomNameEvent;
 use matrix_sdk::ruma::events::room::pinned_events::OriginalSyncRoomPinnedEventsEvent;
+use matrix_sdk::ruma::events::room::power_levels::OriginalSyncRoomPowerLevelsEvent;
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
@@ -128,6 +129,7 @@ impl EventManager {
         client.add_event_handler(room_avatar_event_handler);
         client.add_event_handler(room_message_event_handler);
         client.add_event_handler(room_pinned_events_event_handler);
+        client.add_event_handler(room_power_levels_event_handler);
         client.add_event_handler(reaction_event_handler);
         client.add_event_handler(presence_event_handler);
         client.add_event_handler(tag_event_handler);
@@ -256,10 +258,21 @@ impl EventManager {
         room: Room,
         event: OriginalSyncRoomPinnedEventsEvent,
     ) {
-        log::debug!("Received RoomPinnedEventsEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomPinnedEventsEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::RoomPinnedEventsEvent { room, event });
+    }
+
+    pub fn process_room_power_levels_event(
+        &self,
+        room: Room,
+        event: OriginalSyncRoomPowerLevelsEvent,
+    ) {
+        log::debug!("Received OriginalSyncRoomPowerLevelsEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Action::RoomPowerLevelsEvent { room, event });
     }
 
     pub fn process_reaction_event(&self, room: Room, event: OriginalSyncReactionEvent) {
@@ -333,6 +346,14 @@ enum Action {
         room: Room,
         event: OriginalSyncRoomMessageEvent,
     },
+    RoomPinnedEventsEvent {
+        room: Room,
+        event: OriginalSyncRoomPinnedEventsEvent,
+    },
+    RoomPowerLevelsEvent {
+        room: Room,
+        event: OriginalSyncRoomPowerLevelsEvent,
+    },
     ReactionEvent {
         room: Room,
         event: OriginalSyncReactionEvent,
@@ -356,10 +377,6 @@ enum Action {
     },
     EventCacheGenericUpdate {
         room_id: OwnedRoomId,
-    },
-    RoomPinnedEventsEvent {
-        room: Room,
-        event: OriginalSyncRoomPinnedEventsEvent,
     },
 }
 
@@ -476,6 +493,9 @@ impl EventExecutor {
             }
             Action::RoomPinnedEventsEvent { room, event } => {
                 self.exec_room_pinned_events_event(room, event).await
+            }
+            Action::RoomPowerLevelsEvent { room, event } => {
+                self.exec_room_power_levels_event(room, event).await
             }
             Action::ReactionEvent { room, event } => self.exec_reaction_event(room, event).await,
             Action::PresenceEvent(event) => self.exec_presence_event(event).await,
@@ -917,6 +937,33 @@ impl EventExecutor {
             .await;
     }
 
+    async fn exec_room_power_levels_event(
+        &self,
+        room: Room,
+        _event: OriginalSyncRoomPowerLevelsEvent,
+    ) {
+        let Some(user_id) = self.client.user_id() else {
+            log::error!("Received event while user is not logged in");
+            return;
+        };
+
+        let permissions = rooms::get_room_permissions(&room, user_id)
+            .await
+            .inspect_err(|err| log::error!("Error retrieving room permissions: {err}"));
+
+        let Ok(permissions) = permissions else {
+            return;
+        };
+
+        let proto = RoomChangeEventBuilder::new(room.room_id())
+            .change_permissions(permissions)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
+    }
+
     async fn process_new_message(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
         let event = event.into_full_event(room.room_id().to_owned());
         let message = messages::message_from_event(&self.media_manager, &room, &event).await;
@@ -1188,6 +1235,12 @@ impl_room_event_handler!(
     OriginalSyncRoomPinnedEventsEvent,
     room_pinned_events_event_handler,
     process_room_pinned_events_event
+);
+
+impl_room_event_handler!(
+    OriginalSyncRoomPowerLevelsEvent,
+    room_power_levels_event_handler,
+    process_room_power_levels_event
 );
 
 impl_room_event_handler!(
