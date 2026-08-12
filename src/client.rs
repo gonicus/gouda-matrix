@@ -1927,21 +1927,3 @@ fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
 fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
     data_root_dir.as_ref().join(CACHE_DIR)
 }
-
-#[cfg(test)]
-mod tests {
-    use tempdir::TempDir;
-
-    use super::*;
-
-    const TEMP_DIR_PREFIX: &str = "gouda_matrix";
-
-    #[tokio::test]
-    async fn test_remove_directory() {
-        let dir = TempDir::new(TEMP_DIR_PREFIX).unwrap();
-        let path = dir.path();
-
-
-    }
-
-}
