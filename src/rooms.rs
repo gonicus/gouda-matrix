@@ -157,12 +157,16 @@ pub async fn get_room_permissions(
     let can_edit = room_power_levels.user_can_send_state(user_id, StateEventType::RoomName)
         && room_power_levels.user_can_send_state(user_id, StateEventType::RoomJoinRules);
 
+    let can_pin_messages =
+        room_power_levels.user_can_send_state(user_id, StateEventType::RoomPinnedEvents);
+
     Ok(RoomPermissions {
         can_edit,
         can_invite: room_power_levels.user_can_invite(user_id),
         can_kick: room_power_levels.user_can_kick(user_id),
         can_ban: room_power_levels.user_can_ban(user_id),
         can_mention_room: room_power_levels.user_can_trigger_room_notification(user_id),
+        can_pin_messages,
     })
 }
 
