@@ -151,7 +151,6 @@ pub async fn message_from_event(
         timestamp: event.origin_server_ts.get().into(),
         content,
         related_message_id: get_related_message_id(event),
-        is_pinned: false,
         is_encrypted: false,
         reactions: Vec::new(),
         mentioned_user_ids,
