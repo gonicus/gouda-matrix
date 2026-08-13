@@ -180,7 +180,7 @@ impl EventManager {
         match content {
             ResponseContent::RoomListResponse(re) => self.process_room_list_response(re),
             ResponseContent::RoomCreatedEvent(room) => {
-                let action = Action::RoomDiscorved {
+                let action = Action::RoomDiscovered {
                     room_id: room.room_id.clone(),
                 };
 
@@ -192,7 +192,7 @@ impl EventManager {
 
     pub fn process_room_list_response(&self, response: &RoomListResponse) {
         for room in &response.room_list {
-            let action = Action::RoomDiscorved {
+            let action = Action::RoomDiscovered {
                 room_id: room.room_id.clone(),
             };
 
@@ -315,7 +315,7 @@ impl EventManager {
 }
 
 enum Action {
-    RoomDiscorved {
+    RoomDiscovered {
         room_id: String,
     },
     RoomRedactionEvent {
@@ -471,7 +471,7 @@ impl EventExecutor {
 
     async fn exec_event(&mut self, event: Action) {
         match event {
-            Action::RoomDiscorved { room_id } => self.exec_queued_room_changes(room_id).await,
+            Action::RoomDiscovered { room_id } => self.exec_queued_room_changes(room_id).await,
             Action::RoomRedactionEvent { room, event } => {
                 self.exec_room_redaction_event(room, event).await
             }
