@@ -1,4 +1,5 @@
 use gouda_proto::chat;
+use matrix_sdk::ruma::events::message::TextContentBlock;
 
 use crate::error::{Error, Result};
 
@@ -117,6 +118,12 @@ impl<'a> TryIntoChat<chat::message_content_membership_change::MembershipChange>
             Self::Knocked => Ok(chat::message_content_membership_change::MembershipChange::Knocked),
             _ => Err(Error::ConversionError),
         }
+    }
+}
+
+impl IntoMatrix<matrix_sdk::ruma::events::poll::start::PollAnswer> for chat::PollOption {
+    fn into_matrix(self) -> matrix_sdk::ruma::events::poll::start::PollAnswer {
+        matrix_sdk::ruma::events::poll::start::PollAnswer::new(self.id, TextContentBlock::plain(self.text))
     }
 }
 

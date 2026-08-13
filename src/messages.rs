@@ -1,5 +1,7 @@
 use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
+use matrix_sdk::ruma::events::message::TextContentBlock;
+use matrix_sdk::ruma::events::poll::start::{PollAnswer, PollAnswers, PollContentBlock, PollStartEventContent};
 use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
@@ -8,6 +10,7 @@ use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId};
 
+use crate::bridge::IntoMatrix;
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
@@ -241,6 +244,7 @@ impl<'a> MessageBuilder<'a> {
         match std::mem::take(&mut self.content) {
             message_send_request::Content::Text(c) => self.send_text(room, c).await,
             message_send_request::Content::File(c) => self.send_file(room, c).await,
+            message_send_request::Content::Poll(c) => self.send_poll(room, c).await,
         }
     }
 
@@ -284,6 +288,23 @@ impl<'a> MessageBuilder<'a> {
             .await?;
 
         Ok(message_id)
+    }
+
+    async fn send_poll(self, room: &Room, content: MessageContentPoll) -> Result<String> {
+        let MessageContentPoll { r#type, completed, max_selections, question, options } = content;
+
+        // TODO: Support other options
+        // TODO: Remove clone
+
+        let options: Vec<PollAnswer> = options.iter().map(|f| f.clone().into_matrix()).collect();
+        let answers = PollAnswers::try_from(options).unwrap();
+
+        let block = PollContentBlock::new(TextContentBlock::plain(question.clone()), answers);
+        let event = PollStartEventContent::with_plain_text(question, block);
+
+        let re = room.send(event).await?;
+
+        Ok(re.response.event_id.to_string())
     }
 
     async fn add_thread_metadata(
