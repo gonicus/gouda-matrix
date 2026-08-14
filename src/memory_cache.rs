@@ -5,7 +5,7 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, EventOrigin, Message, MessageContentMembershipChange,
+    message, Error as ChatError, Message, MessageContentMembershipChange,
     MessageRemoveEvent, NotificationSetting, Reaction,
 };
 use matrix_sdk::deserialized_responses::{
@@ -970,10 +970,8 @@ impl CachedRoom {
         );
 
         let proto = MessageRemoveEvent {
-            message_id,
             room_id: self.room.room_id().to_string(),
-            origin: EventOrigin::BackendOrigin.into(),
-            ..Default::default()
+            message_id,
         };
 
         self.ctx
