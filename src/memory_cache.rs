@@ -51,8 +51,8 @@ pub enum MemoryCacheError {
     #[error("receiver of the messages dropped")]
     MessageReceiverDropped,
 
-    #[error("cache lock poisoined")]
-    CachePoisoined,
+    #[error("cache lock poisoned")]
+    Cachepoisoned,
 
     #[error("unable to assemble a requested message")]
     UnableToAssembleMessage,
@@ -70,7 +70,7 @@ impl From<MemoryCacheError> for ChatError {
 
 impl<T> From<std::sync::PoisonError<T>> for MemoryCacheError {
     fn from(_value: std::sync::PoisonError<T>) -> Self {
-        Self::CachePoisoined
+        Self::Cachepoisoned
     }
 }
 
@@ -572,7 +572,7 @@ impl CachedRoom {
     /// Processes the given timeline event of the room.
     /// Returns the message that has been fully assembled with the relations if a message
     /// could be built using this event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     pub async fn process_timeline_event(
         &self,
         event: TimelineEvent,
@@ -588,7 +588,7 @@ impl CachedRoom {
 
     /// Returns the message that has been fully assembled with the relations if a message
     /// could be built using this event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     pub async fn process_decrypted_event(
         &self,
         event: DecryptedRoomEvent,
@@ -1054,7 +1054,7 @@ impl CachedRoom {
 
     /// Converts the given event to the original message object and
     /// builds the final message with the cached relations.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
     async fn build_from_message_event(
         &self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
@@ -1065,14 +1065,14 @@ impl CachedRoom {
 
     /// Caches the given original message and assembles the final message object
     /// with the cached related events. Sends assembled message to the message receiver.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
     fn build_from_message(&self, message: Message) -> Result<Message> {
         let message = self.cache_and_build_message(message)?;
         Ok(message)
     }
 
     /// Caches the given replacement.
-    /// Only returns an error when the cache lock is posoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_replacement(
         &self,
         original_message_id: String,
@@ -1089,7 +1089,7 @@ impl CachedRoom {
     }
 
     /// Caches the given reaction.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_reaction(
         &self,
         message_id: String,
@@ -1109,7 +1109,7 @@ impl CachedRoom {
     }
 
     /// Removes the given reaction by id.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
         log::debug!("Removing cached reaction by ID {reaction_id:?}");
 
@@ -1145,7 +1145,7 @@ impl CachedRoom {
     }
 
     /// Removes the given reaction by user and emoji.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_reaction_by_emoji(
         &self,
         message_id: &str,
@@ -1213,7 +1213,7 @@ impl CachedRoom {
 
     /// Caches the given original message and builds the final message
     /// with the cached related events.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_and_build_message(&self, original: Message) -> Result<Message> {
         log::debug!("Caching and assembling original message: {original:?}");
 
@@ -1224,7 +1224,7 @@ impl CachedRoom {
     }
 
     /// Caches the given encrypted event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
         log::debug!("Caching encrypted event {event_id:?}");
 
@@ -1235,7 +1235,7 @@ impl CachedRoom {
     }
 
     /// Removes a tracked encrypted event, if it exists.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_encrypted_event(&self, event_id: &str) -> Result<()> {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
