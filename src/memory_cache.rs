@@ -5,8 +5,8 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, Message, MessageContentMembershipChange, MessageRemoveEvent,
-    NotificationSetting, Reaction,
+    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentRemoved,
+    MessageRemoveEvent, NotificationSetting, Reaction,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
@@ -14,10 +14,13 @@ use matrix_sdk::deserialized_responses::{
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
 use matrix_sdk::ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
-use matrix_sdk::ruma::events::room::message::{RedactedRoomMessageEventContent, RoomMessageEvent, RoomMessageEventContent};
+use matrix_sdk::ruma::events::room::message::{
+    RedactedRoomMessageEventContent, RoomMessageEvent, RoomMessageEventContent,
+};
 use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
 use matrix_sdk::ruma::events::{
-    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventContent, OriginalMessageLikeEvent, RedactedMessageLikeEvent,
+    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    OriginalMessageLikeEvent, RedactedMessageLikeEvent,
 };
 use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
@@ -451,18 +454,15 @@ struct CachedMessage {
     pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
     pub replacements: HashMap<String, CachedReplacement>,
-    /// The redaction event of this message, if this message has been redacted
-    /// and it's content is no longer available.
-    pub redaction: Option<RoomRedactionEvent>,
 }
 
 impl CachedMessage {
-    pub fn build_from_redacted(&mut self, message_id: String) -> Message {
-        todo!()
-    }
-
     pub fn build_from_original(&mut self, mut original: Message) -> Message {
         self.original = Some(original.clone());
+
+        if matches!(original.content, Some(message::Content::Removed(_))) {
+            return original;
+        }
 
         self.apply_reactions(&mut original);
         self.apply_replacements(&mut original);
@@ -710,10 +710,10 @@ impl CachedRoom {
         match event {
             matrix_sdk::ruma::events::MessageLikeEvent::Original(original) => {
                 self.process_original_room_message(original).await
-            },
+            }
             matrix_sdk::ruma::events::MessageLikeEvent::Redacted(redacted) => {
                 self.process_redacted_room_message(redacted).await
-            },
+            }
         }
     }
 
@@ -763,7 +763,7 @@ impl CachedRoom {
 
     async fn process_redacted_room_message(
         &self,
-        redacted: RedactedMessageLikeEvent<RedactedRoomMessageEventContent> ,
+        redacted: RedactedMessageLikeEvent<RedactedRoomMessageEventContent>,
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing redacted RoomMessageEvent");
 
@@ -773,7 +773,24 @@ impl CachedRoom {
         // TODO: Build redacted message
         // let message =
 
-        todo!()
+        // TODO: Support reason
+        // TODO: Get thread ID
+
+        let content = MessageContentRemoved { reason: None };
+
+        let message = Message {
+            room_id: redacted.room_id.to_string(),
+            message_id: redacted.event_id.to_string(),
+            sender_id: redacted.sender.to_string(),
+            timestamp: redacted.origin_server_ts.0.into(),
+            is_encrypted: false,
+            content: Some(message::Content::Removed(content)),
+            ..Default::default()
+        };
+
+        let message = self.build_from_message(message)?;
+
+        Ok(Some(CachedRoomAction::Message(message)))
     }
 
     fn process_room_redaction(
