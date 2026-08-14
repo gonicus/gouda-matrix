@@ -655,9 +655,8 @@ impl EventExecutor {
     async fn redact_room_message(&self, room: Room, message_id: String) {
         // TODO: Support reason
 
-        let content = message_change_event::Content::Removed(MessageContentRemoved {
-            reason: None,
-        });
+        let content =
+            message_change_event::Content::Removed(MessageContentRemoved { reason: None });
 
         let proto = MessageChangeEventBuilder::new(room.room_id().to_string(), message_id)
             .change_content(content)
