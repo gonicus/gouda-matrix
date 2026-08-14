@@ -32,7 +32,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
 use ruma_common::serde::Raw;
-use ruma_common::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId, RoomId};
+use ruma_common::{EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId, RoomId};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::bridge::{IntoChat, TryIntoChat};
@@ -574,24 +574,26 @@ impl EventExecutor {
     async fn exec_room_redaction_event(
         &mut self,
         room: Room,
-        event: OriginalSyncRoomRedactionEvent,
+        redaction_event: OriginalSyncRoomRedactionEvent,
     ) {
-        let Some(redact_id) = event.redacts else {
+        let Some(redact_id) = &redaction_event.redacts else {
             log::error!("Event redact id is not set");
             return;
         };
 
         let event = unwrap_or_log_return!(
-            room.event(&redact_id, None).await,
+            room.event(redact_id, None).await,
             "Error retrieving redacted event"
         );
 
         match event.kind {
             TimelineEventKind::Decrypted(decrypted) => {
-                self.redact_any_timeline_event(room, decrypted.event).await;
+                self.redact_any_timeline_event(room, redaction_event, decrypted.event)
+                    .await;
             }
             TimelineEventKind::PlainText { event } => {
-                self.redact_any_sync_timeline_event(room, event).await;
+                self.redact_any_sync_timeline_event(room, redaction_event, event)
+                    .await;
             }
             _ => {
                 log::warn!("Event is not decrypted or plain text");
@@ -602,6 +604,7 @@ impl EventExecutor {
     async fn redact_any_timeline_event(
         &mut self,
         room: Room,
+        redaction_event: OriginalSyncRoomRedactionEvent,
         redacted_event: Raw<AnyTimelineEvent>,
     ) {
         let redacted_event =
@@ -612,12 +615,14 @@ impl EventExecutor {
             return;
         };
 
-        self.redact_any_message_like_event(room, event).await;
+        self.redact_any_message_like_event(room, redaction_event, event)
+            .await;
     }
 
     async fn redact_any_sync_timeline_event(
         &mut self,
         room: Room,
+        redaction_event: OriginalSyncRoomRedactionEvent,
         redacted_event: Raw<AnySyncTimelineEvent>,
     ) {
         let redacted_event =
@@ -630,33 +635,43 @@ impl EventExecutor {
 
         let event = event.into_full_event(room.room_id().to_owned());
 
-        self.redact_any_message_like_event(room, event).await;
+        self.redact_any_message_like_event(room, redaction_event, event)
+            .await;
     }
 
-    async fn redact_any_message_like_event(&mut self, room: Room, event: AnyMessageLikeEvent) {
-        match event {
+    async fn redact_any_message_like_event(
+        &mut self,
+        room: Room,
+        redaction_event: OriginalSyncRoomRedactionEvent,
+        redacted_event: AnyMessageLikeEvent,
+    ) {
+        match redacted_event {
             AnyMessageLikeEvent::Reaction(event) => {
                 self.redact_reaction(room, event.event_id().as_str()).await;
             }
             AnyMessageLikeEvent::RoomEncrypted(event) => {
-                self.redact_room_message(room, event.event_id().to_string())
+                self.redact_room_message(room, redaction_event, event.event_id())
                     .await;
             }
             AnyMessageLikeEvent::RoomMessage(event) => {
-                self.redact_room_message(room, event.event_id().to_string())
+                self.redact_room_message(room, redaction_event, event.event_id())
                     .await;
             }
             _ => {
-                log::debug!("Ignoring event as it is not implemented: {event:?}");
+                log::debug!("Ignoring event as it is not implemented: {redacted_event:?}");
             }
         }
     }
 
-    async fn redact_room_message(&self, room: Room, message_id: String) {
-        // TODO: Support reason
-
-        let content =
-            message_change_event::Content::Removed(MessageContentRemoved { reason: None });
+    async fn redact_room_message(
+        &self,
+        room: Room,
+        redaction_event: OriginalSyncRoomRedactionEvent,
+        message_id: &EventId,
+    ) {
+        let content = message_change_event::Content::Removed(MessageContentRemoved {
+            reason: redaction_event.content.reason,
+        });
 
         let proto = MessageChangeEventBuilder::new(room.room_id().to_string(), message_id)
             .change_content(content)
