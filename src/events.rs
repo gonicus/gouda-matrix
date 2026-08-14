@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::builder::RoomChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::room_left_event::RoomLeaveReason;
 use gouda_proto::chat::{Reaction as ChatReaction, *};
@@ -652,25 +652,25 @@ impl EventExecutor {
         }
     }
 
-    async fn redact_room_message(&self, room: Room, event_id: String) {
+    async fn redact_room_message(&self, room: Room, message_id: String) {
         // TODO: Support reason
 
-        let proto = MessageRemoveEvent {
-            room_id: room.room_id().to_string(),
-            message_id: event_id,
-            reason: None,
-            origin: EventOrigin::UserOrigin.into(),
-        };
+        let content =
+            message_change_event::Content::Removed(MessageContentRemoved { reason: None });
+
+        let proto = MessageChangeEventBuilder::new(room.room_id().to_string(), message_id)
+            .change_content(content)
+            .to_proto();
 
         self.ctx
-            .send_event(ResponseContent::MessageRemoveEvent(proto))
+            .send_event(ResponseContent::MessageChangeEvent(proto))
             .await;
     }
 
-    async fn redact_reaction(&mut self, room: Room, event_id: &str) {
+    async fn redact_reaction(&mut self, room: Room, reaction_id: &str) {
         let reaction = self
             .memory_cache
-            .remove_reaction_by_id(room.room_id().as_str(), event_id);
+            .remove_reaction_by_id(room.room_id().as_str(), reaction_id);
 
         let Some(reaction) = reaction else {
             return;

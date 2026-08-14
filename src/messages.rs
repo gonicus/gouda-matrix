@@ -241,6 +241,7 @@ impl<'a> MessageBuilder<'a> {
         match std::mem::take(&mut self.content) {
             message_send_request::Content::Text(c) => self.send_text(room, c).await,
             message_send_request::Content::File(c) => self.send_file(room, c).await,
+            message_send_request::Content::Poll(_) => Err(Error::NotImplemented), // TODO
         }
     }
 
