@@ -12,7 +12,9 @@ use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
-use matrix_sdk::ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
+use matrix_sdk::ruma::events::room::encrypted::{
+    OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
+};
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
 use matrix_sdk::ruma::events::room::message::{
     RedactedRoomMessageEventContent, RoomMessageEvent, RoomMessageEventContent,
@@ -695,6 +697,7 @@ impl CachedRoom {
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
+            AnyMessageLikeEvent::RoomEncrypted(event) => self.process_room_encrypted(event),
             AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
             _ => {
                 log::debug!("Ignoring event because event type is not implemented");
@@ -804,6 +807,34 @@ impl CachedRoom {
         //   is currently not needed.
 
         Ok(None)
+    }
+
+    fn process_room_encrypted(
+        &self,
+        event: RoomEncryptedEvent,
+    ) -> Result<Option<CachedRoomAction>> {
+        use matrix_sdk::ruma::events::MessageLikeEvent;
+
+        let MessageLikeEvent::Redacted(redacted) = event else {
+            log::debug!("Ignoring event as it is an original encrypted room event");
+            return Ok(None);
+        };
+
+        let content = MessageContentRemoved { reason: None };
+
+        let message = Message {
+            room_id: redacted.room_id.to_string(),
+            message_id: redacted.event_id.to_string(),
+            sender_id: redacted.sender.to_string(),
+            timestamp: redacted.origin_server_ts.0.into(),
+            is_encrypted: false,
+            content: Some(message::Content::Removed(content)),
+            ..Default::default()
+        };
+
+        let message = self.build_from_message(message)?;
+
+        Ok(Some(CachedRoomAction::Message(message)))
     }
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
