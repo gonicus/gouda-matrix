@@ -770,14 +770,7 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing redacted RoomMessageEvent");
 
-        // TODO: Check relation to other event, we only want to act if
-        // this is the root message event
-
-        // TODO: Build redacted message
-        // let message =
-
         // TODO: Support reason
-        // TODO: Get thread ID
 
         let content = MessageContentRemoved { reason: None };
 
@@ -821,6 +814,8 @@ impl CachedRoom {
         };
 
         let content = MessageContentRemoved { reason: None };
+
+        // TODO: Support reason
 
         let message = Message {
             room_id: redacted.room_id.to_string(),
