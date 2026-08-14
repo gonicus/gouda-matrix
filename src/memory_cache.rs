@@ -19,7 +19,7 @@ use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
 use matrix_sdk::ruma::events::room::message::{
     RedactedRoomMessageEventContent, RoomMessageEvent, RoomMessageEventContent,
 };
-use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
+use matrix_sdk::ruma::events::room::redaction::{OriginalRoomRedactionEvent, RoomRedactionEvent};
 use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
     OriginalMessageLikeEvent, RedactedMessageLikeEvent,
@@ -456,15 +456,21 @@ struct CachedMessage {
     pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
     pub replacements: HashMap<String, CachedReplacement>,
+    /// Redaction, if the event has been redacted.
+    pub redaction: Option<OriginalRoomRedactionEvent>,
 }
 
 impl CachedMessage {
     pub fn build_from_original(&mut self, mut original: Message) -> Message {
-        self.original = Some(original.clone());
+        if let Some(message::Content::Removed(c)) = &mut original.content {
+            if let Some(redaction) = &self.redaction {
+                c.reason = redaction.content.reason.clone();
+            }
 
-        if matches!(original.content, Some(message::Content::Removed(_))) {
             return original;
         }
+
+        self.original = Some(original.clone());
 
         self.apply_reactions(&mut original);
         self.apply_replacements(&mut original);
@@ -770,8 +776,6 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing redacted RoomMessageEvent");
 
-        // TODO: Support reason
-
         let content = MessageContentRemoved { reason: None };
 
         let message = Message {
@@ -791,13 +795,21 @@ impl CachedRoom {
 
     fn process_room_redaction(
         &self,
-        _event: RoomRedactionEvent,
+        event: RoomRedactionEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Ignoring RoomRedactionEvent");
 
-        // TODO: Process the redaction event and remove the appropriate event from the cache
-        //   This is only relevant when the same messages are requested multiple times, which
-        //   is currently not needed.
+        let Some(original) = event.as_original() else {
+            log::debug!("Ignoring event because room redaction event is redacted");
+            return Ok(None);
+        };
+
+        let Some(redacted_event_id) = &original.content.redacts else {
+            log::debug!("Ignoring event because no redacted event is set");
+            return Ok(None);
+        };
+
+        self.cache_redaction(original.clone(), redacted_event_id.to_string())?;
 
         Ok(None)
     }
@@ -814,8 +826,6 @@ impl CachedRoom {
         };
 
         let content = MessageContentRemoved { reason: None };
-
-        // TODO: Support reason
 
         let message = Message {
             room_id: redacted.room_id.to_string(),
@@ -1084,6 +1094,21 @@ impl CachedRoom {
         let mut guard = self.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
         message.replacements.insert(replacement_id, replacement);
+
+        Ok(())
+    }
+
+    /// Caches a redaction event.
+    fn cache_redaction(
+        &self,
+        redaction: OriginalRoomRedactionEvent,
+        redacted_message_id: String,
+    ) -> Result<()> {
+        log::info!("Caching redaction for message {redacted_message_id}");
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(redacted_message_id).or_default();
+        message.redaction = Some(redaction);
 
         Ok(())
     }
