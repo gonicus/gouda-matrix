@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures_util::stream::{self, StreamExt};
 use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::response_container::Content as ResponseContent;
-use gouda_proto::chat::*;
+use gouda_proto::chat::{self, *};
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
@@ -22,7 +22,7 @@ use tokio::sync::OnceCell;
 use url::Url;
 
 use crate::bridge::TryIntoMatrix;
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use crate::events::EventManager;
 use crate::media::MediaManager;
 use crate::memory_cache::{self, MemoryCache};
@@ -631,15 +631,15 @@ impl MatrixClientInner {
             .session()?
             .client
             .restore_session(session.user_session.clone())
-            .await;
+            .await
+            .inspect_err(|err| log::error!("Error restoring session: {err}"));
 
         if let Err(err) = result {
-            if self.is_auth_err(&err) {
-                log::info!("Restored session is invalid (auth error): {err}");
-                return Ok(status_update::StatusCode::LoggedOut);
+            if self.is_network_err_matrix(&err) {
+                return Err(err.into());
             }
 
-            return Err(err.into());
+            return Ok(status_update::StatusCode::LoggedOut);
         }
 
         let session_context = self.session()?;
@@ -655,13 +655,11 @@ impl MatrixClientInner {
             .inspect_err(|err| log::error!("Error during initial sync: {err}"));
 
         if let Err(err) = result {
-            if let Error::MatrixSdkError(err) = &err {
-                if self.is_auth_err(err) {
-                    log::info!("Restored session is invalid (auth error): {err}");
-                    return Ok(status_update::StatusCode::LoggedOut);
-                }
+            if self.is_network_err(&err) {
+                return Err(err);
             }
-            return Err(err);
+
+            return Ok(status_update::StatusCode::LoggedOut);
         }
 
         Ok(status_update::StatusCode::LoggedIn)
@@ -678,22 +676,14 @@ impl MatrixClientInner {
 
         log::warn!("Received error when checking if client is logged in: {err:?}");
 
-        if self.is_auth_err_http(&err) {
+        if self.is_auth_err_matrix_http(&err) {
             return Ok(false);
         }
 
         Err(err.into())
     }
 
-    fn is_auth_err(&self, err: &matrix_sdk::Error) -> bool {
-        let matrix_sdk::Error::Http(err) = err else {
-            return false;
-        };
-
-        self.is_auth_err_http(err)
-    }
-
-    fn is_auth_err_http(&self, err: &matrix_sdk::HttpError) -> bool {
+    fn is_auth_err_matrix_http(&self, err: &matrix_sdk::HttpError) -> bool {
         if let matrix_sdk::HttpError::IntoHttp(err) = &err {
             if matches!(err, IntoHttpError::Authentication(_)) {
                 return true;
@@ -715,6 +705,18 @@ impl MatrixClientInner {
         }
 
         false
+    }
+
+    fn is_network_err(&self, err: &Error) -> bool {
+        match err {
+            Error::Network => true,
+            Error::MatrixSdkError(err) => self.is_network_err_matrix(err),
+            _ => false,
+        }
+    }
+
+    fn is_network_err_matrix(&self, err: &matrix_sdk::Error) -> bool {
+        error::convert_matrix_sdk_error(err).r#type() == chat::error::ErrorType::Network
     }
 
     /// Removes all data related to the current session.
