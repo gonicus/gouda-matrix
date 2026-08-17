@@ -1445,7 +1445,7 @@ impl MessageFetcher {
             return Err(MemoryCacheError::UnableToAssembleMessage);
         };
 
-        log::debug!("Successfully build message: {result:?}");
+        log::debug!("Successfully build message: {message:?}");
 
         Ok(message)
     }
