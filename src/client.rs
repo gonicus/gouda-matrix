@@ -661,7 +661,7 @@ impl MatrixClientInner {
                     return Ok(status_update::StatusCode::LoggedOut);
                 }
             }
-            return Err(err.into());
+            return Err(err);
         }
 
         Ok(status_update::StatusCode::LoggedIn)
