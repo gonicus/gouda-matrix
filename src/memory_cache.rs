@@ -797,8 +797,6 @@ impl CachedRoom {
         &self,
         event: RoomRedactionEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Ignoring RoomRedactionEvent");
-
         let Some(original) = event.as_original() else {
             log::debug!("Ignoring event because room redaction event is redacted");
             return Ok(None);
@@ -1416,27 +1414,38 @@ impl MessageFetcher {
     }
 
     pub async fn run(self) -> Result<Message> {
+        log::debug!("Fetching event with relations: {}", self.event_id);
+
         let (event, relations) = self
             .cache
             .room
             .load_or_fetch_event_with_relations(&self.event_id, None, None)
             .await?;
 
+        log::debug!("Received relations: {relations:?}");
+
         // First, cache all relations of the message.
         for relation in relations {
+            log::trace!("Processing relation: {relation:?}");
             self.cache.process_timeline_event(relation).await?;
         }
+
+        log::debug!("Processing original event");
 
         // And apply the original message event afterwards.
         let result = self.cache.process_timeline_event(event).await?;
 
         let Some(action) = result else {
+            log::warn!("Did not receive any action processing original message event");
             return Err(MemoryCacheError::UnableToAssembleMessage);
         };
 
         let CachedRoomAction::Message(message) = action else {
+            log::warn!("Received unexpected action when processing original message event");
             return Err(MemoryCacheError::UnableToAssembleMessage);
         };
+
+        log::debug!("Successfully build message: {result:?}");
 
         Ok(message)
     }
