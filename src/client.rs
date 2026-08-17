@@ -656,7 +656,7 @@ impl MatrixClientInner {
 
         if let Err(err) = result {
             if self.is_network_err(&err) {
-                return Err(err.into());
+                return Err(err);
             }
 
             return Ok(status_update::StatusCode::LoggedOut);
