@@ -5,12 +5,15 @@ use std::sync::{Arc, Mutex, RwLock};
 use async_trait::async_trait;
 use futures_util::stream::{self, StreamExt};
 use gouda_core::{Client as ClientAbstraction, RequestContext};
+use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{self, *};
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
+use matrix_sdk::ruma::events::TimelineEventType::UnstablePollResponse;
+use matrix_sdk::ruma::events::poll::unstable_response::{UnstablePollResponseContentBlock, UnstablePollResponseEvent, UnstablePollResponseEventContent};
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
@@ -453,6 +456,17 @@ impl ClientAbstraction for MatrixClient {
     ) -> gouda_core::Result<Message> {
         self.inner()?
             .get_message(ctx, request)
+            .await
+            .map_err(|err| err.into())
+    }
+
+    async fn answer_poll(
+        &self,
+        ctx: RequestContext,
+        request: PollAnswerRequest,
+    ) -> gouda_core::Result<MessageChangeEvent> {
+        self.inner()?
+            .answer_message(ctx, request)
             .await
             .map_err(|err| err.into())
     }
@@ -1882,6 +1896,27 @@ impl MatrixClientInner {
             .fetch_message(room, event_id)
             .await
             .map_err(|err| err.into())
+    }
+
+    async fn answer_poll(
+        &self,
+        ctx: RequestContext,
+        request: PollAnswerRequest,
+    ) -> Result<MessageChangeEvent> {
+        let PollAnswerRequest { room_id, message_id, option_id, selected } = request;
+
+        let event_id = EventId::parse(message_id.clone()).map_err(|_| Error::InvalidMessageId)?;
+        let room = self.get_matrix_room(&room_id).await?;
+
+        let content = UnstablePollResponseEventContent::new(todo!(), event_id);
+
+        room.send(content).await?;
+
+        // TODO: Send correct message change event
+
+        let proto = MessageChangeEventBuilder::new(room_id, message_id).to_proto();
+
+        Ok(proto)
     }
 }
 
