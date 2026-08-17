@@ -5,8 +5,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.8.0" }
-gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.8.0" }
+gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", rev = "5174b58264412950585a0bfa8d8ff51b2ed6be0e" }
+gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", rev = "5174b58264412950585a0bfa8d8ff51b2ed6be0e" }
 
 prost = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }
