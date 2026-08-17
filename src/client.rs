@@ -1734,6 +1734,7 @@ impl MatrixClientInner {
         let MessageRemoveRequest {
             room_id,
             message_id,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
