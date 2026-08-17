@@ -78,7 +78,7 @@ pub enum MediaError {
 impl From<MediaError> for ChatError {
     fn from(value: MediaError) -> ChatError {
         match value {
-            MediaError::MatrixError(err) => error::convert_matrix_sdk_error(err),
+            MediaError::MatrixError(err) => error::convert_matrix_sdk_error(&err),
             _ => chat_err!(Unknown, value),
         }
     }

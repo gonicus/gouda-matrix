@@ -186,22 +186,22 @@ impl From<Error> for ChatError {
             Error::InternalError(err) => chat_err!(Unknown, err),
             Error::MediaError(err) => err.into(),
             Error::MemoryCacheError(err) => err.into(),
-            Error::MatrixSdkError(err) => convert_matrix_sdk_error(err),
+            Error::MatrixSdkError(err) => convert_matrix_sdk_error(&err),
             Error::MatrixSdkClientBuildError(err) => convert_client_build_error(err),
-            Error::MatrixSdkHttpError(err) => convert_http_error(err),
-            Error::MatrixSdkEditError(err) => convert_edit_error(err),
-            Error::MatrixSdkRecoveryError(err) => convert_recovery_error(err),
-            Error::MatrixSdkStoreError(err) => convert_store_error(err),
-            Error::MatrixSdkCryptoStoreError(err) => convert_crypto_store_error(err),
-            Error::MatrixSdkRefreshTokenError(err) => convert_refresh_token_error(err),
+            Error::MatrixSdkHttpError(err) => convert_http_error(&err),
+            Error::MatrixSdkEditError(err) => convert_edit_error(&err),
+            Error::MatrixSdkRecoveryError(err) => convert_recovery_error(&err),
+            Error::MatrixSdkStoreError(err) => convert_store_error(&err),
+            Error::MatrixSdkCryptoStoreError(err) => convert_crypto_store_error(&err),
+            Error::MatrixSdkRefreshTokenError(err) => convert_refresh_token_error(&err),
             Error::MatrixSdkRequestVerificationError(err) => {
-                convert_request_verification_error(err)
+                convert_request_verification_error(&err)
             }
         }
     }
 }
 
-fn convert_into_http_error(err: ruma_common::api::error::IntoHttpError) -> ChatError {
+fn convert_into_http_error(err: &ruma_common::api::error::IntoHttpError) -> ChatError {
     use ruma_common::api::error::IntoHttpError;
 
     log::error!("Received IntoHttpError: {err:?}");
@@ -212,7 +212,7 @@ fn convert_into_http_error(err: ruma_common::api::error::IntoHttpError) -> ChatE
     }
 }
 
-fn convert_http_error(err: matrix_sdk::HttpError) -> ChatError {
+fn convert_http_error(err: &matrix_sdk::HttpError) -> ChatError {
     use matrix_sdk::HttpError;
 
     log::error!("Received HttpError: {err:?}");
@@ -246,7 +246,7 @@ fn convert_client_api_error(err: &ruma_common::api::error::Error) -> ChatError {
     }
 }
 
-fn convert_matrix_sdk_media_error(err: matrix_sdk::media::MediaError) -> ChatError {
+fn convert_matrix_sdk_media_error(err: &matrix_sdk::media::MediaError) -> ChatError {
     use matrix_sdk::media::MediaError;
 
     match err {
@@ -255,11 +255,11 @@ fn convert_matrix_sdk_media_error(err: matrix_sdk::media::MediaError) -> ChatErr
     }
 }
 
-pub fn convert_matrix_sdk_error(err: matrix_sdk::Error) -> ChatError {
+pub fn convert_matrix_sdk_error(err: &matrix_sdk::Error) -> ChatError {
     log::error!("Received matrix sdk Error: {err:?}");
 
     match err {
-        matrix_sdk::Error::Http(err) => convert_http_error(*err),
+        matrix_sdk::Error::Http(err) => convert_http_error(err),
         matrix_sdk::Error::AuthenticationRequired => chat_err!(Authorization),
         matrix_sdk::Error::Url(err) => chat_err!(InvalidUrl, err),
         matrix_sdk::Error::Media(err) => convert_matrix_sdk_media_error(err),
@@ -272,20 +272,20 @@ fn convert_client_build_error(err: Box<matrix_sdk::ClientBuildError>) -> ChatErr
 
     log::error!("Received ClientBuildError: {err:?}");
 
-    match *err {
+    match &*err {
         ClientBuildError::Http(err) => convert_http_error(err),
         ClientBuildError::AutoDiscovery(err) => chat_err!(Network, err),
         _ => chat_err!(Unknown, err),
     }
 }
 
-fn convert_crypto_store_error(err: matrix_sdk_crypto::CryptoStoreError) -> ChatError {
+fn convert_crypto_store_error(err: &matrix_sdk_crypto::CryptoStoreError) -> ChatError {
     log::error!("Received CryptoStoreError: {err:?}");
     chat_err!(Unknown, format!("CryptoStoreError: {err}"))
 }
 
 fn convert_request_verification_error(
-    err: matrix_sdk::encryption::identities::RequestVerificationError,
+    err: &matrix_sdk::encryption::identities::RequestVerificationError,
 ) -> ChatError {
     use matrix_sdk::encryption::identities::RequestVerificationError;
 
@@ -298,7 +298,7 @@ fn convert_request_verification_error(
 }
 
 fn convert_secret_storage_error(
-    err: matrix_sdk::encryption::secret_storage::SecretStorageError,
+    err: &matrix_sdk::encryption::secret_storage::SecretStorageError,
 ) -> ChatError {
     use matrix_sdk::encryption::secret_storage::SecretStorageError;
 
@@ -310,7 +310,7 @@ fn convert_secret_storage_error(
     }
 }
 
-fn convert_recovery_error(err: matrix_sdk::encryption::recovery::RecoveryError) -> ChatError {
+fn convert_recovery_error(err: &matrix_sdk::encryption::recovery::RecoveryError) -> ChatError {
     use matrix_sdk::encryption::recovery::RecoveryError;
 
     log::error!("Received RecoveryError: {err:?}");
@@ -322,17 +322,17 @@ fn convert_recovery_error(err: matrix_sdk::encryption::recovery::RecoveryError) 
     }
 }
 
-fn convert_refresh_token_error(err: matrix_sdk::RefreshTokenError) -> ChatError {
+fn convert_refresh_token_error(err: &matrix_sdk::RefreshTokenError) -> ChatError {
     log::error!("Received RefreshTokenError: {err:?}");
     chat_err!(Authorization, err)
 }
 
-fn convert_store_error(err: matrix_sdk::StoreError) -> ChatError {
+fn convert_store_error(err: &matrix_sdk::StoreError) -> ChatError {
     log::error!("Received StoreError: {err:?}");
     chat_err!(Unknown, err)
 }
 
-fn convert_edit_error(err: matrix_sdk::room::edit::EditError) -> ChatError {
+fn convert_edit_error(err: &matrix_sdk::room::edit::EditError) -> ChatError {
     log::error!("Received EditError: {err:?}");
     chat_err!(Unknown, err)
 }
