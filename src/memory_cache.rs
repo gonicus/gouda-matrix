@@ -5,20 +5,24 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, EventOrigin, Message, MessageContentMembershipChange,
+    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentRemoved,
     MessageRemoveEvent, NotificationSetting, Reaction,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
-use matrix_sdk::ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
+use matrix_sdk::ruma::events::room::encrypted::{
+    OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
+};
 use matrix_sdk::ruma::events::room::member::RoomMemberEvent;
-use matrix_sdk::ruma::events::room::message::{RoomMessageEvent, RoomMessageEventContent};
-use matrix_sdk::ruma::events::room::redaction::RoomRedactionEvent;
+use matrix_sdk::ruma::events::room::message::{
+    RedactedRoomMessageEventContent, RoomMessageEvent, RoomMessageEventContent,
+};
+use matrix_sdk::ruma::events::room::redaction::{OriginalRoomRedactionEvent, RoomRedactionEvent};
 use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-    OriginalMessageLikeEvent,
+    OriginalMessageLikeEvent, RedactedMessageLikeEvent,
 };
 use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
@@ -47,8 +51,8 @@ pub enum MemoryCacheError {
     #[error("receiver of the messages dropped")]
     MessageReceiverDropped,
 
-    #[error("cache lock poisoined")]
-    CachePoisoined,
+    #[error("cache lock poisoned")]
+    Cachepoisoned,
 
     #[error("unable to assemble a requested message")]
     UnableToAssembleMessage,
@@ -66,7 +70,7 @@ impl From<MemoryCacheError> for ChatError {
 
 impl<T> From<std::sync::PoisonError<T>> for MemoryCacheError {
     fn from(_value: std::sync::PoisonError<T>) -> Self {
-        Self::CachePoisoined
+        Self::Cachepoisoned
     }
 }
 
@@ -452,10 +456,20 @@ struct CachedMessage {
     pub reactions: HashMap<String, CachedReaction>,
     /// The replacement events to this message.
     pub replacements: HashMap<String, CachedReplacement>,
+    /// Redaction, if the event has been redacted.
+    pub redaction: Option<OriginalRoomRedactionEvent>,
 }
 
 impl CachedMessage {
     pub fn build_from_original(&mut self, mut original: Message) -> Message {
+        if let Some(message::Content::Removed(c)) = &mut original.content {
+            if let Some(redaction) = &self.redaction {
+                c.reason = redaction.content.reason.clone();
+            }
+
+            return original;
+        }
+
         self.original = Some(original.clone());
 
         self.apply_reactions(&mut original);
@@ -564,7 +578,7 @@ impl CachedRoom {
     /// Processes the given timeline event of the room.
     /// Returns the message that has been fully assembled with the relations if a message
     /// could be built using this event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     pub async fn process_timeline_event(
         &self,
         event: TimelineEvent,
@@ -580,7 +594,7 @@ impl CachedRoom {
 
     /// Returns the message that has been fully assembled with the relations if a message
     /// could be built using this event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     pub async fn process_decrypted_event(
         &self,
         event: DecryptedRoomEvent,
@@ -689,6 +703,7 @@ impl CachedRoom {
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
+            AnyMessageLikeEvent::RoomEncrypted(event) => self.process_room_encrypted(event),
             AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
             _ => {
                 log::debug!("Ignoring event because event type is not implemented");
@@ -701,14 +716,23 @@ impl CachedRoom {
         &self,
         event: RoomMessageEvent,
     ) -> Result<Option<CachedRoomAction>> {
+        match event {
+            matrix_sdk::ruma::events::MessageLikeEvent::Original(original) => {
+                self.process_original_room_message(original).await
+            }
+            matrix_sdk::ruma::events::MessageLikeEvent::Redacted(redacted) => {
+                self.process_redacted_room_message(redacted).await
+            }
+        }
+    }
+
+    async fn process_original_room_message(
+        &self,
+        original: OriginalMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Result<Option<CachedRoomAction>> {
         use matrix_sdk::ruma::events::room::message::Relation;
 
-        log::debug!("Processing RoomMessageEvent");
-
-        let Some(original) = event.as_original() else {
-            log::debug!("Event is redacted, nothing to do");
-            return Ok(None);
-        };
+        log::debug!("Processing original RoomMessageEvent");
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
@@ -728,7 +752,7 @@ impl CachedRoom {
             };
 
             let replacement = CachedReplacement {
-                timestamp: event.origin_server_ts().0.into(),
+                timestamp: original.origin_server_ts.0.into(),
                 new_content,
             };
 
@@ -741,22 +765,81 @@ impl CachedRoom {
             return Ok(None);
         }
 
-        self.build_from_message_event(original)
+        self.build_from_message_event(&original)
             .await
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
+    async fn process_redacted_room_message(
+        &self,
+        redacted: RedactedMessageLikeEvent<RedactedRoomMessageEventContent>,
+    ) -> Result<Option<CachedRoomAction>> {
+        log::debug!("Processing redacted RoomMessageEvent");
+
+        let content = MessageContentRemoved { reason: None };
+
+        let message = Message {
+            room_id: redacted.room_id.to_string(),
+            message_id: redacted.event_id.to_string(),
+            sender_id: redacted.sender.to_string(),
+            timestamp: redacted.origin_server_ts.0.into(),
+            is_encrypted: false,
+            content: Some(message::Content::Removed(content)),
+            ..Default::default()
+        };
+
+        let message = self.build_from_message(message)?;
+
+        Ok(Some(CachedRoomAction::Message(message)))
+    }
+
     fn process_room_redaction(
         &self,
-        _event: RoomRedactionEvent,
+        event: RoomRedactionEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Ignoring RoomRedactionEvent");
 
-        // TODO: Process the redaction event and remove the appropriate event from the cache
-        //   This is only relevant when the same messages are requested multiple times, which
-        //   is currently not needed.
+        let Some(original) = event.as_original() else {
+            log::debug!("Ignoring event because room redaction event is redacted");
+            return Ok(None);
+        };
+
+        let Some(redacted_event_id) = &original.content.redacts else {
+            log::debug!("Ignoring event because no redacted event is set");
+            return Ok(None);
+        };
+
+        self.cache_redaction(original.clone(), redacted_event_id.to_string())?;
 
         Ok(None)
+    }
+
+    fn process_room_encrypted(
+        &self,
+        event: RoomEncryptedEvent,
+    ) -> Result<Option<CachedRoomAction>> {
+        use matrix_sdk::ruma::events::MessageLikeEvent;
+
+        let MessageLikeEvent::Redacted(redacted) = event else {
+            log::debug!("Ignoring event as it is an original encrypted room event");
+            return Ok(None);
+        };
+
+        let content = MessageContentRemoved { reason: None };
+
+        let message = Message {
+            room_id: redacted.room_id.to_string(),
+            message_id: redacted.event_id.to_string(),
+            sender_id: redacted.sender.to_string(),
+            timestamp: redacted.origin_server_ts.0.into(),
+            is_encrypted: false,
+            content: Some(message::Content::Removed(content)),
+            ..Default::default()
+        };
+
+        let message = self.build_from_message(message)?;
+
+        Ok(Some(CachedRoomAction::Message(message)))
     }
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
@@ -970,10 +1053,8 @@ impl CachedRoom {
         );
 
         let proto = MessageRemoveEvent {
-            message_id,
             room_id: self.room.room_id().to_string(),
-            origin: EventOrigin::BackendOrigin.into(),
-            ..Default::default()
+            message_id,
         };
 
         self.ctx
@@ -983,7 +1064,7 @@ impl CachedRoom {
 
     /// Converts the given event to the original message object and
     /// builds the final message with the cached relations.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
     async fn build_from_message_event(
         &self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
@@ -994,14 +1075,14 @@ impl CachedRoom {
 
     /// Caches the given original message and assembles the final message object
     /// with the cached related events. Sends assembled message to the message receiver.
-    /// Only returns an error when the cache lock is posoined or the message receiver dropped.
+    /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
     fn build_from_message(&self, message: Message) -> Result<Message> {
         let message = self.cache_and_build_message(message)?;
         Ok(message)
     }
 
     /// Caches the given replacement.
-    /// Only returns an error when the cache lock is posoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_replacement(
         &self,
         original_message_id: String,
@@ -1017,8 +1098,23 @@ impl CachedRoom {
         Ok(())
     }
 
+    /// Caches a redaction event.
+    fn cache_redaction(
+        &self,
+        redaction: OriginalRoomRedactionEvent,
+        redacted_message_id: String,
+    ) -> Result<()> {
+        log::info!("Caching redaction for message {redacted_message_id}");
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(redacted_message_id).or_default();
+        message.redaction = Some(redaction);
+
+        Ok(())
+    }
+
     /// Caches the given reaction.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_reaction(
         &self,
         message_id: String,
@@ -1038,7 +1134,7 @@ impl CachedRoom {
     }
 
     /// Removes the given reaction by id.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_reaction_by_id(&self, reaction_id: &str) -> Result<Option<ReactionMetadata>> {
         log::debug!("Removing cached reaction by ID {reaction_id:?}");
 
@@ -1074,7 +1170,7 @@ impl CachedRoom {
     }
 
     /// Removes the given reaction by user and emoji.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_reaction_by_emoji(
         &self,
         message_id: &str,
@@ -1142,7 +1238,7 @@ impl CachedRoom {
 
     /// Caches the given original message and builds the final message
     /// with the cached related events.
-    /// Only returns an error when the cache lock is posoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_and_build_message(&self, original: Message) -> Result<Message> {
         log::debug!("Caching and assembling original message: {original:?}");
 
@@ -1153,7 +1249,7 @@ impl CachedRoom {
     }
 
     /// Caches the given encrypted event.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn cache_encrypted_event(&self, event_id: String, event: CachedEncryptedEvent) -> Result<()> {
         log::debug!("Caching encrypted event {event_id:?}");
 
@@ -1164,7 +1260,7 @@ impl CachedRoom {
     }
 
     /// Removes a tracked encrypted event, if it exists.
-    /// Only returns an error when the cache lock is poisoined.
+    /// Only returns an error when the cache lock is poisoned.
     fn remove_encrypted_event(&self, event_id: &str) -> Result<()> {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
