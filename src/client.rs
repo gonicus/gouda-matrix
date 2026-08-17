@@ -12,11 +12,13 @@ use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
-use matrix_sdk::ruma::events::TimelineEventType::UnstablePollResponse;
-use matrix_sdk::ruma::events::poll::unstable_response::{UnstablePollResponseContentBlock, UnstablePollResponseEvent, UnstablePollResponseEventContent};
+use matrix_sdk::ruma::events::poll::unstable_response::{
+    UnstablePollResponseContentBlock, UnstablePollResponseEvent, UnstablePollResponseEventContent,
+};
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
+use matrix_sdk::ruma::events::TimelineEventType::UnstablePollResponse;
 use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
 use ruma_common::api::error::{FromHttpResponseError, IntoHttpError};
@@ -466,7 +468,7 @@ impl ClientAbstraction for MatrixClient {
         request: PollAnswerRequest,
     ) -> gouda_core::Result<MessageChangeEvent> {
         self.inner()?
-            .answer_message(ctx, request)
+            .answer_poll(ctx, request)
             .await
             .map_err(|err| err.into())
     }
@@ -1748,6 +1750,7 @@ impl MatrixClientInner {
         let MessageRemoveRequest {
             room_id,
             message_id,
+            ..
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
@@ -1903,12 +1906,16 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: PollAnswerRequest,
     ) -> Result<MessageChangeEvent> {
-        let PollAnswerRequest { room_id, message_id, option_id, selected } = request;
+        let PollAnswerRequest {
+            room_id,
+            message_id,
+            option_id,
+        } = request;
 
         let event_id = EventId::parse(message_id.clone()).map_err(|_| Error::InvalidMessageId)?;
         let room = self.get_matrix_room(&room_id).await?;
 
-        let content = UnstablePollResponseEventContent::new(todo!(), event_id);
+        let content = UnstablePollResponseEventContent::new(option_id, event_id);
 
         room.send(content).await?;
 
