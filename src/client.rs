@@ -625,10 +625,7 @@ impl MatrixClientInner {
             return Ok(status_update::StatusCode::LoggedOut);
         };
 
-        log::info!(
-            "Restoring session for {}",
-            session.user_session.meta.user_id
-        );
+        log::info!("Restoring session {}", session.user_session.meta.user_id);
 
         let result = self
             .session()?
@@ -652,9 +649,20 @@ impl MatrixClientInner {
             session_context.client.user_id()
         );
 
-        session
+        let result = session
             .sync(ctx.clone(), (*session_context).clone())
-            .await?;
+            .await
+            .inspect_err(|err| log::error!("Error during initial sync: {err}"));
+
+        if let Err(err) = result {
+            if let Error::MatrixSdkError(err) = &err {
+                if self.is_auth_err(err) {
+                    log::info!("Restored session is invalid (auth error): {err}");
+                    return Ok(status_update::StatusCode::LoggedOut);
+                }
+            }
+            return Err(err);
+        }
 
         Ok(status_update::StatusCode::LoggedIn)
     }
