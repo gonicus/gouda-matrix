@@ -1,8 +1,9 @@
-use gouda_proto::chat::*;
+use gouda_proto::chat::{self, *};
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
-use matrix_sdk::ruma::events::message::TextContentBlock;
-use matrix_sdk::ruma::events::poll::start::{PollAnswer, PollAnswers, PollContentBlock, PollStartEventContent};
-use matrix_sdk::ruma::events::poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock, UnstablePollStartEventContent};
+use matrix_sdk::ruma::events::poll::unstable_start::{
+    NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
+    UnstablePollStartContentBlock, UnstablePollStartEventContent,
+};
 use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
@@ -292,18 +293,27 @@ impl<'a> MessageBuilder<'a> {
     }
 
     async fn send_poll(self, room: &Room, content: MessageContentPoll) -> Result<String> {
-        let MessageContentPoll { r#type, completed, max_selections, question, options } = content;
+        let MessageContentPoll {
+            r#type,
+            max_selections,
+            question,
+            options,
+            ..
+        } = content;
 
-        // TODO: Support other options
-        // TODO: Remove clone
+        let poll_type = chat::PollType::try_from(r#type).map_err(|_| Error::InvalidPollType)?;
 
-        let options: Vec<UnstablePollAnswer> = options.iter().map(|f| f.clone().into_matrix()).collect();
-        let answers = UnstablePollAnswers::try_from(options).unwrap();
+        let options: Vec<UnstablePollAnswer> =
+            options.iter().map(|f| f.clone().into_matrix()).collect();
 
-        let poll_start = UnstablePollStartContentBlock::new(question.clone(), answers);
+        let answers =
+            UnstablePollAnswers::try_from(options).map_err(|_| Error::InvalidPollOptions)?;
+
+        let mut poll_start = UnstablePollStartContentBlock::new(question.clone(), answers);
+        poll_start.max_selections = max_selections.into();
+        poll_start.kind = poll_type.into_matrix();
 
         let content = NewUnstablePollStartEventContent::plain_text(question, poll_start);
-
         let event = UnstablePollStartEventContent::New(content);
 
         let re = room.send(event).await?;
