@@ -121,9 +121,9 @@ impl<'a> TryIntoChat<chat::message_content_membership_change::MembershipChange>
     }
 }
 
-impl IntoMatrix<matrix_sdk::ruma::events::poll::start::PollAnswer> for chat::PollOption {
-    fn into_matrix(self) -> matrix_sdk::ruma::events::poll::start::PollAnswer {
-        matrix_sdk::ruma::events::poll::start::PollAnswer::new(self.id, TextContentBlock::plain(self.text))
+impl IntoMatrix<matrix_sdk::ruma::events::poll::unstable_start::UnstablePollAnswer> for chat::PollOption {
+    fn into_matrix(self) -> matrix_sdk::ruma::events::poll::unstable_start::UnstablePollAnswer {
+        matrix_sdk::ruma::events::poll::unstable_start::UnstablePollAnswer::new(self.id, self.text)
     }
 }
 

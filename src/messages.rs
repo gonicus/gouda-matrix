@@ -2,6 +2,7 @@ use gouda_proto::chat::*;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::ruma::events::message::TextContentBlock;
 use matrix_sdk::ruma::events::poll::start::{PollAnswer, PollAnswers, PollContentBlock, PollStartEventContent};
+use matrix_sdk::ruma::events::poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock, UnstablePollStartEventContent};
 use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
@@ -296,11 +297,14 @@ impl<'a> MessageBuilder<'a> {
         // TODO: Support other options
         // TODO: Remove clone
 
-        let options: Vec<PollAnswer> = options.iter().map(|f| f.clone().into_matrix()).collect();
-        let answers = PollAnswers::try_from(options).unwrap();
+        let options: Vec<UnstablePollAnswer> = options.iter().map(|f| f.clone().into_matrix()).collect();
+        let answers = UnstablePollAnswers::try_from(options).unwrap();
 
-        let block = PollContentBlock::new(TextContentBlock::plain(question.clone()), answers);
-        let event = PollStartEventContent::with_plain_text(question, block);
+        let poll_start = UnstablePollStartContentBlock::new(question.clone(), answers);
+
+        let content = NewUnstablePollStartEventContent::plain_text(question, poll_start);
+
+        let event = UnstablePollStartEventContent::New(content);
 
         let re = room.send(event).await?;
 
