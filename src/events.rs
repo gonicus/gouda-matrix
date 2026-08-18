@@ -3,9 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;
 use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
-use gouda_proto::chat::response_container::Content::{
-    self as ResponseContent, MessageReceivedEvent,
-};
+use gouda_proto::chat::response_container::Content::{self as ResponseContent};
 use gouda_proto::chat::room_left_event::RoomLeaveReason;
 use gouda_proto::chat::{Reaction as ChatReaction, *};
 use matrix_sdk::deserialized_responses::TimelineEventKind;
@@ -13,9 +11,7 @@ use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::fully_read::FullyReadEvent;
 use matrix_sdk::ruma::events::poll::unstable_end::OriginalSyncUnstablePollEndEvent;
 use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollResponseEvent;
-use matrix_sdk::ruma::events::poll::unstable_start::{
-    OriginalSyncUnstablePollStartEvent, UnstablePollStartEvent,
-};
+use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::receipt::SyncReceiptEvent;
@@ -46,7 +42,7 @@ use crate::bridge::{IntoChat, TryIntoChat};
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
 use crate::rooms::RoomsManager;
-use crate::{messages, rooms, unwrap_or_log_return};
+use crate::{messages, polls, rooms, unwrap_or_log_return};
 
 /// After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -1225,7 +1221,23 @@ impl EventExecutor {
         room: Room,
         event: OriginalSyncUnstablePollResponseEvent,
     ) {
-        todo!()
+        let poll_id = event.content.relates_to.event_id;
+
+        let result = polls::assemble_poll(room.clone(), &poll_id)
+            .await
+            .inspect_err(|err| log::error!("Error assembling new poll content: {err}"));
+
+        let Ok(content) = result else {
+            return;
+        };
+
+        let proto = MessageChangeEventBuilder::new(room.room_id(), poll_id)
+            .change_content(message_change_event::Content::Poll(content))
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(proto))
+            .await;
     }
 
     async fn exec_unstable_poll_end_event(
@@ -1233,7 +1245,23 @@ impl EventExecutor {
         room: Room,
         event: OriginalSyncUnstablePollEndEvent,
     ) {
-        todo!()
+        let poll_id = event.content.relates_to.event_id;
+
+        let result = polls::assemble_poll(room.clone(), &poll_id)
+            .await
+            .inspect_err(|err| log::error!("Error assembling new poll content: {err}"));
+
+        let Ok(content) = result else {
+            return;
+        };
+
+        let proto = MessageChangeEventBuilder::new(room.room_id(), poll_id)
+            .change_content(message_change_event::Content::Poll(content))
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(proto))
+            .await;
     }
 
     async fn update_room_unread_count_by_id(&mut self, room_id: &RoomId) {

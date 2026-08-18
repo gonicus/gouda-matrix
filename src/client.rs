@@ -12,13 +12,10 @@ use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::ruma::api::client::uiaa::UiaaResponse;
-use matrix_sdk::ruma::events::poll::unstable_response::{
-    UnstablePollResponseContentBlock, UnstablePollResponseEvent, UnstablePollResponseEventContent,
-};
+use matrix_sdk::ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-use matrix_sdk::ruma::events::TimelineEventType::UnstablePollResponse;
 use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
 use matrix_sdk::Client;
 use ruma_common::api::error::{FromHttpResponseError, IntoHttpError};
@@ -36,7 +33,7 @@ use crate::rooms::RoomsManager;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{messages, notifications, rooms, user};
+use crate::{messages, notifications, polls, rooms, user};
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_USER_FETCHES: usize = 50;
@@ -1903,7 +1900,7 @@ impl MatrixClientInner {
 
     async fn answer_poll(
         &self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         request: PollAnswerRequest,
     ) -> Result<MessageChangeEvent> {
         let PollAnswerRequest {
@@ -1915,13 +1912,15 @@ impl MatrixClientInner {
         let event_id = EventId::parse(message_id.clone()).map_err(|_| Error::InvalidMessageId)?;
         let room = self.get_matrix_room(&room_id).await?;
 
-        let content = UnstablePollResponseEventContent::new(option_id, event_id);
+        let content = UnstablePollResponseEventContent::new(option_id, event_id.clone());
 
         room.send(content).await?;
 
-        // TODO: Send correct message change event
+        let new_content = polls::assemble_poll(room, &event_id).await?;
 
-        let proto = MessageChangeEventBuilder::new(room_id, message_id).to_proto();
+        let proto = MessageChangeEventBuilder::new(room_id, message_id)
+            .change_content(message_change_event::Content::Poll(new_content))
+            .to_proto();
 
         Ok(proto)
     }

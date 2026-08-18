@@ -10,6 +10,7 @@ mod media;
 mod memory_cache;
 mod messages;
 mod notifications;
+mod polls;
 mod proto_cache;
 mod rooms;
 mod sas;
