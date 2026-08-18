@@ -128,11 +128,33 @@ impl IntoMatrix<matrix_sdk::ruma::events::poll::unstable_start::UnstablePollAnsw
     }
 }
 
+impl IntoChat<chat::PollOption>
+    for matrix_sdk::ruma::events::poll::unstable_start::UnstablePollAnswer
+{
+    fn into_chat(self) -> chat::PollOption {
+        chat::PollOption {
+            id: self.id,
+            text: self.text,
+            voted_user_ids: Vec::new(),
+        }
+    }
+}
+
 impl IntoMatrix<matrix_sdk::ruma::events::poll::start::PollKind> for chat::PollType {
     fn into_matrix(self) -> matrix_sdk::ruma::events::poll::start::PollKind {
         match self {
             Self::Disclosed => matrix_sdk::ruma::events::poll::start::PollKind::Disclosed,
             Self::Undisclosed => matrix_sdk::ruma::events::poll::start::PollKind::Undisclosed,
+        }
+    }
+}
+
+impl TryIntoChat<chat::PollType> for matrix_sdk::ruma::events::poll::start::PollKind {
+    fn try_into_chat(self) -> Result<chat::PollType> {
+        match self {
+            Self::Disclosed => Ok(chat::PollType::Disclosed),
+            Self::Undisclosed => Ok(chat::PollType::Undisclosed),
+            _ => Err(Error::InvalidPollType),
         }
     }
 }
