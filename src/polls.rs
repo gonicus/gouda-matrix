@@ -78,14 +78,13 @@ pub fn assemble_poll_start(
     Ok(content)
 }
 
-fn replace_content(old: &mut MessageContentPoll, new: &UnstablePollStartContentBlock) -> Result<()> {
+pub fn replace_content(
+    old: &mut MessageContentPoll,
+    new: &UnstablePollStartContentBlock,
+) -> Result<()> {
     old.max_selections = new.max_selections.try_into().unwrap_or(u32::MAX);
 
-    old.options = new
-        .answers
-        .iter()
-        .map(|f| f.clone().into_chat())
-        .collect();
+    old.options = new.answers.iter().map(|f| f.clone().into_chat()).collect();
 
     old.question = new.question.text.clone();
 
@@ -94,7 +93,7 @@ fn replace_content(old: &mut MessageContentPoll, new: &UnstablePollStartContentB
     Ok(())
 }
 
-fn add_answer(content: &mut MessageContentPoll, sender: OwnedUserId, answers: Vec<String>) {
+pub fn add_answer(content: &mut MessageContentPoll, sender: OwnedUserId, answers: Vec<String>) {
     clear_user_answers(content, sender.as_str());
 
     let sender_id = sender.to_string();

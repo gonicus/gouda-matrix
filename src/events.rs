@@ -1184,9 +1184,13 @@ impl EventExecutor {
         let result = polls::assemble_poll_start(event.content.poll_start())
             .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
 
-        let Ok(content) = result else {
+        let Ok(mut content) = result else {
             return;
         };
+
+        if let Err(err) = polls::replace_content(&mut content, event.content.poll_start()) {
+            log::error!("Error replacing poll content: {err}");
+        }
 
         let message = Message {
             message_id: event.event_id.to_string(),
@@ -1211,11 +1215,17 @@ impl EventExecutor {
 
         let result = polls::assemble_poll(room.clone(), &poll_id)
             .await
-            .inspect_err(|err| log::error!("Error assembling new poll content: {err}"));
+            .inspect_err(|err| log::error!("Error assembling poll content: {err}"));
 
-        let Ok(content) = result else {
+        let Ok(mut content) = result else {
             return;
         };
+
+        polls::add_answer(
+            &mut content,
+            event.sender,
+            event.content.poll_response.answers,
+        );
 
         let proto = MessageChangeEventBuilder::new(room.room_id(), poll_id)
             .change_content(message_change_event::Content::Poll(content))
@@ -1237,9 +1247,11 @@ impl EventExecutor {
             .await
             .inspect_err(|err| log::error!("Error assembling new poll content: {err}"));
 
-        let Ok(content) = result else {
+        let Ok(mut content) = result else {
             return;
         };
+
+        content.completed = true;
 
         let proto = MessageChangeEventBuilder::new(room.room_id(), poll_id)
             .change_content(message_change_event::Content::Poll(content))
