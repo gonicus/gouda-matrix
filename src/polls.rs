@@ -41,7 +41,7 @@ pub async fn assemble_poll(room: Room, poll_id: &EventId) -> Result<chat::Messag
         } else if let Ok(event) = deserialize_poll_response_content(&room, &relation) {
             log::trace!("Relation is a poll response: {event:?}");
             add_answer(&mut content, sender, event.poll_response.answers);
-        } else if let Ok(_) = deserialize_poll_end_content(&room, &relation) {
+        } else if deserialize_poll_end_content(&room, &relation).is_ok() {
             log::trace!("Relation is a poll end: {event:?}");
             content.completed = true;
         } else {
@@ -116,7 +116,7 @@ fn deserialize_poll_start_content(
     room: &Room,
     event: &TimelineEvent,
 ) -> Result<UnstablePollStartEventContent> {
-    let event = utils::timeline_event_to_any_timeline_event(&room, event)?;
+    let event = utils::timeline_event_to_any_timeline_event(room, event)?;
     let message_like = any_timeline_event_to_message_like(event)?;
 
     let AnyMessageLikeEvent::UnstablePollStart(poll_start) = message_like else {
@@ -136,7 +136,7 @@ fn deserialize_poll_response_content(
     room: &Room,
     event: &TimelineEvent,
 ) -> Result<UnstablePollResponseEventContent> {
-    let event = utils::timeline_event_to_any_timeline_event(&room, event)?;
+    let event = utils::timeline_event_to_any_timeline_event(room, event)?;
     let message_like = any_timeline_event_to_message_like(event)?;
 
     let AnyMessageLikeEvent::UnstablePollResponse(event) = message_like else {
@@ -156,7 +156,7 @@ fn deserialize_poll_end_content(
     room: &Room,
     event: &TimelineEvent,
 ) -> Result<UnstablePollEndEventContent> {
-    let event = utils::timeline_event_to_any_timeline_event(&room, event)?;
+    let event = utils::timeline_event_to_any_timeline_event(room, event)?;
     let message_like = any_timeline_event_to_message_like(event)?;
 
     let AnyMessageLikeEvent::UnstablePollEnd(event) = message_like else {

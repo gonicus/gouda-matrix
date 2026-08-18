@@ -949,7 +949,7 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         let block = event.content.poll_start();
 
-        let original = polls::assemble_poll_start(&block)
+        let original = polls::assemble_poll_start(block)
             .map_err(|_| MemoryCacheError::UnableToAssembleMessage)?;
 
         // TODO: Use helper method to build message.
