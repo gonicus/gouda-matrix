@@ -83,11 +83,8 @@ pub fn replace_content(
     new: &UnstablePollStartContentBlock,
 ) -> Result<()> {
     old.max_selections = new.max_selections.try_into().unwrap_or(u32::MAX);
-
     old.options = new.answers.iter().map(|f| f.clone().into_chat()).collect();
-
     old.question = new.question.text.clone();
-
     old.r#type = new.kind.clone().try_into_chat()?.into();
 
     Ok(())
