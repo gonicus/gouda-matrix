@@ -14,6 +14,8 @@ use crate::error::{Error, Result};
 use crate::utils;
 
 pub async fn assemble_poll(room: Room, poll_id: &EventId) -> Result<chat::MessageContentPoll> {
+    log::debug!("Fully assembling poll: {poll_id:?}");
+
     let (event, mut relations) = room
         .load_or_fetch_event_with_relations(poll_id, None, None)
         .await?;
@@ -21,25 +23,33 @@ pub async fn assemble_poll(room: Room, poll_id: &EventId) -> Result<chat::Messag
     let poll_content = deserialize_poll_start_content(&room, &event)?;
     let mut content = assemble_poll_start(poll_content.poll_start())?;
 
+    log::trace!("Assembled poll start: {content:?}");
+
     relations.sort_by_key(|e| e.timestamp);
 
     for relation in relations {
+        log::trace!("Applying relation: {relation:?}");
+
         let Some(sender) = relation.sender() else {
+            log::trace!("Relation does not have a sender ID");
             continue;
         };
 
         if let Ok(event) = deserialize_poll_start_content(&room, &relation) {
+            log::trace!("Relation is a poll start: {event:?}");
             replace_content(&mut content, event.poll_start())?;
-        }
-
-        if let Ok(event) = deserialize_poll_response_content(&room, &relation) {
+        } else if let Ok(event) = deserialize_poll_response_content(&room, &relation) {
+            log::trace!("Relation is a poll response: {event:?}");
             add_answer(&mut content, sender, event.poll_response.answers);
-        }
-
-        if let Ok(_) = deserialize_poll_end_content(&room, &relation) {
+        } else if let Ok(_) = deserialize_poll_end_content(&room, &relation) {
+            log::trace!("Relation is a poll end: {event:?}");
             content.completed = true;
+        } else {
+            log::trace!("Event type of the relation is not relevant for polls");
         }
     }
+
+    log::debug!("Assembled poll: {content:?}");
 
     Ok(content)
 }
