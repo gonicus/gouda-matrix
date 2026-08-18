@@ -508,7 +508,7 @@ impl CachedMessage {
     fn build_poll(&self, mut original: Message) -> Message {
         if let Some(message::Content::Poll(content)) = &mut original.content {
             self.apply_poll_replacements(content);
-            self.apply_poll_reponses(content);
+            self.apply_poll_responses(content);
             self.apply_poll_ends(content);
         }
 
@@ -551,7 +551,7 @@ impl CachedMessage {
         }
     }
 
-    fn apply_poll_reponses(&self, content: &mut MessageContentPoll) {
+    fn apply_poll_responses(&self, content: &mut MessageContentPoll) {
         for (_, event) in &self.poll_response_events {
             polls::add_answer(
                 content,
