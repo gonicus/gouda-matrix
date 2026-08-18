@@ -5,11 +5,20 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentRemoved,
-    MessageRemoveEvent, NotificationSetting, Reaction,
+    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
+    MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction,
 };
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
+};
+use matrix_sdk::ruma::events::poll::unstable_end::{
+    UnstablePollEndEvent, UnstablePollEndEventContent,
+};
+use matrix_sdk::ruma::events::poll::unstable_response::{
+    UnstablePollResponseEvent, UnstablePollResponseEventContent,
+};
+use matrix_sdk::ruma::events::poll::unstable_start::{
+    UnstablePollStartEvent, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
 use matrix_sdk::ruma::events::room::encrypted::{
@@ -21,7 +30,7 @@ use matrix_sdk::ruma::events::room::message::{
 };
 use matrix_sdk::ruma::events::room::redaction::{OriginalRoomRedactionEvent, RoomRedactionEvent};
 use matrix_sdk::ruma::events::{
-    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEvent,
     OriginalMessageLikeEvent, RedactedMessageLikeEvent,
 };
 use matrix_sdk::Room as MatrixRoom;
@@ -34,7 +43,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::bridge::TryIntoChat;
 use crate::error::chat_err;
 use crate::media::MediaManager;
-use crate::messages;
+use crate::{messages, polls};
 
 /// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -52,7 +61,7 @@ pub enum MemoryCacheError {
     MessageReceiverDropped,
 
     #[error("cache lock poisoned")]
-    Cachepoisoned,
+    CachePoisoned,
 
     #[error("unable to assemble a requested message")]
     UnableToAssembleMessage,
@@ -70,7 +79,7 @@ impl From<MemoryCacheError> for ChatError {
 
 impl<T> From<std::sync::PoisonError<T>> for MemoryCacheError {
     fn from(_value: std::sync::PoisonError<T>) -> Self {
-        Self::Cachepoisoned
+        Self::CachePoisoned
     }
 }
 
@@ -458,22 +467,52 @@ struct CachedMessage {
     pub replacements: HashMap<String, CachedReplacement>,
     /// Redaction, if the event has been redacted.
     pub redaction: Option<OriginalRoomRedactionEvent>,
+
+    /// The poll start events to this message.
+    pub poll_replacement_events:
+        HashMap<String, OriginalMessageLikeEvent<UnstablePollStartEventContent>>,
+    /// The poll response events to this message.
+    pub poll_response_events:
+        HashMap<String, OriginalMessageLikeEvent<UnstablePollResponseEventContent>>,
+    /// The poll end events to this message.
+    pub poll_end_events: HashMap<String, OriginalMessageLikeEvent<UnstablePollEndEventContent>>,
 }
 
 impl CachedMessage {
-    pub fn build_from_original(&mut self, mut original: Message) -> Message {
+    pub fn build_from_original(&mut self, original: Message) -> Message {
+        self.original = Some(original.clone());
+
+        match &original.content {
+            Some(message::Content::Removed(_)) => self.build_removed(original),
+            Some(message::Content::Poll(_)) => self.build_poll(original),
+            _ => self.build_other(original),
+        }
+    }
+
+    fn build_other(&self, mut original: Message) -> Message {
+        self.apply_reactions(&mut original);
+        self.apply_replacements(&mut original);
+        original
+    }
+
+    fn build_removed(&self, mut original: Message) -> Message {
         if let Some(message::Content::Removed(c)) = &mut original.content {
             if let Some(redaction) = &self.redaction {
                 c.reason = redaction.content.reason.clone();
             }
-
-            return original;
         }
 
-        self.original = Some(original.clone());
+        original
+    }
+
+    fn build_poll(&self, mut original: Message) -> Message {
+        if let Some(message::Content::Poll(content)) = &mut original.content {
+            self.apply_poll_replacements(content);
+            self.apply_poll_reponses(content);
+            self.apply_poll_ends(content);
+        }
 
         self.apply_reactions(&mut original);
-        self.apply_replacements(&mut original);
 
         original
     }
@@ -491,12 +530,40 @@ impl CachedMessage {
         }
     }
 
-    fn apply_replacements(&mut self, msg: &mut Message) {
+    fn apply_replacements(&self, msg: &mut Message) {
         let mut replacements: Vec<&CachedReplacement> = self.replacements.values().collect();
         replacements.sort_by_key(|f| f.timestamp);
 
         if let Some(replacement) = replacements.last() {
             msg.content = Some(replacement.new_content.clone());
+        }
+    }
+
+    fn apply_poll_replacements(&self, content: &mut MessageContentPoll) {
+        let mut replacements: Vec<&OriginalMessageLikeEvent<UnstablePollStartEventContent>> =
+            self.poll_replacement_events.values().collect();
+        replacements.sort_by_key(|f| f.origin_server_ts);
+
+        if let Some(replacement) = replacements.last() {
+            if let Err(err) = polls::replace_content(content, replacement.content.poll_start()) {
+                log::error!("Error replacing poll content: {err}");
+            }
+        }
+    }
+
+    fn apply_poll_reponses(&self, content: &mut MessageContentPoll) {
+        for (_, event) in &self.poll_response_events {
+            polls::add_answer(
+                content,
+                event.sender.clone(),
+                event.content.poll_response.answers.clone(),
+            );
+        }
+    }
+
+    fn apply_poll_ends(&self, content: &mut MessageContentPoll) {
+        if !self.poll_end_events.is_empty() {
+            content.completed = true;
         }
     }
 }
@@ -704,6 +771,13 @@ impl CachedRoom {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
             AnyMessageLikeEvent::RoomRedaction(event) => self.process_room_redaction(event),
             AnyMessageLikeEvent::RoomEncrypted(event) => self.process_room_encrypted(event),
+            AnyMessageLikeEvent::UnstablePollStart(event) => {
+                self.process_unstable_poll_start(event)
+            }
+            AnyMessageLikeEvent::UnstablePollResponse(event) => {
+                self.process_unstable_poll_response(event)
+            }
+            AnyMessageLikeEvent::UnstablePollEnd(event) => self.process_unstable_poll_end(event),
             AnyMessageLikeEvent::Reaction(event) => self.process_reaction_event(event),
             _ => {
                 log::debug!("Ignoring event because event type is not implemented");
@@ -838,6 +912,87 @@ impl CachedRoom {
         let message = self.build_from_message(message)?;
 
         Ok(Some(CachedRoomAction::Message(message)))
+    }
+
+    fn process_unstable_poll_start(
+        &self,
+        event: UnstablePollStartEvent,
+    ) -> Result<Option<CachedRoomAction>> {
+        use matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent;
+
+        let MessageLikeEvent::Original(original) = event else {
+            log::debug!("Event is redacted, nothing to do");
+            return Ok(None);
+        };
+
+        match &original.content {
+            UnstablePollStartEventContent::New(_) => self.process_new_unstable_poll_start(original),
+            UnstablePollStartEventContent::Replacement(replacement) => {
+                let message_id = replacement.relates_to.event_id.to_string();
+                self.cache_poll_replacement_event(message_id, original)?;
+                Ok(None)
+            }
+            _ => {
+                log::warn!("Unexpected poll start event content type");
+                Ok(None)
+            }
+        }
+    }
+
+    fn process_new_unstable_poll_start(
+        &self,
+        event: OriginalMessageLikeEvent<UnstablePollStartEventContent>,
+    ) -> Result<Option<CachedRoomAction>> {
+        let block = event.content.poll_start();
+
+        let original = polls::assemble_poll_start(&block)
+            .map_err(|_| MemoryCacheError::UnableToAssembleMessage)?;
+
+        // TODO: Use helper method to build message.
+
+        let message = Message {
+            message_id: event.event_id.to_string(),
+            room_id: event.room_id.to_string(),
+            sender_id: event.sender.to_string(),
+            content: Some(message::Content::Poll(original)),
+            is_encrypted: false,
+            ..Default::default()
+        };
+
+        log::debug!("Build original poll message: {message:?}");
+
+        self.build_from_message(message)
+            .map(|msg| Some(CachedRoomAction::Message(msg)))
+    }
+
+    fn process_unstable_poll_response(
+        &self,
+        event: UnstablePollResponseEvent,
+    ) -> Result<Option<CachedRoomAction>> {
+        let MessageLikeEvent::Original(original) = event else {
+            log::debug!("Event is redacted, nothing to do");
+            return Ok(None);
+        };
+
+        let message_id = original.content.relates_to.event_id.to_string();
+        self.cache_poll_response_event(message_id, original)?;
+
+        Ok(None)
+    }
+
+    fn process_unstable_poll_end(
+        &self,
+        event: UnstablePollEndEvent,
+    ) -> Result<Option<CachedRoomAction>> {
+        let MessageLikeEvent::Original(original) = event else {
+            log::debug!("Event is redacted, nothing to do");
+            return Ok(None);
+        };
+
+        let message_id = original.content.relates_to.event_id.to_string();
+        self.cache_poll_end_event(message_id, original)?;
+
+        Ok(None)
     }
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
@@ -1127,6 +1282,60 @@ impl CachedRoom {
 
         let mut guard = self.reaction_id_to_message.lock()?;
         guard.insert(reaction_id, message_id);
+
+        Ok(())
+    }
+
+    /// Caches the given poll replacement event.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_poll_replacement_event(
+        &self,
+        message_id: String,
+        event: OriginalMessageLikeEvent<UnstablePollStartEventContent>,
+    ) -> Result<()> {
+        log::info!("Caching poll start event of message {message_id}");
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(message_id.clone()).or_default();
+        message
+            .poll_replacement_events
+            .insert(event.event_id.to_string(), event);
+
+        Ok(())
+    }
+
+    /// Caches the given poll response event.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_poll_response_event(
+        &self,
+        message_id: String,
+        event: OriginalMessageLikeEvent<UnstablePollResponseEventContent>,
+    ) -> Result<()> {
+        log::info!("Caching poll response event of message {message_id}");
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(message_id.clone()).or_default();
+        message
+            .poll_response_events
+            .insert(event.event_id.to_string(), event);
+
+        Ok(())
+    }
+
+    /// Caches the given poll end event.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_poll_end_event(
+        &self,
+        message_id: String,
+        event: OriginalMessageLikeEvent<UnstablePollEndEventContent>,
+    ) -> Result<()> {
+        log::info!("Caching poll end event of message {message_id}");
+
+        let mut guard = self.messages.lock()?;
+        let message = guard.entry(message_id.clone()).or_default();
+        message
+            .poll_end_events
+            .insert(event.event_id.to_string(), event);
 
         Ok(())
     }
