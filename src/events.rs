@@ -9,6 +9,9 @@ use gouda_proto::chat::{Reaction as ChatReaction, *};
 use matrix_sdk::deserialized_responses::TimelineEventKind;
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::fully_read::FullyReadEvent;
+use matrix_sdk::ruma::events::poll::unstable_end::OriginalSyncUnstablePollEndEvent;
+use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollResponseEvent;
+use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::receipt::SyncReceiptEvent;
@@ -135,6 +138,9 @@ impl EventManager {
         client.add_event_handler(tag_event_handler);
         client.add_event_handler(sync_receipt_event_handler);
         client.add_event_handler(fully_read_event_handler);
+        client.add_event_handler(unstable_poll_start_event_handler);
+        client.add_event_handler(unstable_poll_response_event_handler);
+        client.add_event_handler(unstable_poll_end_event_handler);
 
         self.clone()
             .subscribe_to_event_cache_generic_updates(client.clone());
@@ -304,6 +310,33 @@ impl EventManager {
         let _ = self
             .action_sender
             .send(Action::FullyReadEvent { room, event });
+    }
+
+    pub fn process_unstable_poll_start_event(
+        &self,
+        room: Room,
+        event: OriginalSyncUnstablePollStartEvent,
+    ) {
+        log::debug!("Received OriginalSyncUnstablePollStartEvent: {event:?}");
+        todo!()
+    }
+
+    pub fn process_unstable_poll_response_event(
+        &self,
+        room: Room,
+        event: OriginalSyncUnstablePollResponseEvent,
+    ) {
+        log::debug!("Received OriginalSyncUnstablePollResponseEvent: {event:?}");
+        todo!()
+    }
+
+    pub fn process_unstable_poll_end_event(
+        &self,
+        room: Room,
+        event: OriginalSyncUnstablePollEndEvent,
+    ) {
+        log::debug!("Received OriginalSyncUnstablePollEndEvent: {event:?}");
+        todo!()
     }
 
     pub fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
@@ -1282,4 +1315,22 @@ impl_room_event_handler!(
     FullyReadEvent,
     fully_read_event_handler,
     process_fully_read_event
+);
+
+impl_room_event_handler!(
+    OriginalSyncUnstablePollStartEvent,
+    unstable_poll_start_event_handler,
+    process_unstable_poll_start_event
+);
+
+impl_room_event_handler!(
+    OriginalSyncUnstablePollResponseEvent,
+    unstable_poll_response_event_handler,
+    process_unstable_poll_response_event
+);
+
+impl_room_event_handler!(
+    OriginalSyncUnstablePollEndEvent,
+    unstable_poll_end_event_handler,
+    process_unstable_poll_end_event
 );
