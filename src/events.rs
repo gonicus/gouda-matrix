@@ -1181,25 +1181,11 @@ impl EventExecutor {
         room: Room,
         event: OriginalSyncUnstablePollStartEvent,
     ) {
-        let block = event.content.poll_start();
+        let result = polls::assemble_poll_start(event.content.poll_start())
+            .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
 
-        let Ok(r#type) = block.kind.clone().try_into_chat() else {
-            log::error!("Received invalid poll type");
+        let Ok(content) = result else {
             return;
-        };
-
-        let options = block
-            .answers
-            .iter()
-            .map(|f| f.clone().into_chat())
-            .collect();
-
-        let content = MessageContentPoll {
-            r#type: r#type.into(),
-            completed: false,
-            max_selections: block.max_selections.try_into().unwrap_or(u32::MAX),
-            question: block.question.text.clone(),
-            options,
         };
 
         let message = Message {

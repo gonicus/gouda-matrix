@@ -1,11 +1,53 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
+use matrix_sdk::ruma::events::{AnySyncTimelineEvent, AnyTimelineEvent};
+use matrix_sdk::Room;
+use ruma_common::serde::Raw;
+use ruma_common::OwnedRoomId;
+
+use crate::error::{Error, Result};
+
 /// Gets the current unix timestamp in seconds.
 pub fn get_unix_timestamp_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+pub fn timeline_event_to_any_timeline_event(
+    room: &Room,
+    event: &TimelineEvent,
+) -> Result<AnyTimelineEvent> {
+    match &event.kind {
+        TimelineEventKind::Decrypted(decrypted) => {
+            any_timeline_event_from_decrypted(&decrypted.event)
+        }
+        TimelineEventKind::PlainText { event } => {
+            any_timeline_event_from_plain_text(room.room_id().to_owned(), event)
+        }
+        TimelineEventKind::UnableToDecrypt { .. } => {
+            Err(Error::internal("Unable to decrypt event"))
+        }
+    }
+}
+
+fn any_timeline_event_from_decrypted(event: &Raw<AnyTimelineEvent>) -> Result<AnyTimelineEvent> {
+    event
+        .deserialize()
+        .map_err(|_| Error::internal("Unable to deserialize event"))
+}
+
+fn any_timeline_event_from_plain_text(
+    room_id: OwnedRoomId,
+    event: &Raw<AnySyncTimelineEvent>,
+) -> Result<AnyTimelineEvent> {
+    let deserialized = event
+        .deserialize()
+        .map_err(|_| Error::internal("Unable to deserialize event"))?;
+
+    Ok(deserialized.into_full_event(room_id))
 }
 
 #[derive(Debug, Clone)]
