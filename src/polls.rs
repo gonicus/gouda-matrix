@@ -95,7 +95,7 @@ pub fn add_answer(content: &mut MessageContentPoll, sender: OwnedUserId, answers
 
     let sender_id = sender.to_string();
 
-    for answer in answers {
+    for answer in answers.into_iter().take(content.max_selections as usize) {
         let Some(option) = content.options.iter_mut().find(|p| p.id == answer) else {
             continue;
         };

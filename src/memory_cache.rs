@@ -552,7 +552,11 @@ impl CachedMessage {
     }
 
     fn apply_poll_responses(&self, content: &mut MessageContentPoll) {
-        for (_, event) in &self.poll_response_events {
+        let mut responses: Vec<&OriginalMessageLikeEvent<UnstablePollResponseEventContent>> =
+            self.poll_response_events.values().collect();
+        responses.sort_by_key(|f| f.origin_server_ts);
+
+        for event in responses {
             polls::add_answer(
                 content,
                 event.sender.clone(),
@@ -1773,7 +1777,7 @@ mod tests {
 
     #[test]
     fn test_cached_message_apply_replacements_empty() {
-        let mut cached = CachedMessage::default();
+        let cached = CachedMessage::default();
         let mut message = Message {
             message_id: "$msg1".to_string(),
             room_id: "!room:example.org".to_string(),
