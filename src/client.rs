@@ -1747,12 +1747,12 @@ impl MatrixClientInner {
         let MessageRemoveRequest {
             room_id,
             message_id,
-            ..
+            reason,
         } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
         let event_id = EventId::parse(message_id).map_err(|_| Error::InvalidMessageId)?;
-        room.redact(&event_id, None, None).await?;
+        room.redact(&event_id, reason.as_deref(), None).await?;
 
         Ok(())
     }
