@@ -1,5 +1,9 @@
-use gouda_proto::chat::*;
+use gouda_proto::chat::{self, *};
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
+use matrix_sdk::ruma::events::poll::unstable_start::{
+    NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
+    UnstablePollStartContentBlock, UnstablePollStartEventContent,
+};
 use matrix_sdk::ruma::events::relation::{InReplyTo, Thread};
 use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
@@ -8,6 +12,7 @@ use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
 use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId};
 
+use crate::bridge::IntoMatrix;
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
@@ -241,7 +246,7 @@ impl<'a> MessageBuilder<'a> {
         match std::mem::take(&mut self.content) {
             message_send_request::Content::Text(c) => self.send_text(room, c).await,
             message_send_request::Content::File(c) => self.send_file(room, c).await,
-            message_send_request::Content::Poll(_) => Err(Error::NotImplemented), // TODO
+            message_send_request::Content::Poll(c) => self.send_poll(room, c).await,
         }
     }
 
@@ -285,6 +290,35 @@ impl<'a> MessageBuilder<'a> {
             .await?;
 
         Ok(message_id)
+    }
+
+    async fn send_poll(self, room: &Room, content: MessageContentPoll) -> Result<String> {
+        let MessageContentPoll {
+            r#type,
+            max_selections,
+            question,
+            options,
+            ..
+        } = content;
+
+        let poll_type = chat::PollType::try_from(r#type).map_err(|_| Error::InvalidPollType)?;
+
+        let options: Vec<UnstablePollAnswer> =
+            options.iter().map(|f| f.clone().into_matrix()).collect();
+
+        let answers =
+            UnstablePollAnswers::try_from(options).map_err(|_| Error::InvalidPollOptions)?;
+
+        let mut poll_start = UnstablePollStartContentBlock::new(question.clone(), answers);
+        poll_start.max_selections = max_selections.into();
+        poll_start.kind = poll_type.into_matrix();
+
+        let content = NewUnstablePollStartEventContent::plain_text(question, poll_start);
+        let event = UnstablePollStartEventContent::New(content);
+
+        let re = room.send(event).await?;
+
+        Ok(re.response.event_id.to_string())
     }
 
     async fn add_thread_metadata(

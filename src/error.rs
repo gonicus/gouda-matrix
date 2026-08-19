@@ -81,6 +81,12 @@ pub enum Error {
     #[error("the requested thread was not found")]
     ThreadNotFound,
 
+    #[error("invalid poll type")]
+    InvalidPollType,
+
+    #[error("invalid poll options. must be between 1 and 20")]
+    InvalidPollOptions,
+
     #[error("the requested verification flow was not found")]
     VerificationFlowNotFound,
 
@@ -163,9 +169,9 @@ impl From<Error> for ChatError {
             Error::NotImplemented => chat_err!(NotImplemented),
             Error::NotInitialized => chat_err!(NotInitialized),
             Error::AlreadyInitialized => chat_err!(AlreadyInitialized),
-            Error::NotLoggedIn => chat_err!(Authorization, "Not logged in"),
+            Error::NotLoggedIn => chat_err!(Authorization, value),
             Error::AlreadyLoggedIn => chat_err!(AlreadyLoggedIn),
-            Error::LoggedOut => chat_err!(Authorization, "Session has been logged out"),
+            Error::LoggedOut => chat_err!(Authorization, value),
             Error::Network => chat_err!(Network),
             Error::Timeout => chat_err!(Timeout),
             Error::Authorization => chat_err!(Authorization),
@@ -179,10 +185,12 @@ impl From<Error> for ChatError {
             Error::ReactionNotFound => chat_err!(ReactionNotFound),
             Error::InvalidThreadId => chat_err!(ThreadNotFound),
             Error::ThreadNotFound => chat_err!(ThreadNotFound),
+            Error::InvalidPollType => chat_err!(Unknown, value),
+            Error::InvalidPollOptions => chat_err!(Unknown, value),
             Error::VerificationFlowNotFound => chat_err!(VerificationFlowNotFound),
             Error::UnsupportedCrossSigningMethod => chat_err!(Unknown, value),
             Error::NoCrossSigningMethod => chat_err!(Unknown, value),
-            Error::ConversionError => chat_err!(Unknown, "Internal conversion error"),
+            Error::ConversionError => chat_err!(Unknown, value),
             Error::InternalError(err) => chat_err!(Unknown, err),
             Error::MediaError(err) => err.into(),
             Error::MemoryCacheError(err) => err.into(),
