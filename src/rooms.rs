@@ -127,6 +127,8 @@ impl RoomsManager {
             room_settings: Some(get_room_settings(room).await),
             invitation_text: None,
             pinned_messages,
+            // Read markers are updated after retrieving room messages
+            read_marker: HashMap::new(),
         })
     }
 }
