@@ -105,6 +105,28 @@ impl RoomsManager {
             room.is_direct().await?
         };
 
+        {
+            log::debug!("LOADING_RECEIPTS");
+            let timer = std::time::Instant::now();
+            for user in room
+                .members(matrix_sdk::RoomMemberships::all())
+                .await
+                .unwrap()
+            {
+                let read_receipt = room
+                    .load_user_receipt(
+                        matrix_sdk::ruma::events::receipt::ReceiptType::Read,
+                        matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
+                        user.user_id(),
+                    )
+                    .await
+                    .unwrap();
+
+                log::debug!("RECEIPTED_RECEIPT: {read_receipt:?}");
+            }
+            log::debug!("TIME_LOADING_RECEIPTS: {}", timer.elapsed().as_millis());
+        }
+
         let pinned_messages = room
             .pinned_event_ids()
             .unwrap_or_default()
