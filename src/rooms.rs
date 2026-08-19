@@ -4,9 +4,10 @@ use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
+use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
-use matrix_sdk::Client;
+use matrix_sdk::{Client, RoomMemberships};
 use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::UserId;
 
@@ -127,6 +128,7 @@ impl RoomsManager {
             room_settings: Some(get_room_settings(room).await),
             invitation_text: None,
             pinned_messages,
+            read_marker: get_room_read_marker(room).await.unwrap_or_default(),
         })
     }
 }
@@ -180,6 +182,24 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     RoomSettings {
         notification_setting: notification,
     }
+}
+
+pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, String>> {
+    let mut result = HashMap::new();
+
+    for member in room.members(RoomMemberships::all()).await? {
+        let receipt = room
+            .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
+            .await?;
+
+        let Some(receipt) = receipt else {
+            continue;
+        };
+
+        result.insert(member.user_id().to_string(), receipt.0.to_string());
+    }
+
+    Ok(result)
 }
 
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {

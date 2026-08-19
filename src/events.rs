@@ -14,7 +14,7 @@ use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollR
 use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
-use matrix_sdk::ruma::events::receipt::SyncReceiptEvent;
+use matrix_sdk::ruma::events::receipt::{ReceiptThread, SyncReceiptEvent};
 use matrix_sdk::ruma::events::relation::Replacement;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
@@ -896,12 +896,12 @@ impl EventExecutor {
         event: StrippedRoomMemberEvent,
     ) {
         if Some(event.state_key.to_string()) != self.client.user_id().map(|f| f.to_string()) {
-            log::debug!("Our user did not trigger this event, nothing to do");
+            log::debug!("Our user did not trigger this event");
             return;
         }
 
         if event.content.membership != MembershipState::Invite {
-            log::debug!("Our user is not in invited state, nothing to do");
+            log::debug!("Our user is not in invited state");
             return;
         }
 
@@ -926,9 +926,7 @@ impl EventExecutor {
         let change = UserChange::new_profile_change(displayname_change, avatar_url_change);
 
         if !self.is_new_user_change(&user_id, &change) {
-            log::debug!(
-                "User profile change for {user_id} has already been processed before, nothing to do"
-            );
+            log::debug!("User profile change for {user_id} has already been processed before");
             return;
         }
 
@@ -1107,9 +1105,7 @@ impl EventExecutor {
         let change = UserChange::new().status(user_status.clone());
 
         if !self.is_new_user_change(&user_id, &change) {
-            log::debug!(
-                "User profile change for {user_id} has already been processed before, nothing to do"
-            );
+            log::debug!("User profile change for {user_id} has already been processed before");
             return;
         }
 
@@ -1150,18 +1146,27 @@ impl EventExecutor {
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
         self.update_room_unread_count_by_id(&room_id).await;
 
-        let Some(list) = get_user_typing_list(&update) else {
-            return;
-        };
+        let typing_list = get_user_typing_list(&update);
+        let read_marker = get_read_marker(&update);
 
-        let proto = RoomChangeEventBuilder::new(room_id.to_string())
-            .change_typing_user_id_list(list)
-            .to_proto();
+        if typing_list.is_none() && read_marker.is_none() {
+            return;
+        }
+
+        let mut builder = RoomChangeEventBuilder::new(room_id.to_string());
+
+        if let Some(list) = typing_list {
+            builder = builder.change_typing_user_id_list(list);
+        }
+
+        if let Some(marker) = read_marker {
+            builder = builder.change_read_marker(marker);
+        }
+
+        let proto = builder.to_proto();
 
         if !self.is_new_room_change(&proto) {
-            log::debug!(
-                "Room change for {room_id} has already been processed before, nothing to do"
-            );
+            log::debug!("Room change for {room_id} has already been processed before");
             return;
         }
 
@@ -1282,9 +1287,7 @@ impl EventExecutor {
             .to_proto();
 
         if !self.is_new_room_change(&proto) {
-            log::debug!(
-                "Room change for {room_id} has already been processed before, nothing to do"
-            );
+            log::debug!("Room change for {room_id} has already been processed before");
             return;
         }
 
@@ -1334,20 +1337,49 @@ fn get_user_typing_list(update: &JoinedRoomUpdate) -> Option<Vec<String>> {
             continue;
         };
 
-        match event.content() {
-            AnyEphemeralRoomEventContent::Typing(event) => {
-                result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
-            }
-            AnyEphemeralRoomEventContent::Receipt(_) => {
+        let AnyEphemeralRoomEventContent::Typing(event) = event.content() else {
+            break;
+        };
+
+        result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
+    }
+
+    result
+}
+
+fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, String>> {
+    let mut result: HashMap<String, String> = HashMap::new();
+
+    for event in &update.ephemeral {
+        let Ok(event) = event.deserialize() else {
+            continue;
+        };
+
+        let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
+            break;
+        };
+
+        for (event_id, receipt) in event.0 {
+            let Some(receipts) = receipt.get(&matrix_sdk::ruma::events::receipt::ReceiptType::Read)
+            else {
                 continue;
-            }
-            _ => {
-                continue;
+            };
+
+            for (user_id, receipt) in receipts {
+                if receipt.thread != ReceiptThread::Main {
+                    continue;
+                }
+
+                result.insert(user_id.to_string(), event_id.to_string());
             }
         }
     }
 
-    result
+    if result.is_empty() {
+        return None;
+    }
+
+    Some(result)
 }
 
 impl_room_event_handler!(
