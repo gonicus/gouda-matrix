@@ -158,6 +158,13 @@ fn is_profile_field_expected_error(err: &matrix_sdk::Error) -> bool {
 }
 
 pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatus> {
+    Ok(UserStatus {
+        state: fetch_user_presence(client, user_id).await.unwrap_or(PresenceState::Unknown).into(),
+        status_message: fetch_user_status_message(client, user_id).await.unwrap_or_default(),
+    })
+}
+
+async fn fetch_user_presence(client: &Client, user_id: &UserId) -> Result<PresenceState> {
     use matrix_sdk::ruma::api::client::presence::get_presence;
 
     log::debug!("Requesting presence state for user {user_id:?}");
@@ -168,8 +175,24 @@ pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatu
         log::error!("Error retrieving presence state for user {user_id}: {err}")
     })?;
 
-    Ok(UserStatus {
-        state: response.presence.into_chat().into(),
-        status_message: response.status_msg,
-    })
+    Ok(response.presence.into_chat())
+}
+
+async fn fetch_user_status_message(client: &Client, user_id: &UserId) -> Result<Option<String>> {
+    use ruma_common::profile::{ProfileFieldName, ProfileFieldValue};
+
+    let result = client
+        .account()
+        .fetch_profile_field_of(user_id.to_owned(), ProfileFieldName::Status)
+        .await?;
+
+    let Some(field) = result else {
+        return Ok(None);
+    };
+
+    if let ProfileFieldValue::Status(status) = field {
+        return Ok(Some(format!("{} {}", status.emoji, status.text)));
+    }
+
+    Ok(None)
 }
