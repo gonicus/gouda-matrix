@@ -189,7 +189,7 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
 
     for member in room.members(RoomMemberships::all()).await? {
         let receipt = room
-            .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
+            .load_user_receipt(ReceiptType::Read, &ReceiptThread::Main, member.user_id())
             .await?;
 
         let Some(receipt) = receipt else {

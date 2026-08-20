@@ -1113,7 +1113,7 @@ impl CachedRoom {
             return Ok(());
         }
 
-        let Some(event_id) = event.event_id() else {
+        let Some(event_id) = event.event_id().map(|e| e.to_string()) else {
             log::warn!("Successfully decrypted event but event does not have an ID");
             return Ok(());
         };
@@ -1127,7 +1127,7 @@ impl CachedRoom {
         if let Some(action) = action {
             self.process_successful_redecryption(action).await?;
         } else {
-            self.redact_encrypted_message(event_id.to_string()).await;
+            self.redact_encrypted_message(event_id).await;
         }
 
         Ok(())
