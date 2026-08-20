@@ -36,8 +36,8 @@ js_int = "0.2.2"
 matrix-sdk = {
   git = "https://github.com/matrix-org/matrix-rust-sdk",
   branch = "main",
-  features = ["sso-login", "markdown", "bundled-sqlite"
-]}
+  features = ["sso-login", "markdown", "bundled-sqlite", "unstable-msc4426"]
+}
 
 matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", branch = "main" }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "db24422e03aea7c7974230098fe9aeb5481cddc6" }
