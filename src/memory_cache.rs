@@ -247,7 +247,6 @@ impl MemoryCacheInner {
         }
     }
 
-
     pub async fn fetch_messages(
         &self,
         room: MatrixRoom,
@@ -1559,12 +1558,9 @@ impl MessagesFetcher {
         while self.retrieved_messages < self.message_limit {
             log::debug!("Fetching next chunk of events");
 
-            let options = self.build_messages_options();
+            let (chunk, end) = self.fetch_chunk().await?;
 
-            let matrix_sdk::room::Messages { end, chunk, .. } =
-                self.cache.room.messages(options).await?;
-
-            log::debug!("Processing chunk");
+            log::trace!("Processing chunk");
 
             self.process_event_chunk(chunk).await?;
 
@@ -1585,11 +1581,30 @@ impl MessagesFetcher {
         Ok(())
     }
 
-    fn build_messages_options(&self) -> matrix_sdk::room::MessagesOptions {
+    async fn fetch_chunk(&self) -> Result<(Vec<TimelineEvent>, Option<String>)> {
+        if let Some(thread_id) = &self.thread_id {
+            self.fetch_chunk_from_thread(thread_id).await
+        } else {
+            self.fetch_chunk_from_main().await
+        }
+    }
+
+    async fn fetch_chunk_from_main(&self) -> Result<(Vec<TimelineEvent>, Option<String>)> {
         let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
         options.from = self.from_token.clone();
         options.limit = self.chunk_size;
-        options
+
+        let matrix_sdk::room::Messages { end, chunk, .. } =
+            self.cache.room.messages(options).await?;
+
+        Ok((chunk, end))
+    }
+
+    async fn fetch_chunk_from_thread(
+        &self,
+        thread_id: &EventId,
+    ) -> Result<(Vec<TimelineEvent>, Option<String>)> {
+        todo!()
     }
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
