@@ -8,9 +8,12 @@ use gouda_proto::chat::{
     message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
     MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction,
 };
+use js_int::UInt;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
+use matrix_sdk::paginators::thread::ThreadedEventsLoader;
+use matrix_sdk::paginators::{PaginationToken, PaginationTokens};
 use matrix_sdk::ruma::events::poll::unstable_end::{
     UnstablePollEndEvent, UnstablePollEndEventContent,
 };
@@ -68,6 +71,9 @@ pub enum MemoryCacheError {
 
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
+
+    #[error("matrix sdk paginator error: {0}")]
+    PaginatorError(#[from] matrix_sdk::paginators::PaginatorError),
 }
 
 impl From<MemoryCacheError> for ChatError {
@@ -263,13 +269,13 @@ impl MemoryCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            let mut builder = MessagesFetcher::new(room, tx, options.limit, from_token);
+            let fetcher = if let Some(thread_id) = options.thread_id {
+                MessagesFetcher::threaded(room, tx, options.limit, from_token, thread_id)
+            } else {
+                MessagesFetcher::unthreaded(room, tx, options.limit, from_token)
+            };
 
-            if let Some(thread_id) = options.thread_id {
-                builder = builder.thread_id(thread_id);
-            }
-
-            builder.run().await;
+            fetcher.run().await;
         });
 
         Ok(ReceiverStream::new(rx))
@@ -1485,20 +1491,67 @@ impl CachedRoom {
     }
 }
 
+enum ChunkLoader {
+    Unthreaded(UnthreadedLoader),
+    Threaded(ThreadedLoader),
+}
+
+impl ChunkLoader {
+    pub async fn fetch(&mut self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        match self {
+            Self::Unthreaded(loader) => loader.fetch(num_events).await,
+            Self::Threaded(loader) => loader.fetch(num_events).await,
+        }
+    }
+}
+
+struct UnthreadedLoader {
+    room: matrix_sdk::Room,
+    from_token: Option<String>,
+}
+
+impl UnthreadedLoader {
+    pub async fn fetch(&mut self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        log::trace!("Fetching {num_events} unthreaded events");
+
+        let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
+        options.from = self.from_token.clone();
+        options.limit = num_events;
+
+        let matrix_sdk::room::Messages { end, chunk, .. } = self.room.messages(options).await?;
+
+        let reached_end = end.is_none();
+        self.from_token = end;
+
+        Ok((chunk, reached_end))
+    }
+}
+
+struct ThreadedLoader {
+    loader: ThreadedEventsLoader<matrix_sdk::Room>,
+}
+
+impl ThreadedLoader {
+    pub async fn fetch(&self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        log::trace!("Fetching {num_events} threaded events");
+
+        let result = self.loader.paginate_backwards(num_events).await?;
+        Ok((result.events, result.hit_end_of_timeline))
+    }
+}
+
 /// Fetches multiple messages of a room.
 struct MessagesFetcher {
     /// The room to use to fetch messages.
     cache: Arc<CachedRoom>,
-    /// The ID of the thread, if the messages should be fetched only from a thread.
-    thread_id: Option<OwnedEventId>,
+    /// Event loader.
+    loader: ChunkLoader,
 
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
     /// How many messages should be fetched.
     message_limit: u32,
 
-    /// The pagination token for the next chunk.
-    from_token: Option<String>,
     /// How many events are fetched with each request.
     chunk_size: js_int::UInt,
 
@@ -1507,29 +1560,66 @@ struct MessagesFetcher {
 }
 
 impl MessagesFetcher {
-    pub fn new(
+    pub fn unthreaded(
         cache: Arc<CachedRoom>,
         sender: Sender<Result<Message>>,
         limit: u32,
         from_token: Option<String>,
     ) -> Self {
+        let loader = UnthreadedLoader {
+            room: cache.room.clone(),
+            from_token,
+        };
+
+        let loader = ChunkLoader::Unthreaded(loader);
+
+        Self::new(cache, sender, limit, loader)
+    }
+
+    pub fn threaded(
+        cache: Arc<CachedRoom>,
+        sender: Sender<Result<Message>>,
+        limit: u32,
+        from_token: Option<String>,
+        thread_id: OwnedEventId,
+    ) -> Self {
+        let token = if let Some(token) = from_token {
+            PaginationToken::HasMore(token)
+        } else {
+            PaginationToken::None
+        };
+
+        let tokens = PaginationTokens {
+            previous: token,
+            next: PaginationToken::None,
+        };
+
+        let loader = ThreadedLoader {
+            loader: ThreadedEventsLoader::new(cache.room.clone(), thread_id, tokens),
+        };
+
+        let loader = ChunkLoader::Threaded(loader);
+
+        Self::new(cache, sender, limit, loader)
+    }
+
+    fn new(
+        cache: Arc<CachedRoom>,
+        sender: Sender<Result<Message>>,
+        limit: u32,
+        loader: ChunkLoader,
+    ) -> Self {
         Self {
             cache,
-            thread_id: None,
+            loader,
 
             sender,
             message_limit: limit,
 
-            from_token,
             chunk_size: calc_chunk_size(limit),
 
             retrieved_messages: 0,
         }
-    }
-
-    pub fn thread_id(mut self, thread_id: OwnedEventId) -> Self {
-        self.thread_id = Some(thread_id);
-        self
     }
 
     pub async fn run(mut self) {
@@ -1558,15 +1648,13 @@ impl MessagesFetcher {
         while self.retrieved_messages < self.message_limit {
             log::debug!("Fetching next chunk of events");
 
-            let (chunk, end) = self.fetch_chunk().await?;
+            let (chunk, reached_end) = self.loader.fetch(self.chunk_size).await?;
 
             log::trace!("Processing chunk");
 
             self.process_event_chunk(chunk).await?;
 
-            if let Some(next_token) = end {
-                self.from_token = Some(next_token);
-            } else {
+            if reached_end {
                 log::debug!("No more events left to fetch");
                 break;
             }
@@ -1579,32 +1667,6 @@ impl MessagesFetcher {
         }
 
         Ok(())
-    }
-
-    async fn fetch_chunk(&self) -> Result<(Vec<TimelineEvent>, Option<String>)> {
-        if let Some(thread_id) = &self.thread_id {
-            self.fetch_chunk_from_thread(thread_id).await
-        } else {
-            self.fetch_chunk_from_main().await
-        }
-    }
-
-    async fn fetch_chunk_from_main(&self) -> Result<(Vec<TimelineEvent>, Option<String>)> {
-        let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
-        options.from = self.from_token.clone();
-        options.limit = self.chunk_size;
-
-        let matrix_sdk::room::Messages { end, chunk, .. } =
-            self.cache.room.messages(options).await?;
-
-        Ok((chunk, end))
-    }
-
-    async fn fetch_chunk_from_thread(
-        &self,
-        thread_id: &EventId,
-    ) -> Result<(Vec<TimelineEvent>, Option<String>)> {
-        todo!()
     }
 
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
