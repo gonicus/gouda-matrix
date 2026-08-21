@@ -247,6 +247,7 @@ impl MemoryCacheInner {
         }
     }
 
+
     pub async fn fetch_messages(
         &self,
         room: MatrixRoom,
@@ -263,9 +264,13 @@ impl MemoryCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            MessagesFetcher::new(room, tx, options.limit, from_token)
-                .run()
-                .await;
+            let mut builder = MessagesFetcher::new(room, tx, options.limit, from_token);
+
+            if let Some(thread_id) = options.thread_id {
+                builder = builder.thread_id(thread_id);
+            }
+
+            builder.run().await;
         });
 
         Ok(ReceiverStream::new(rx))
@@ -1485,6 +1490,8 @@ impl CachedRoom {
 struct MessagesFetcher {
     /// The room to use to fetch messages.
     cache: Arc<CachedRoom>,
+    /// The ID of the thread, if the messages should be fetched only from a thread.
+    thread_id: Option<OwnedEventId>,
 
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
@@ -1509,6 +1516,7 @@ impl MessagesFetcher {
     ) -> Self {
         Self {
             cache,
+            thread_id: None,
 
             sender,
             message_limit: limit,
@@ -1518,6 +1526,11 @@ impl MessagesFetcher {
 
             retrieved_messages: 0,
         }
+    }
+
+    pub fn thread_id(mut self, thread_id: OwnedEventId) -> Self {
+        self.thread_id = Some(thread_id);
+        self
     }
 
     pub async fn run(mut self) {
