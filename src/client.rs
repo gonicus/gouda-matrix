@@ -1569,28 +1569,37 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let room = self.get_matrix_room(request.room_id.as_str()).await?;
+        let RoomMessagesRequest {
+            room_id,
+            order,
+            from_message_id,
+            limit,
+            thread_id,
+        } = request;
+
+        let room = self.get_matrix_room(room_id.as_str()).await?;
 
         let session = self.session()?;
         let SessionContext { memory_cache, .. } = session.as_ref();
 
-        if request.order == Some(MessagesOrder::Forward.into()) {
-            return Err(Error::internal(
-                "MessagesOrder::Forward is currently not supported",
-            ));
+        if order == Some(MessagesOrder::Forward.into()) {
+            return Err(Error::internal("MessagesOrder::Forward is not supported"));
         }
 
-        let limit = request.limit.unwrap_or(10);
+        let limit = limit.unwrap_or(10);
 
-        let from_message_id = request
-            .from_message_id
-            .as_ref()
-            .map(|v| OwnedEventId::from_str(v).map_err(|_| Error::InvalidMessageId))
+        let from_message_id = from_message_id
+            .map(|v| v.try_into().map_err(|_| Error::InvalidMessageId))
+            .transpose()?;
+
+        let thread_id = thread_id
+            .map(|v| v.try_into().map_err(|_| Error::InvalidThreadId))
             .transpose()?;
 
         let query_options = memory_cache::QueryOptions {
             from_message_id,
             limit,
+            thread_id,
         };
 
         let mut stream = memory_cache.fetch_messages(room, query_options).await?;

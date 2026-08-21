@@ -90,6 +90,8 @@ pub struct QueryOptions {
     pub limit: u32,
     /// The ID of the message from where to begin fetching messages.
     pub from_message_id: Option<OwnedEventId>,
+    /// The ID of the thread, if only the messages of a specific thread should be fetched.
+    pub thread_id: Option<OwnedEventId>,
 }
 
 #[derive(Clone)]
