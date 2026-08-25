@@ -1347,8 +1347,8 @@ fn get_user_typing_list(update: &JoinedRoomUpdate) -> Option<Vec<String>> {
     result
 }
 
-fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, String>> {
-    let mut result: HashMap<String, String> = HashMap::new();
+fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, u64>> {
+    let mut result: HashMap<String, u64> = HashMap::new();
 
     for event in &update.ephemeral {
         let Ok(event) = event.deserialize() else {
@@ -1359,7 +1359,7 @@ fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, String>>
             break;
         };
 
-        for (event_id, receipt) in event.0 {
+        for (_, receipt) in event.0 {
             let Some(receipts) = receipt.get(&matrix_sdk::ruma::events::receipt::ReceiptType::Read)
             else {
                 continue;
@@ -1370,7 +1370,11 @@ fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, String>>
                     continue;
                 }
 
-                result.insert(user_id.to_string(), event_id.to_string());
+                let Some(ts) = receipt.ts else {
+                    continue;
+                };
+
+                result.insert(user_id.to_string(), ts.0.into());
             }
         }
     }

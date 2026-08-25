@@ -184,7 +184,7 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, String>> {
+pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
     for member in room.members(RoomMemberships::all()).await? {
@@ -196,7 +196,11 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
             continue;
         };
 
-        result.insert(member.user_id().to_string(), receipt.0.to_string());
+        let Some(ts) = receipt.1.ts else {
+            continue;
+        };
+
+        result.insert(member.user_id().to_string(), ts.0.into());
     }
 
     Ok(result)
