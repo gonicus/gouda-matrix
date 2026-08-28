@@ -1359,8 +1359,8 @@ dependencies = [
 
 [[package]]
 name = "gouda_core"
-version = "0.11.0"
-source = "git+https://github.com/gonicus/gouda-core-rs.git?branch=main#56c4ccb87f7969241fade7e8bbcb9e2dd1fda6b2"
+version = "0.12.0"
+source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.12.0#971d038862bc083ab4edf5ef267759f34fecf721"
 dependencies = [
  "async-trait",
  "gouda_proto",
@@ -1406,8 +1406,8 @@ dependencies = [
 
 [[package]]
 name = "gouda_proto"
-version = "0.11.0"
-source = "git+https://github.com/gonicus/gouda-core-rs.git?branch=main#56c4ccb87f7969241fade7e8bbcb9e2dd1fda6b2"
+version = "0.12.0"
+source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.12.0#971d038862bc083ab4edf5ef267759f34fecf721"
 dependencies = [
  "prost",
  "prost-build",
