@@ -4,12 +4,12 @@ use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
-use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
+use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, RoomMemberships};
 use ruma_common::directory::PublicRoomsChunk;
-use ruma_common::UserId;
+use ruma_common::{EventId, UserId};
 
 use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
@@ -187,23 +187,45 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
 pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
+    log::trace!("Retreiving room read marker for room: {}", room.room_id());
+
     for member in room.members(RoomMemberships::all()).await? {
+        log::trace!("Loading receipt for user: {}", member.user_id());
+
         let receipt = room
             .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
             .await?;
 
-        let Some(receipt) = receipt else {
+        let Some((event_id, receipt)) = receipt else {
+            log::trace!("User does not have a receipt");
             continue;
         };
 
-        let Some(ts) = receipt.1.ts else {
+        log::trace!("Loaded user receipt: {receipt:?}");
+
+        let ts = get_receipt_timestamp(room, &event_id, receipt)
+            .await
+            .inspect_err(|err| log::error!("Error retrieving receipt timestamp: {err}"));
+
+        let Ok(ts) = ts else {
             continue;
         };
 
-        result.insert(member.user_id().to_string(), ts.0.into());
+        log::trace!("Received user receipt timestamp: {ts}");
+
+        result.insert(member.user_id().to_string(), ts.into());
     }
 
     Ok(result)
+}
+
+async fn get_receipt_timestamp(
+    room: &matrix_sdk::Room,
+    event_id: &EventId,
+    receipt: Receipt,
+) -> Result<u64> {
+    let event = room.event(event_id, None).await?;
+    todo!()
 }
 
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
