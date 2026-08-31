@@ -220,12 +220,12 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
 }
 
 async fn get_receipt_timestamp(
-    room: &matrix_sdk::Room,
-    event_id: &EventId,
+    _room: &matrix_sdk::Room,
+    _event_id: &EventId,
     receipt: Receipt,
 ) -> Result<u64> {
-    let event = room.event(event_id, None).await?;
-    todo!()
+    let ts = receipt.ts.ok_or(Error::internal("Receipt does not have a timestamp"))?;
+    Ok(ts.0.into())
 }
 
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
