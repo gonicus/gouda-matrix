@@ -1516,7 +1516,7 @@ impl CachedRoom {
     async fn load_event_read_markers(&self, event_id: &EventId) -> Result<HashMap<String, u64>> {
         use matrix_sdk::ruma::events::receipt::ReceiptThread;
 
-        log::debug!("Loading read markers for event: {event_id}");
+        log::debug!("Loading read receipts for event: {event_id}");
 
         let result = self
             .room
@@ -1533,6 +1533,8 @@ impl CachedRoom {
             return Ok(HashMap::new());
         };
 
+        log::debug!("Received read receipts: {receipts}");
+
         let mut result = HashMap::new();
 
         for (user_id, receipt) in receipts {
@@ -1545,7 +1547,7 @@ impl CachedRoom {
                 continue;
             };
 
-            log::debug!("Received read maker for user {user_id}: {}", ts.0);
+            log::debug!("Using read marker for user {user_id}: {}", ts.0);
 
             result.insert(user_id.to_string(), ts.0.into());
         }
