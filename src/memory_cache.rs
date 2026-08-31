@@ -855,7 +855,7 @@ impl CachedRoom {
             return Ok(None);
         }
 
-        self.build_from_message_event(&original)
+        self.assemble_message_from_event_content(&original)
             .await
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
@@ -878,7 +878,7 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        let message = self.build_from_message(message)?;
+        let message = self.assemble_message(message)?;
 
         Ok(Some(CachedRoomAction::Message(message)))
     }
@@ -925,7 +925,7 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        let message = self.build_from_message(message)?;
+        let message = self.assemble_message(message)?;
 
         Ok(Some(CachedRoomAction::Message(message)))
     }
@@ -977,7 +977,7 @@ impl CachedRoom {
 
         log::debug!("Build original poll message: {message:?}");
 
-        self.build_from_message(message)
+        self.assemble_message(message)
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
@@ -1085,7 +1085,7 @@ impl CachedRoom {
 
         log::debug!("Build original membership change message: {message:?}");
 
-        self.build_from_message(message)
+        self.assemble_message(message)
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
@@ -1234,19 +1234,19 @@ impl CachedRoom {
     /// Converts the given event to the original message object and
     /// builds the final message with the cached relations.
     /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
-    async fn build_from_message_event(
+    async fn assemble_message_from_event_content(
         &self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
     ) -> Result<Message> {
         let msg = messages::message_from_event(&self.media_manager, &self.room, event).await;
-        self.build_from_message(msg)
+        self.assemble_message(msg)
     }
 
     /// Caches the given original message and assembles the final message object
     /// with the cached related events. Sends assembled message to the message receiver.
     /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
-    fn build_from_message(&self, message: Message) -> Result<Message> {
-        let message = self.cache_and_build_message(message)?;
+    fn assemble_message(&self, original: Message) -> Result<Message> {
+        let message = self.cache_and_build_message(original)?;
         Ok(message)
     }
 
@@ -1258,7 +1258,7 @@ impl CachedRoom {
         replacement_id: String,
         replacement: CachedReplacement,
     ) -> Result<()> {
-        log::info!("Caching replacement {replacement_id} of message {original_message_id} with {replacement:?}");
+        log::debug!("Caching replacement of message {original_message_id}: {replacement:?}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
@@ -1273,7 +1273,7 @@ impl CachedRoom {
         redaction: OriginalRoomRedactionEvent,
         redacted_message_id: String,
     ) -> Result<()> {
-        log::info!("Caching redaction for message {redacted_message_id}");
+        log::debug!("Caching redaction of message {redacted_message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(redacted_message_id).or_default();
@@ -1290,7 +1290,7 @@ impl CachedRoom {
         reaction_id: String,
         reaction: CachedReaction,
     ) -> Result<()> {
-        log::info!("Caching reaction {reaction_id} of message {message_id} with {reaction:?}");
+        log::debug!("Caching reaction of message {message_id}: {reaction:?}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1309,7 +1309,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollStartEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll start event of message {message_id}");
+        log::debug!("Caching poll start event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1327,7 +1327,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollResponseEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll response event of message {message_id}");
+        log::debug!("Caching poll response event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1345,7 +1345,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollEndEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll end event of message {message_id}");
+        log::debug!("Caching poll end event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
