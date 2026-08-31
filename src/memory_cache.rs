@@ -1531,7 +1531,7 @@ impl CachedRoom {
             .room
             .load_event_receipts(
                 matrix_sdk::ruma::events::receipt::ReceiptType::Read,
-                matrix_sdk::ruma::events::receipt::ReceiptThread::Unthreaded,
+                matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
                 event_id,
             )
             .await
