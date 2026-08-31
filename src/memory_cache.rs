@@ -623,9 +623,9 @@ struct CachedRoom {
     /// (reaction_id, message_id)
     reaction_id_to_message: Mutex<HashMap<String, String>>,
 
-    /// The unread marker we have cached.
+    /// The read marker we have cached.
     /// (user_id, read_timestamp)
-    unread_marker: Mutex<HashMap<String, u64>>,
+    read_marker: Mutex<HashMap<String, u64>>,
 }
 
 impl CachedRoom {
@@ -640,7 +640,7 @@ impl CachedRoom {
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
 
-            unread_marker: Mutex::new(HashMap::new()),
+            read_marker: Mutex::new(HashMap::new()),
         }
     }
 
@@ -789,7 +789,8 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyMessageLikeEvent");
 
-        self.load_and_cache_read_marker(event.event_id()).await?;
+        self.load_and_cache_event_read_markers(event.event_id())
+            .await?;
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -1239,30 +1240,6 @@ impl CachedRoom {
             .await;
     }
 
-    /// Loads and caches the read marker of that specific event.
-    /// Only returns an error when the cache lock is poisoined.
-    async fn load_and_cache_read_marker(&self, event_id: &EventId) -> Result<()> {
-        let result = self
-            .room
-            .load_event_receipts(
-                matrix_sdk::ruma::events::receipt::ReceiptType::Read,
-                matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
-                event_id,
-            )
-            .await
-            .inspect_err(|err| log::error!("Error loading event receipts: {err}"));
-
-        let Ok(receipts) = result else {
-            return Ok(());
-        };
-
-        Ok(())
-    }
-
-    async fn load_read_marker(&self, event_id: &EventId) -> Result<HashMap<String, u64>> {
-        todo!()
-    }
-
     /// Converts the given event to the original message object and
     /// builds the final message with the cached relations.
     /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
@@ -1519,6 +1496,93 @@ impl CachedRoom {
     fn remove_encrypted_event(&self, event_id: &str) -> Result<()> {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
+        Ok(())
+    }
+
+    /// Loads and caches the read marker of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_and_cache_event_read_markers(&self, event_id: &EventId) -> Result<()> {
+        let read_markers = self.load_event_read_markers(event_id).await?;
+
+        if !read_markers.is_empty() {
+            self.cache_read_markers(read_markers)?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads the read markers of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_event_read_markers(&self, event_id: &EventId) -> Result<HashMap<String, u64>> {
+        use matrix_sdk::ruma::events::receipt::ReceiptThread;
+
+        log::debug!("Loading read markers for event: {event_id}");
+
+        let result = self
+            .room
+            .load_event_receipts(
+                matrix_sdk::ruma::events::receipt::ReceiptType::Read,
+                matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
+                event_id,
+            )
+            .await
+            .inspect_err(|err| log::error!("Error loading event receipts: {err}"));
+
+        let Ok(receipts) = result else {
+            log::debug!("Event does not contain any read markers");
+            return Ok(HashMap::new());
+        };
+
+        let mut result = HashMap::new();
+
+        for (user_id, receipt) in receipts {
+            if receipt.thread != ReceiptThread::Main {
+                continue;
+            }
+
+            let Some(ts) = receipt.ts else {
+                log::warn!("User read receipt {receipt:?} does not have a timestamp set");
+                continue;
+            };
+
+            log::debug!("Received read maker for user {user_id}: {}", ts.0);
+
+            result.insert(user_id.to_string(), ts.0.into());
+        }
+
+        Ok(result)
+    }
+
+    /// Caches the given read markers.
+    /// Will only update the read marker of a user, if the read marker is newer than the one
+    /// already cached.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_markers(&self, read_marker: HashMap<String, u64>) -> Result<()> {
+        for (user_id, timestamp) in read_marker {
+            self.cache_read_marker(user_id, timestamp)?;
+        }
+
+        Ok(())
+    }
+
+    /// Caches the given read marker.
+    /// Will only update the read marker of the user if the read marker is newer than the one
+    /// already cached.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<()> {
+        log::debug!("Caching read marker for user {user_id}: {timestamp}");
+
+        let mut guard = self.read_marker.lock()?;
+
+        if let Some(old) = guard.get(&user_id) {
+            if *old >= timestamp {
+                log::debug!("Already cached read marker is newer, no changes to do");
+                return Ok(());
+            }
+        }
+
+        guard.insert(user_id, timestamp);
+
         Ok(())
     }
 }
