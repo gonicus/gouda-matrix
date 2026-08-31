@@ -789,8 +789,7 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyMessageLikeEvent");
 
-        self.load_and_cache_event_read_markers(event.event_id())
-            .await?;
+        self.load_and_cache_event_read_markers(&event).await?;
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -1501,8 +1500,8 @@ impl CachedRoom {
 
     /// Loads and caches the read marker of that specific event.
     /// Only returns an error when the cache lock is poisoined.
-    async fn load_and_cache_event_read_markers(&self, event_id: &EventId) -> Result<()> {
-        let read_markers = self.load_event_read_markers(event_id).await?;
+    async fn load_and_cache_event_read_markers(&self, event: &AnyMessageLikeEvent) -> Result<()> {
+        let read_markers = self.load_event_read_markers(event).await?;
 
         if !read_markers.is_empty() {
             self.cache_read_markers(read_markers)?;
@@ -1513,12 +1512,22 @@ impl CachedRoom {
 
     /// Loads the read markers of that specific event.
     /// Only returns an error when the cache lock is poisoined.
-    async fn load_event_read_markers(&self, event_id: &EventId) -> Result<HashMap<String, u64>> {
+    async fn load_event_read_markers(
+        &self,
+        event: &AnyMessageLikeEvent,
+    ) -> Result<HashMap<String, u64>> {
         use matrix_sdk::ruma::events::receipt::ReceiptThread;
+
+        let mut result = HashMap::from([(
+            event.sender().to_string(),
+            event.origin_server_ts().0.into(),
+        )]);
+
+        let event_id = event.event_id();
 
         log::debug!("Loading read receipts for event: {event_id}");
 
-        let result = self
+        let receipts_result = self
             .room
             .load_event_receipts(
                 matrix_sdk::ruma::events::receipt::ReceiptType::Read,
@@ -1528,29 +1537,21 @@ impl CachedRoom {
             .await
             .inspect_err(|err| log::error!("Error loading event receipts: {err}"));
 
-        let Ok(receipts) = result else {
-            log::debug!("Event does not contain any read markers");
-            return Ok(HashMap::new());
+        let Ok(receipts) = receipts_result else {
+            return Ok(result);
         };
 
         log::debug!("Received read receipts: {receipts:?}");
-
-        let mut result = HashMap::new();
 
         for (user_id, receipt) in receipts {
             if receipt.thread != ReceiptThread::Main {
                 continue;
             }
 
-            let Some(ts) = receipt.ts else {
-                log::warn!("User read receipt {receipt:?} does not have a timestamp set");
-                continue;
-            };
-
-            log::debug!("Using read marker for user {user_id}: {}", ts.0);
-
-            result.insert(user_id.to_string(), ts.0.into());
+            result.insert(user_id.to_string(), event.origin_server_ts().0.into());
         }
+
+        log::debug!("Received event read marker: {result:?}");
 
         Ok(result)
     }
