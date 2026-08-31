@@ -187,7 +187,7 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
 pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
-    log::trace!("Retreiving room read marker for room: {}", room.room_id());
+    log::trace!("Retrieving room read marker for room: {}", room.room_id());
 
     for member in room.members(RoomMemberships::all()).await? {
         log::trace!("Loading receipt for user: {}", member.user_id());
