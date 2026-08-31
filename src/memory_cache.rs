@@ -622,6 +622,10 @@ struct CachedRoom {
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
     reaction_id_to_message: Mutex<HashMap<String, String>>,
+
+    /// The unread marker we have cached.
+    /// (user_id, read_timestamp)
+    unread_marker: Mutex<HashMap<String, u64>>,
 }
 
 impl CachedRoom {
@@ -635,6 +639,8 @@ impl CachedRoom {
             encrypted_events: Mutex::new(HashMap::new()),
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
+
+            unread_marker: Mutex::new(HashMap::new()),
         }
     }
 
@@ -782,6 +788,8 @@ impl CachedRoom {
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyMessageLikeEvent");
+
+        self.load_and_cache_read_marker(event.event_id()).await?;
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -1229,6 +1237,30 @@ impl CachedRoom {
         self.ctx
             .send_event(ResponseContent::MessageRemoveEvent(proto))
             .await;
+    }
+
+    /// Loads and caches the read marker of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_and_cache_read_marker(&self, event_id: &EventId) -> Result<()> {
+        let result = self
+            .room
+            .load_event_receipts(
+                matrix_sdk::ruma::events::receipt::ReceiptType::Read,
+                matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
+                event_id,
+            )
+            .await
+            .inspect_err(|err| log::error!("Error loading event receipts: {err}"));
+
+        let Ok(receipts) = result else {
+            return Ok(());
+        };
+
+        Ok(())
+    }
+
+    async fn load_read_marker(&self, event_id: &EventId) -> Result<HashMap<String, u64>> {
+        todo!()
     }
 
     /// Converts the given event to the original message object and

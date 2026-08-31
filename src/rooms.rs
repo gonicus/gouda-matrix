@@ -224,7 +224,9 @@ async fn get_receipt_timestamp(
     _event_id: &EventId,
     receipt: Receipt,
 ) -> Result<u64> {
-    let ts = receipt.ts.ok_or(Error::internal("Receipt does not have a timestamp"))?;
+    let ts = receipt
+        .ts
+        .ok_or(Error::internal("Receipt does not have a timestamp"))?;
     Ok(ts.0.into())
 }
 
