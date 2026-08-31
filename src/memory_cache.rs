@@ -1533,7 +1533,7 @@ impl CachedRoom {
             return Ok(HashMap::new());
         };
 
-        log::debug!("Received read receipts: {receipts}");
+        log::debug!("Received read receipts: {receipts:?}");
 
         let mut result = HashMap::new();
 
