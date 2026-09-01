@@ -24,7 +24,7 @@ use matrix_sdk::ruma::events::poll::unstable_start::{
     UnstablePollStartEvent, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
-use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread};
+use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
 };
@@ -40,7 +40,7 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{EventId, OwnedEventId, OwnedUserId};
+use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
