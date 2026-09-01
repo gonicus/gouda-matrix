@@ -24,6 +24,7 @@ use matrix_sdk::ruma::events::poll::unstable_start::{
     UnstablePollStartEvent, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
+use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread};
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
 };
@@ -39,14 +40,14 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
-use ruma_common::{EventId, OwnedEventId};
+use ruma_common::{EventId, OwnedEventId, OwnedUserId};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::bridge::TryIntoChat;
 use crate::error::chat_err;
 use crate::media::MediaManager;
-use crate::{messages, polls};
+use crate::{messages, polls, utils};
 
 /// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -1516,42 +1517,64 @@ impl CachedRoom {
         &self,
         event: &AnyMessageLikeEvent,
     ) -> Result<HashMap<String, u64>> {
-        use matrix_sdk::ruma::events::receipt::ReceiptThread;
+        let event_id = event.event_id();
 
+        log::debug!("Loading read markers for event: {event_id}");
+
+        let mut main = self
+            .load_event_receipts(event, ReceiptThread::Main)
+            .await
+            .inspect_err(|err| log::error!("Error loading main read receipts: {err}"))
+            .unwrap_or_default();
+
+        let unthreaded = self
+            .load_event_receipts(event, ReceiptThread::Unthreaded)
+            .await
+            .inspect_err(|err| log::error!("Error loading unthreaded read receipts: {err}"))
+            .unwrap_or_default();
+
+        log::debug!("Received main event receipts: {main:?}");
+        log::debug!("Received unthreaded event receipts: {unthreaded:?}");
+
+        utils::merge_hash_map_max(&mut main, unthreaded);
+
+        // The sender of the event is automatically included in the read markers.
         let mut result = HashMap::from([(
             event.sender().to_string(),
             event.origin_server_ts().0.into(),
         )]);
 
+        utils::merge_hash_map_max(&mut result, main);
+
+        log::debug!("Received event read marker: {result:?}");
+
+        Ok(result)
+    }
+
+    /// Loads the read receipts for the given event.
+    async fn load_event_receipts(
+        &self,
+        event: &AnyMessageLikeEvent,
+        thread: ReceiptThread,
+    ) -> Result<HashMap<String, u64>> {
+        use matrix_sdk::ruma::events::receipt::ReceiptType;
+
         let event_id = event.event_id();
 
-        log::debug!("Loading read receipts for event: {event_id}");
+        log::debug!("Loading read receipts for event {event_id} inside thread: {thread:?}");
 
-        let receipts_result = self
+        let receipts = self
             .room
-            .load_event_receipts(
-                matrix_sdk::ruma::events::receipt::ReceiptType::Read,
-                matrix_sdk::ruma::events::receipt::ReceiptThread::Main,
-                event_id,
-            )
-            .await
-            .inspect_err(|err| log::error!("Error loading event receipts: {err}"));
-
-        let Ok(receipts) = receipts_result else {
-            return Ok(result);
-        };
+            .load_event_receipts(ReceiptType::Read, thread, event_id)
+            .await?;
 
         log::debug!("Received read receipts: {receipts:?}");
 
-        for (user_id, receipt) in receipts {
-            if receipt.thread != ReceiptThread::Main {
-                continue;
-            }
+        let mut result = HashMap::new();
 
+        for (user_id, _) in receipts {
             result.insert(user_id.to_string(), event.origin_server_ts().0.into());
         }
-
-        log::debug!("Received event read marker: {result:?}");
 
         Ok(result)
     }

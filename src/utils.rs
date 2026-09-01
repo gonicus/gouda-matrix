@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
@@ -16,6 +17,30 @@ pub fn get_unix_timestamp_seconds() -> u64 {
         .as_secs()
 }
 
+/// Merges two HashMaps, keeping the greater value from both.
+/// Updates hash map `a` in place.
+pub fn merge_hash_map_max<K, V>(a: &mut HashMap<K, V>, b: HashMap<K, V>)
+where
+    K: std::hash::Hash + Eq,
+    V: Ord,
+{
+    use std::collections::hash_map::Entry;
+
+    for (key, value) in b {
+        match a.entry(key) {
+            Entry::Occupied(mut entry) => {
+                if value > *entry.get() {
+                    entry.insert(value);
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+        }
+    }
+}
+
+/// Tries to convert a [`TimelineEvent`] to an [`AnyTimelineEvent`].
 pub fn timeline_event_to_any_timeline_event(
     room: &Room,
     event: &TimelineEvent,
@@ -126,6 +151,32 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_merge_hash_map_max() {
+        let mut a: HashMap<&str, u8> = HashMap::from([
+            ("a", 5),
+            ("b", 5),
+            ("c", 5),
+        ]);
+
+        let b: HashMap<&str, u8> = HashMap::from([
+            ("a", 6),
+            ("c", 4),
+            ("d", 5),
+        ]);
+
+        let expected: HashMap<&str, u8> = HashMap::from([
+            ("a", 6),
+            ("b", 5),
+            ("c", 5),
+            ("d", 5),
+        ]);
+
+        merge_hash_map_max(&mut a, b);
+
+        assert_eq!(a, expected);
+    }
 
     #[derive(Debug, Clone, PartialEq)]
     struct Item {
