@@ -1613,7 +1613,7 @@ impl MatrixClientInner {
                 .await;
         }
 
-        if let Some(read_marker) = memory_cache.get_read_marker(&room_id)? {
+        if let Some(read_marker) = memory_cache.get_read_markers(&room_id)? {
             let proto = RoomChangeEventBuilder::new(room_id)
                 .change_read_marker(read_marker)
                 .to_proto();

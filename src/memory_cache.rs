@@ -173,11 +173,26 @@ impl MemoryCache {
         }
     }
 
-    pub fn get_read_marker(
+    /// Gets all read markers of a room.
+    pub fn get_read_markers(
         &self,
         room_id: impl AsRef<str>,
     ) -> Result<Option<HashMap<String, u64>>> {
-        self.inner.get_read_marker(room_id.as_ref())
+        self.inner.get_read_markers(room_id.as_ref())
+    }
+
+    /// Sets the read marker of a user inside a room.
+    /// The read marker is only updated if the specified read marker is newer than
+    /// the already cached read marker of the user.
+    /// Will return true if the read marker has been updated, false if the already
+    /// cached read marker is older than the specified one.
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: impl Into<String>,
+        read_marker: u64,
+    ) -> Result<bool> {
+        self.inner.set_read_marker(room, user_id.into(), read_marker)
     }
 
     /// Caches a reaction to a message inside the specified room.
@@ -334,13 +349,18 @@ impl MemoryCacheInner {
         Ok(())
     }
 
-    pub fn get_read_marker(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
+    pub fn get_read_markers(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
         let Some(room) = self.get_room(room_id)? else {
             return Ok(None);
         };
 
         let guard = room.read_marker.lock()?;
         Ok(Some(guard.clone()))
+    }
+
+    pub fn set_read_marker(&self, room: MatrixRoom, user_id: String, read_marker: u64) -> Result<bool> {
+        let room = self.get_or_create_room(room)?;
+        room.cache_read_marker(user_id, read_marker)
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
@@ -1608,10 +1628,12 @@ impl CachedRoom {
     }
 
     /// Caches the given read marker.
-    /// Will only update the read marker of the user if the read marker is newer than the one
-    /// already cached.
+    /// Will only update the read marker if the specified read marker is newer than the one
+    /// already cached for the user.
+    /// Returns true if the read marker has been updated, false if the already cached
+    /// read marker is newer than the specified one.
     /// Only returns an error when the cache lock is poisoined.
-    fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<()> {
+    fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<bool> {
         log::debug!("Caching read marker for user {user_id}: {timestamp}");
 
         let mut guard = self.read_marker.lock()?;
@@ -1619,13 +1641,13 @@ impl CachedRoom {
         if let Some(old) = guard.get(&user_id) {
             if *old >= timestamp {
                 log::debug!("Already cached read marker is newer, no changes to do");
-                return Ok(());
+                return Ok(false);
             }
         }
 
         guard.insert(user_id, timestamp);
 
-        Ok(())
+        Ok(true)
     }
 }
 
