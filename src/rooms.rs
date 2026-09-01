@@ -213,7 +213,7 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
 
         log::trace!("Received user receipt timestamp: {ts}");
 
-        result.insert(member.user_id().to_string(), ts.into());
+        result.insert(member.user_id().to_string(), ts);
     }
 
     Ok(result)

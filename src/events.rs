@@ -1224,7 +1224,7 @@ impl EventExecutor {
 
             log::trace!("Received receipt event content: {event:?}");
 
-            let new = self.process_receipts(&room, event.0);
+            let new = self.process_receipts(room, event.0);
 
             utils::merge_hash_map_max(&mut result, new);
         }
