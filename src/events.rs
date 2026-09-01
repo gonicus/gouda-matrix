@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;
@@ -14,7 +14,7 @@ use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollR
 use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
-use matrix_sdk::ruma::events::receipt::{ReceiptThread, SyncReceiptEvent};
+use matrix_sdk::ruma::events::receipt::{Receipts, SyncReceiptEvent};
 use matrix_sdk::ruma::events::relation::Replacement;
 use matrix_sdk::ruma::events::room::avatar::OriginalSyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::join_rules::OriginalSyncRoomJoinRulesEvent;
@@ -35,14 +35,16 @@ use matrix_sdk::ruma::events::{
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
 use ruma_common::serde::Raw;
-use ruma_common::{EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId, RoomId};
+use ruma_common::{
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::bridge::{IntoChat, TryIntoChat};
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
 use crate::rooms::RoomsManager;
-use crate::{messages, polls, rooms, unwrap_or_log_return};
+use crate::{messages, polls, rooms, unwrap_or_log_return, utils};
 
 /// After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
@@ -1146,8 +1148,13 @@ impl EventExecutor {
     async fn exec_joined_room_update(&mut self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
         self.update_room_unread_count_by_id(&room_id).await;
 
-        let typing_list = get_user_typing_list(&update);
-        let read_marker = get_read_marker(&update);
+        let Some(room) = self.client.get_room(&room_id) else {
+            log::warn!("Did not find room of joined room update: {room_id}");
+            return;
+        };
+
+        let typing_list = self.get_user_typing_list(&update);
+        let read_marker = self.get_read_marker(&room, &update);
 
         if typing_list.is_none() && read_marker.is_none() {
             return;
@@ -1175,6 +1182,90 @@ impl EventExecutor {
         self.ctx
             .send_event(ResponseContent::RoomChangeEvent(proto))
             .await;
+    }
+
+    fn get_user_typing_list(&self, update: &JoinedRoomUpdate) -> Option<Vec<String>> {
+        let mut result = None;
+
+        for event in &update.ephemeral {
+            let Ok(event) = event.deserialize() else {
+                continue;
+            };
+
+            let AnyEphemeralRoomEventContent::Typing(event) = event.content() else {
+                break;
+            };
+
+            result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
+        }
+
+        result
+    }
+
+    fn get_read_marker(
+        &self,
+        room: &Room,
+        update: &JoinedRoomUpdate,
+    ) -> Option<HashMap<String, u64>> {
+        let mut result: HashMap<String, u64> = HashMap::new();
+
+        for event in &update.ephemeral {
+            let Ok(event) = event.deserialize() else {
+                continue;
+            };
+
+            let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
+                break;
+            };
+
+            let new = self.process_receipts(&room, event.0);
+
+            utils::merge_hash_map_max(&mut result, new);
+        }
+
+        if result.is_empty() {
+            return None;
+        }
+
+        Some(result)
+    }
+
+    fn process_receipts(
+        &self,
+        room: &Room,
+        receipts: BTreeMap<OwnedEventId, Receipts>,
+    ) -> HashMap<String, u64> {
+        use matrix_sdk::ruma::events::receipt::ReceiptType;
+
+        let mut result = HashMap::new();
+
+        for (_, receipt) in receipts {
+            let Some(receipts) = receipt.get(&ReceiptType::Read) else {
+                continue;
+            };
+
+            for (user_id, receipt) in receipts {
+                let Some(ts) = receipt.ts else {
+                    continue;
+                };
+
+                let memory_cache_result = self.memory_cache.set_read_marker(
+                    room.clone(),
+                    user_id.to_string(),
+                    ts.0.into(),
+                );
+
+                let Ok(changed) = memory_cache_result else {
+                    continue;
+                };
+
+                if changed {
+                    result.insert(user_id.to_string(), ts.0.into());
+                }
+            }
+        }
+
+        result
     }
 
     async fn exec_event_cache_generic_update(&mut self, room_id: OwnedRoomId) {
@@ -1327,63 +1418,6 @@ impl EventExecutor {
             .send_event(ResponseContent::RoomCreatedEvent(proto))
             .await;
     }
-}
-
-fn get_user_typing_list(update: &JoinedRoomUpdate) -> Option<Vec<String>> {
-    let mut result = None;
-
-    for event in &update.ephemeral {
-        let Ok(event) = event.deserialize() else {
-            continue;
-        };
-
-        let AnyEphemeralRoomEventContent::Typing(event) = event.content() else {
-            break;
-        };
-
-        result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
-    }
-
-    result
-}
-
-fn get_read_marker(update: &JoinedRoomUpdate) -> Option<HashMap<String, u64>> {
-    let mut result: HashMap<String, u64> = HashMap::new();
-
-    for event in &update.ephemeral {
-        let Ok(event) = event.deserialize() else {
-            continue;
-        };
-
-        let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
-            break;
-        };
-
-        for (_, receipt) in event.0 {
-            let Some(receipts) = receipt.get(&matrix_sdk::ruma::events::receipt::ReceiptType::Read)
-            else {
-                continue;
-            };
-
-            for (user_id, receipt) in receipts {
-                if receipt.thread != ReceiptThread::Main {
-                    continue;
-                }
-
-                let Some(ts) = receipt.ts else {
-                    continue;
-                };
-
-                result.insert(user_id.to_string(), ts.0.into());
-            }
-        }
-    }
-
-    if result.is_empty() {
-        return None;
-    }
-
-    Some(result)
 }
 
 impl_room_event_handler!(

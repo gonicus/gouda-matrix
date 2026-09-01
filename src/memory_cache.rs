@@ -192,7 +192,8 @@ impl MemoryCache {
         user_id: impl Into<String>,
         read_marker: u64,
     ) -> Result<bool> {
-        self.inner.set_read_marker(room, user_id.into(), read_marker)
+        self.inner
+            .set_read_marker(room, user_id.into(), read_marker)
     }
 
     /// Caches a reaction to a message inside the specified room.
@@ -358,7 +359,12 @@ impl MemoryCacheInner {
         Ok(Some(guard.clone()))
     }
 
-    pub fn set_read_marker(&self, room: MatrixRoom, user_id: String, read_marker: u64) -> Result<bool> {
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: String,
+        read_marker: u64,
+    ) -> Result<bool> {
         let room = self.get_or_create_room(room)?;
         room.cache_read_marker(user_id, read_marker)
     }
