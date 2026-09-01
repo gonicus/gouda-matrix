@@ -173,6 +173,10 @@ impl MemoryCache {
         }
     }
 
+    pub fn get_read_marker(&self, room_id: impl AsRef<str>) -> Result<Option<HashMap<String, u64>>> {
+        self.inner.get_read_marker(room_id.as_ref())
+    }
+
     /// Caches a reaction to a message inside the specified room.
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) {
         if let Err(err) = self.inner.cache_reaction(room, event) {
@@ -325,6 +329,15 @@ impl MemoryCacheInner {
         }
 
         Ok(())
+    }
+
+    pub fn get_read_marker(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
+        let Some(room) = self.get_room(room_id)? else {
+            return Ok(None);
+        };
+
+        let guard = room.read_marker.lock()?;
+        Ok(Some(guard.clone()))
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {

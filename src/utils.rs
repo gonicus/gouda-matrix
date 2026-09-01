@@ -154,24 +154,11 @@ mod tests {
 
     #[test]
     fn test_merge_hash_map_max() {
-        let mut a: HashMap<&str, u8> = HashMap::from([
-            ("a", 5),
-            ("b", 5),
-            ("c", 5),
-        ]);
+        let mut a: HashMap<&str, u8> = HashMap::from([("a", 5), ("b", 5), ("c", 5)]);
 
-        let b: HashMap<&str, u8> = HashMap::from([
-            ("a", 6),
-            ("c", 4),
-            ("d", 5),
-        ]);
+        let b: HashMap<&str, u8> = HashMap::from([("a", 6), ("c", 4), ("d", 5)]);
 
-        let expected: HashMap<&str, u8> = HashMap::from([
-            ("a", 6),
-            ("b", 5),
-            ("c", 5),
-            ("d", 5),
-        ]);
+        let expected: HashMap<&str, u8> = HashMap::from([("a", 6), ("b", 5), ("c", 5), ("d", 5)]);
 
         merge_hash_map_max(&mut a, b);
 
