@@ -1618,7 +1618,8 @@ impl MatrixClientInner {
                 .change_read_marker(read_marker)
                 .to_proto();
 
-            ctx.send_event(ResponseContent::RoomChangeEvent(proto)).await;
+            ctx.send_event(ResponseContent::RoomChangeEvent(proto))
+                .await;
         }
 
         Ok(())

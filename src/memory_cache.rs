@@ -173,7 +173,10 @@ impl MemoryCache {
         }
     }
 
-    pub fn get_read_marker(&self, room_id: impl AsRef<str>) -> Result<Option<HashMap<String, u64>>> {
+    pub fn get_read_marker(
+        &self,
+        room_id: impl AsRef<str>,
+    ) -> Result<Option<HashMap<String, u64>>> {
         self.inner.get_read_marker(room_id.as_ref())
     }
 
