@@ -1156,6 +1156,9 @@ impl EventExecutor {
         let typing_list = self.get_user_typing_list(&update);
         let read_marker = self.get_read_marker(&room, &update);
 
+        log::debug!("Received new typing list: {typing_list:?}");
+        log::debug!("Received new read marker: {read_marker:?}");
+
         if typing_list.is_none() && read_marker.is_none() {
             return;
         }
@@ -1211,12 +1214,15 @@ impl EventExecutor {
 
         for event in &update.ephemeral {
             let Ok(event) = event.deserialize() else {
+                log::warn!("Unable to deserialize ephemeral room event");
                 continue;
             };
 
             let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
                 break;
             };
+
+            log::trace!("Received receipt event content: {event:?}");
 
             let new = self.process_receipts(&room, event.0);
 
@@ -1237,15 +1243,23 @@ impl EventExecutor {
     ) -> HashMap<String, u64> {
         use matrix_sdk::ruma::events::receipt::ReceiptType;
 
+        log::trace!("Processing receipts: {receipts:?}");
+
         let mut result = HashMap::new();
 
         for (_, receipt) in receipts {
+            log::trace!("Processing receipts: {receipt:?}");
+
             let Some(receipts) = receipt.get(&ReceiptType::Read) else {
+                log::trace!("Receipts do not contain read receipts");
                 continue;
             };
 
             for (user_id, receipt) in receipts {
+                log::trace!("Processing receipt {receipt:?} of user {user_id}");
+
                 let Some(ts) = receipt.ts else {
+                    log::warn!("Receipt does not have a timestamp set");
                     continue;
                 };
 
@@ -1260,7 +1274,10 @@ impl EventExecutor {
                 };
 
                 if changed {
+                    log::trace!("Using new user receipt timestamp: {}", ts.0);
                     result.insert(user_id.to_string(), ts.0.into());
+                } else {
+                    log::trace!("Memory cache already contains a newer read marker of the user");
                 }
             }
         }
