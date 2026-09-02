@@ -193,7 +193,7 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
         log::trace!("Loading receipt for user: {}", member.user_id());
 
         let receipt = room
-            .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
+            .load_user_receipt(ReceiptType::Read, &ReceiptThread::Main, member.user_id())
             .await?;
 
         let Some((_, receipt)) = receipt else {
