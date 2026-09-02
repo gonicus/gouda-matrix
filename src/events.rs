@@ -173,7 +173,8 @@ impl EventManager {
 
         tokio::spawn(async move {
             while let Ok(update) = stream.recv().await {
-                log::debug!("Received event cache generic room update: {update:?}");
+                log::debug!("Received event cache generic room update");
+                log::trace!("RoomEventCacheGenericUpdate: {update:?}");
 
                 let _ = self.action_sender.send(Action::EventCacheGenericUpdate {
                     room_id: update.room_id,
@@ -211,21 +212,24 @@ impl EventManager {
     }
 
     pub fn process_any_sync_message_like_event(&self, room: Room, event: AnySyncMessageLikeEvent) {
-        log::debug!("Received AnySyncMessageLikeEvent: {event:?}");
+        log::debug!("Received AnySyncMessageLikeEvent");
+        log::trace!("AnyMessageLikeEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::AnyMessageLikeEvent { room, event });
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
-        log::debug!("Received OriginalSyncRoomRedactionEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomRedactionEvent");
+        log::trace!("OriginalSyncRoomRedactionEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::RoomRedactionEvent { room, event });
     }
 
     pub fn process_room_name_event(&self, room: Room, event: OriginalSyncRoomNameEvent) {
-        log::debug!("Received OriginalSyncRoomNameEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomNameEvent");
+        log::trace!("OriginalSyncRoomNameEvent: {event:?}");
         skip_historical_event!(event);
         let _ = self
             .action_sender
@@ -233,7 +237,8 @@ impl EventManager {
     }
 
     pub fn process_room_member_event(&self, room: Room, event: OriginalSyncRoomMemberEvent) {
-        log::debug!("Received OriginalSyncRoomMemberEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomMemberEvent");
+        log::trace!("OriginalSyncRoomMemberEvent: {event:?}");
         skip_historical_event!(event);
         let _ = self
             .action_sender
@@ -241,14 +246,16 @@ impl EventManager {
     }
 
     pub fn process_stripped_room_member_event(&self, room: Room, event: StrippedRoomMemberEvent) {
-        log::debug!("Received StrippedRoomMemberEvent: {event:?}");
+        log::debug!("Received StrippedRoomMemberEvent");
+        log::trace!("StrippedRoomMemberEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::StrippedRoomMemberEvent { room, event });
     }
 
     pub fn process_room_join_rules_event(&self, room: Room, event: OriginalSyncRoomJoinRulesEvent) {
-        log::debug!("Received OriginalSyncRoomJoinRulesEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomJoinRulesEvent");
+        log::trace!("OriginalSyncRoomJoinRulesEvent: {event:?}");
         skip_historical_event!(event);
         let _ = self
             .action_sender
@@ -256,7 +263,8 @@ impl EventManager {
     }
 
     pub fn process_room_avatar_event(&self, room: Room, event: OriginalSyncRoomAvatarEvent) {
-        log::debug!("Received OriginalSyncRoomAvatarEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomAvatarEvent");
+        log::trace!("OriginalSyncRoomAvatarEvent: {event:?}");
         skip_historical_event!(event);
         let _ = self
             .action_sender
@@ -264,7 +272,8 @@ impl EventManager {
     }
 
     pub fn process_room_message_event(&self, room: Room, event: OriginalSyncRoomMessageEvent) {
-        log::debug!("Received OriginalSyncRoomMessageEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomMessageEvent");
+        log::trace!("OriginalSyncRoomMessageEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::RoomMessageEvent { room, event });
@@ -275,7 +284,8 @@ impl EventManager {
         room: Room,
         event: OriginalSyncRoomPinnedEventsEvent,
     ) {
-        log::debug!("Received OriginalSyncRoomPinnedEventsEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomPinnedEventsEvent");
+        log::trace!("OriginalSyncRoomPinnedEventsEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::RoomPinnedEventsEvent { room, event });
@@ -286,38 +296,44 @@ impl EventManager {
         room: Room,
         event: OriginalSyncRoomPowerLevelsEvent,
     ) {
-        log::debug!("Received OriginalSyncRoomPowerLevelsEvent: {event:?}");
+        log::debug!("Received OriginalSyncRoomPowerLevelsEvent");
+        log::trace!("OriginalSyncRoomPowerLevelsEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::RoomPowerLevelsEvent { room, event });
     }
 
     pub fn process_reaction_event(&self, room: Room, event: OriginalSyncReactionEvent) {
-        log::debug!("Received OriginalSyncReactionEvent: {event:?}");
+        log::debug!("Received OriginalSyncReactionEvent");
+        log::trace!("OriginalSyncReactionEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::ReactionEvent { room, event });
     }
 
     pub fn process_presence_event(&self, event: PresenceEvent) {
-        log::debug!("Received PresenceEvent: {event:?}");
+        log::debug!("Received PresenceEvent");
+        log::trace!("PresenceEvent: {event:?}");
         let _ = self.action_sender.send(Action::PresenceEvent(event));
     }
 
     pub fn process_tag_event(&self, room: Room, event: TagEvent) {
-        log::debug!("Received TagEvent: {event:?}");
+        log::debug!("Received TagEvent");
+        log::trace!("TagEvent: {event:?}");
         let _ = self.action_sender.send(Action::TagEvent { room, event });
     }
 
     pub fn process_sync_receipt_event(&self, room: Room, event: SyncReceiptEvent) {
-        log::debug!("Received SyncReceiptEvent: {event:?}");
+        log::debug!("Received SyncReceiptEvent");
+        log::trace!("SyncReceiptEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::SyncReceiptEvent { room, event });
     }
 
     pub fn process_fully_read_event(&self, room: Room, event: FullyReadEvent) {
-        log::debug!("Received FullyReadEvent: {event:?}");
+        log::debug!("Received FullyReadEvent");
+        log::trace!("FullyReadEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::FullyReadEvent { room, event });
@@ -328,7 +344,8 @@ impl EventManager {
         room: Room,
         event: OriginalSyncUnstablePollStartEvent,
     ) {
-        log::debug!("Received OriginalSyncUnstablePollStartEvent: {event:?}");
+        log::debug!("Received OriginalSyncUnstablePollStartEvent");
+        log::trace!("OriginalSyncUnstablePollStartEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::UnstablePollStartEvent { room, event });
@@ -339,7 +356,8 @@ impl EventManager {
         room: Room,
         event: OriginalSyncUnstablePollResponseEvent,
     ) {
-        log::debug!("Received OriginalSyncUnstablePollResponseEvent: {event:?}");
+        log::debug!("Received OriginalSyncUnstablePollResponseEvent");
+        log::trace!("OriginalSyncUnstablePollResponseEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::UnstablePollResponseEvent { room, event });
@@ -350,14 +368,16 @@ impl EventManager {
         room: Room,
         event: OriginalSyncUnstablePollEndEvent,
     ) {
-        log::debug!("Received OriginalSyncUnstablePollEndEvent: {event:?}");
+        log::debug!("Received OriginalSyncUnstablePollEndEvent");
+        log::trace!("OriginalSyncUnstablePollEndEvent: {event:?}");
         let _ = self
             .action_sender
             .send(Action::UnstablePollEndEvent { room, event });
     }
 
     pub fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
-        log::debug!("Received JoinedRoomUpdate for room: {room_id:?}: {update:?}");
+        log::debug!("Received JoinedRoomUpdate for room: {room_id:?}");
+        log::trace!("JoinedRoomUpdate: {update:?}");
         let _ = self
             .action_sender
             .send(Action::JoinedRoomUpdate { room_id, update });
@@ -654,7 +674,7 @@ impl EventExecutor {
         let ts = event.origin_server_ts().0.into();
         let room_id = room.room_id().to_owned();
 
-        log::debug!("Processing AnySyncMessageLikeEvent from user {sender}");
+        log::debug!("Processing AnySyncMessageLikeEvent from user: {sender}");
 
         let result = self
             .memory_cache
@@ -1181,10 +1201,8 @@ impl EventExecutor {
     }
 
     async fn exec_sync_receipt_event(&self, room: Room, event: SyncReceiptEvent) {
-        log::debug!(
-            "Processing SyncReceiptEvent {event:?} inside room {:?}",
-            room.room_id(),
-        )
+        log::debug!("Processing SyncReceiptEvent",);
+        log::trace!("SyncReceiptEvent: {event:?}");
     }
 
     async fn exec_fully_read_event(&mut self, room: Room, _event: FullyReadEvent) {
@@ -1202,8 +1220,8 @@ impl EventExecutor {
         let typing_list = self.get_user_typing_list(&update);
         let read_marker = self.get_read_marker(&room, &update);
 
-        log::debug!("Received new typing list: {typing_list:?}");
-        log::debug!("Received new read marker: {read_marker:?}");
+        log::trace!("Received new typing list: {typing_list:?}");
+        log::trace!("Received new read marker: {read_marker:?}");
 
         if typing_list.is_none() && read_marker.is_none() {
             return;
@@ -1320,7 +1338,7 @@ impl EventExecutor {
                 };
 
                 if changed {
-                    log::trace!("Using new user receipt timestamp: {}", ts.0);
+                    log::debug!("Using new user receipt timestamp: {}", ts.0);
                     result.insert(user_id.to_string(), ts.0.into());
                 } else {
                     log::trace!("Memory cache already contains a newer read marker of the user");

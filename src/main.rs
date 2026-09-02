@@ -123,7 +123,6 @@ async fn connect_socket(
 
 fn log_build_infos() {
     log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
-
     log::debug!("BUILD_TIMESTAMP: {}", env!("VERGEN_BUILD_TIMESTAMP"));
     log::debug!("CARGO_DEBUG: {}", env!("VERGEN_CARGO_DEBUG"));
     log::debug!("CARGO_OPT_LEVEL: {}", env!("VERGEN_CARGO_OPT_LEVEL"));
