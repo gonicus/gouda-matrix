@@ -30,7 +30,8 @@ use matrix_sdk::ruma::events::room::power_levels::OriginalSyncRoomPowerLevelsEve
 use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
-    AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
+    AnySyncTimelineEvent, AnyTimelineEvent,
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
@@ -126,6 +127,7 @@ impl EventManager {
         client.add_event_handler_context(self.clone());
         client.add_event_handler_context(self.media_manager.clone());
 
+        client.add_event_handler(any_message_like_event_handler);
         client.add_event_handler(room_redaction_event_handler);
         client.add_event_handler(room_name_event_handler);
         client.add_event_handler(room_member_event_handler);
@@ -206,6 +208,13 @@ impl EventManager {
 
             let _ = self.action_sender.send(action);
         }
+    }
+
+    pub fn process_any_sync_message_like_event(&self, room: Room, event: AnySyncMessageLikeEvent) {
+        log::debug!("Received AnySyncMessageLikeEvent: {event:?}");
+        let _ = self
+            .action_sender
+            .send(Action::AnyMessageLikeEvent { room, event });
     }
 
     pub fn process_room_redaction_event(&self, room: Room, event: OriginalSyncRoomRedactionEvent) {
@@ -358,6 +367,10 @@ impl EventManager {
 enum Action {
     RoomDiscovered {
         room_id: String,
+    },
+    AnyMessageLikeEvent {
+        room: Room,
+        event: AnySyncMessageLikeEvent,
     },
     RoomRedactionEvent {
         room: Room,
@@ -525,6 +538,9 @@ impl EventExecutor {
     async fn exec_event(&mut self, event: Action) {
         match event {
             Action::RoomDiscovered { room_id } => self.exec_queued_room_changes(room_id).await,
+            Action::AnyMessageLikeEvent { room, event } => {
+                self.exec_any_message_like_event(room, event).await
+            }
             Action::RoomRedactionEvent { room, event } => {
                 self.exec_room_redaction_event(room, event).await
             }
@@ -630,6 +646,28 @@ impl EventExecutor {
             self.ctx
                 .send_event(ResponseContent::RoomChangeEvent(change))
                 .await;
+        }
+    }
+
+    async fn exec_any_message_like_event(&self, room: Room, event: AnySyncMessageLikeEvent) {
+        let sender = event.sender();
+        let ts = event.origin_server_ts().0.into();
+
+        log::debug!("Processing AnySyncMessageLikeEvent from user {sender}");
+
+        let result = self
+            .memory_cache
+            .set_read_marker(room, sender, ts)
+            .inspect_err(|err| log::error!("Error updating user read marker: {err}"));
+
+        let Ok(changed) = result else {
+            return;
+        };
+
+        if changed {
+            log::debug!("Updated read marker for user {sender} to: {ts}");
+        } else {
+            log::debug!("Cache already contains a newer read marker for the user");
         }
     }
 
@@ -1436,6 +1474,12 @@ impl EventExecutor {
             .await;
     }
 }
+
+impl_room_event_handler!(
+    AnySyncMessageLikeEvent,
+    any_message_like_event_handler,
+    process_any_sync_message_like_event
+);
 
 impl_room_event_handler!(
     OriginalSyncRoomRedactionEvent,
