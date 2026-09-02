@@ -187,18 +187,28 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
 pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
+    log::trace!("Retrieving room read marker for room: {}", room.room_id());
+
     for member in room.members(RoomMemberships::all()).await? {
+        log::trace!("Loading receipt for user: {}", member.user_id());
+
         let receipt = room
             .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
             .await?;
 
-        let Some(receipt) = receipt else {
+        let Some((_, receipt)) = receipt else {
+            log::trace!("User does not have a receipt");
             continue;
         };
 
-        let Some(ts) = receipt.1.ts else {
+        log::trace!("Loaded user receipt: {receipt:?}");
+
+        let Some(ts) = receipt.ts else {
+            log::trace!("Receipt does not have a timestamp");
             continue;
         };
+
+        log::trace!("Received user receipt timestamp: {}", ts.0);
 
         result.insert(member.user_id().to_string(), ts.0.into());
     }

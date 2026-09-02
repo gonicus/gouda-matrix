@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use async_trait::async_trait;
 use futures_util::stream::{self, StreamExt};
 use gouda_core::{Client as ClientAbstraction, RequestContext};
-use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{self, *};
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
@@ -1577,6 +1577,7 @@ impl MatrixClientInner {
         } = request;
 
         let room = self.get_matrix_room(room_id.as_str()).await?;
+        let room_id = room.room_id().to_owned();
 
         let session = self.session()?;
         let SessionContext { memory_cache, .. } = session.as_ref();
@@ -1609,6 +1610,15 @@ impl MatrixClientInner {
             let message = result?;
             multipart_response
                 .send_item(ResponseContent::MessageReceivedEvent(message))
+                .await;
+        }
+
+        if let Some(read_marker) = memory_cache.get_read_markers(&room_id)? {
+            let proto = RoomChangeEventBuilder::new(room_id)
+                .change_read_marker(read_marker)
+                .to_proto();
+
+            ctx.send_event(ResponseContent::RoomChangeEvent(proto))
                 .await;
         }
 

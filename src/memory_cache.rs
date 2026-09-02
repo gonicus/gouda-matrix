@@ -24,6 +24,7 @@ use matrix_sdk::ruma::events::poll::unstable_start::{
     UnstablePollStartEvent, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
+use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
 };
@@ -46,7 +47,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::bridge::TryIntoChat;
 use crate::error::chat_err;
 use crate::media::MediaManager;
-use crate::{messages, polls};
+use crate::{messages, polls, utils};
 
 /// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -170,6 +171,29 @@ impl MemoryCache {
         if let Err(err) = result {
             log::error!("Error retrying decryption of all events: {err}");
         }
+    }
+
+    /// Gets all read markers of a room.
+    pub fn get_read_markers(
+        &self,
+        room_id: impl AsRef<str>,
+    ) -> Result<Option<HashMap<String, u64>>> {
+        self.inner.get_read_markers(room_id.as_ref())
+    }
+
+    /// Sets the read marker of a user inside a room.
+    /// The read marker is only updated if the specified read marker is newer than
+    /// the already cached read marker of the user.
+    /// Will return true if the read marker has been updated, false if the already
+    /// cached read marker is older than the specified one.
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: impl Into<String>,
+        read_marker: u64,
+    ) -> Result<bool> {
+        self.inner
+            .set_read_marker(room, user_id.into(), read_marker)
     }
 
     /// Caches a reaction to a message inside the specified room.
@@ -324,6 +348,25 @@ impl MemoryCacheInner {
         }
 
         Ok(())
+    }
+
+    pub fn get_read_markers(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
+        let Some(room) = self.get_room(room_id)? else {
+            return Ok(None);
+        };
+
+        let guard = room.read_marker.lock()?;
+        Ok(Some(guard.clone()))
+    }
+
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: String,
+        read_marker: u64,
+    ) -> Result<bool> {
+        let room = self.get_or_create_room(room)?;
+        room.cache_read_marker(user_id, read_marker)
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
@@ -622,6 +665,10 @@ struct CachedRoom {
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
     reaction_id_to_message: Mutex<HashMap<String, String>>,
+
+    /// The read marker we have cached.
+    /// (user_id, read_timestamp)
+    read_marker: Mutex<HashMap<String, u64>>,
 }
 
 impl CachedRoom {
@@ -635,6 +682,8 @@ impl CachedRoom {
             encrypted_events: Mutex::new(HashMap::new()),
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
+
+            read_marker: Mutex::new(HashMap::new()),
         }
     }
 
@@ -782,6 +831,8 @@ impl CachedRoom {
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyMessageLikeEvent");
+
+        self.load_and_cache_event_read_markers(&event).await?;
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -1488,6 +1539,121 @@ impl CachedRoom {
         let mut guard = self.encrypted_events.lock()?;
         guard.remove(event_id);
         Ok(())
+    }
+
+    /// Loads and caches the read marker of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_and_cache_event_read_markers(&self, event: &AnyMessageLikeEvent) -> Result<()> {
+        let read_markers = self.load_event_read_markers(event).await?;
+
+        if !read_markers.is_empty() {
+            self.cache_read_markers(read_markers)?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads the read markers of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_event_read_markers(
+        &self,
+        event: &AnyMessageLikeEvent,
+    ) -> Result<HashMap<String, u64>> {
+        let event_id = event.event_id();
+
+        log::debug!("Loading read markers for event: {event_id}");
+
+        let mut main = self
+            .load_event_receipts(event, ReceiptThread::Main)
+            .await
+            .inspect_err(|err| log::error!("Error loading main read receipts: {err}"))
+            .unwrap_or_default();
+
+        let unthreaded = self
+            .load_event_receipts(event, ReceiptThread::Unthreaded)
+            .await
+            .inspect_err(|err| log::error!("Error loading unthreaded read receipts: {err}"))
+            .unwrap_or_default();
+
+        log::debug!("Received main event receipts: {main:?}");
+        log::debug!("Received unthreaded event receipts: {unthreaded:?}");
+
+        utils::merge_hash_map_max(&mut main, unthreaded);
+
+        // The sender of the event is automatically included in the read markers.
+        let mut result = HashMap::from([(
+            event.sender().to_string(),
+            event.origin_server_ts().0.into(),
+        )]);
+
+        utils::merge_hash_map_max(&mut result, main);
+
+        log::debug!("Received event read marker: {result:?}");
+
+        Ok(result)
+    }
+
+    /// Loads the read receipts for the given event.
+    async fn load_event_receipts(
+        &self,
+        event: &AnyMessageLikeEvent,
+        thread: ReceiptThread,
+    ) -> Result<HashMap<String, u64>> {
+        use matrix_sdk::ruma::events::receipt::ReceiptType;
+
+        let event_id = event.event_id();
+
+        log::debug!("Loading read receipts for event {event_id} inside thread: {thread:?}");
+
+        let receipts = self
+            .room
+            .load_event_receipts(ReceiptType::Read, thread, event_id)
+            .await?;
+
+        log::debug!("Received read receipts: {receipts:?}");
+
+        let mut result = HashMap::new();
+
+        for (user_id, _) in receipts {
+            result.insert(user_id.to_string(), event.origin_server_ts().0.into());
+        }
+
+        Ok(result)
+    }
+
+    /// Caches the given read markers.
+    /// Will only update the read marker of a user, if the read marker is newer than the one
+    /// already cached.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_markers(&self, read_marker: HashMap<String, u64>) -> Result<()> {
+        for (user_id, timestamp) in read_marker {
+            self.cache_read_marker(user_id, timestamp)?;
+        }
+
+        Ok(())
+    }
+
+    /// Caches the given read marker.
+    /// Will only update the read marker if the specified read marker is newer than the one
+    /// already cached for the user.
+    /// Returns true if the read marker has been updated, false if the already cached
+    /// read marker is newer than the specified one.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<bool> {
+        log::debug!("Caching read marker for user {user_id}: {timestamp}");
+
+        let mut guard = self.read_marker.lock()?;
+
+        if let Some(old) = guard.get(&user_id) {
+            if *old >= timestamp {
+                log::debug!("Already cached read marker is newer, no changes to do");
+                return Ok(false);
+            }
+        }
+
+        guard.insert(user_id, timestamp);
+
+        Ok(true)
     }
 }
 
