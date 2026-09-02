@@ -196,38 +196,24 @@ pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<Str
             .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
             .await?;
 
-        let Some((event_id, receipt)) = receipt else {
+        let Some((_, receipt)) = receipt else {
             log::trace!("User does not have a receipt");
             continue;
         };
 
         log::trace!("Loaded user receipt: {receipt:?}");
 
-        let ts = get_receipt_timestamp(room, &event_id, receipt)
-            .await
-            .inspect_err(|err| log::error!("Error retrieving receipt timestamp: {err}"));
-
-        let Ok(ts) = ts else {
+        let Some(ts) = receipt.ts else {
+            log::trace!("Receipt does not have a timestamp");
             continue;
         };
 
-        log::trace!("Received user receipt timestamp: {ts}");
+        log::trace!("Received user receipt timestamp: {}", ts.0);
 
-        result.insert(member.user_id().to_string(), ts);
+        result.insert(member.user_id().to_string(), ts.0.into());
     }
 
     Ok(result)
-}
-
-async fn get_receipt_timestamp(
-    _room: &matrix_sdk::Room,
-    _event_id: &EventId,
-    receipt: Receipt,
-) -> Result<u64> {
-    let ts = receipt
-        .ts
-        .ok_or(Error::internal("Receipt does not have a timestamp"))?;
-    Ok(ts.0.into())
 }
 
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
