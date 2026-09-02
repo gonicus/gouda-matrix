@@ -652,6 +652,7 @@ impl EventExecutor {
     async fn exec_any_message_like_event(&self, room: Room, event: AnySyncMessageLikeEvent) {
         let sender = event.sender();
         let ts = event.origin_server_ts().0.into();
+        let room_id = room.room_id().to_owned();
 
         log::debug!("Processing AnySyncMessageLikeEvent from user {sender}");
 
@@ -664,11 +665,18 @@ impl EventExecutor {
             return;
         };
 
-        if changed {
-            log::debug!("Updated read marker for user {sender} to: {ts}");
-        } else {
+        if !changed {
             log::debug!("Cache already contains a newer read marker for the user");
+            return;
         }
+
+        let proto = RoomChangeEventBuilder::new(room_id)
+            .change_read_marker(HashMap::from([(sender.to_string(), ts)]))
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn exec_room_redaction_event(
