@@ -4,12 +4,12 @@ use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::api::client::room::Visibility;
-use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread, ReceiptType};
+use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, RoomMemberships};
 use ruma_common::directory::PublicRoomsChunk;
-use ruma_common::{EventId, UserId};
+use ruma_common::UserId;
 
 use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
