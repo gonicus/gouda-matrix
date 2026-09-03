@@ -50,10 +50,12 @@ use crate::rooms::RoomsManager;
 use crate::{messages, polls, rooms, unwrap_or_log_return, utils};
 
 /// How many events are queued at most at the same time.
-const EVENT_CHANNEL_CAPACITY: usize = 30;
+const EVENT_CHANNEL_CAPACITY: usize = 100;
 
 /// At how many queued events the lagging behing warning should be logged.
-const EVENT_EXECUTOR_LAGGING_WARNING: usize = 30;
+const EVENT_EXECUTOR_LAGGING_WARNING: usize = 50;
+
+const _: () = assert!(EVENT_EXECUTOR_LAGGING_WARNING < EVENT_CHANNEL_CAPACITY);
 
 /// After how many seconds does an event count as historical?
 const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
