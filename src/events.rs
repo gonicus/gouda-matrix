@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;
@@ -101,9 +102,9 @@ pub struct EventManager {
     /// avatar changes.
     media_manager: MediaManager,
     /// Sender to send requested actions to the event executor.
-    action_sender: UnboundedSender<ActionContainer>,
+    action_sender: UnboundedSender<Action>,
     /// How many actions have been send to the event executor.
-    action_counter: Arc<Mutex<u64>>,
+    queue_counter: Arc<AtomicUsize>,
 }
 
 impl EventManager {
@@ -115,13 +116,23 @@ impl EventManager {
     ) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let queue_counter = Arc::new(AtomicUsize::default());
+
         let manager = Self {
             media_manager: media_manager.clone(),
             action_sender: tx,
-            action_counter: Arc::new(Mutex::new(0)),
+            queue_counter: queue_counter.clone(),
         };
 
-        EventExecutor::new(client, ctx, rx, memory_cache, media_manager).run();
+        EventExecutor::new(
+            client,
+            ctx,
+            rx,
+            queue_counter.clone(),
+            memory_cache,
+            media_manager,
+        )
+        .run();
 
         manager
     }
@@ -273,11 +284,7 @@ impl EventManager {
         self.send_action(Action::RoomPinnedEventsEvent { room, event });
     }
 
-    fn process_room_power_levels_event(
-        &self,
-        room: Room,
-        event: OriginalSyncRoomPowerLevelsEvent,
-    ) {
+    fn process_room_power_levels_event(&self, room: Room, event: OriginalSyncRoomPowerLevelsEvent) {
         log::debug!("Received OriginalSyncRoomPowerLevelsEvent");
         log::trace!("OriginalSyncRoomPowerLevelsEvent: {event:?}");
         self.send_action(Action::RoomPowerLevelsEvent { room, event });
@@ -333,11 +340,7 @@ impl EventManager {
         self.send_action(Action::UnstablePollResponseEvent { room, event });
     }
 
-    fn process_unstable_poll_end_event(
-        &self,
-        room: Room,
-        event: OriginalSyncUnstablePollEndEvent,
-    ) {
+    fn process_unstable_poll_end_event(&self, room: Room, event: OriginalSyncUnstablePollEndEvent) {
         log::debug!("Received OriginalSyncUnstablePollEndEvent");
         log::trace!("OriginalSyncUnstablePollEndEvent: {event:?}");
         self.send_action(Action::UnstablePollEndEvent { room, event });
@@ -349,31 +352,14 @@ impl EventManager {
         self.send_action(Action::JoinedRoomUpdate { room_id, update });
     }
 
-    fn get_action_number(&self) -> u64 {
-        let Ok(mut guard) = self.action_counter.lock() else {
-            log::error!("Unable to lock action counter");
-            return 0;
-        };
-
-        *guard += 1;
-        *guard
-    }
-
     fn send_action(&self, action: Action) {
-        let container = ActionContainer {
-            number: self.get_action_number(),
-            action: action,
-        };
+        self.queue_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        if let Err(err) = self.action_sender.send(container) {
+        if let Err(err) = self.action_sender.send(action) {
             log::error!("Error sending action: {err}");
         }
     }
-}
-
-struct ActionContainer {
-    pub number: u64,
-    pub action: Action,
 }
 
 enum Action {
@@ -510,7 +496,9 @@ impl UserChange {
 struct EventExecutor {
     client: Client,
     ctx: RequestContext,
-    recv: UnboundedReceiver<ActionContainer>,
+    recv: UnboundedReceiver<Action>,
+
+    queue_counter: Arc<AtomicUsize>,
 
     memory_cache: MemoryCache,
     media_manager: MediaManager,
@@ -523,7 +511,8 @@ impl EventExecutor {
     pub fn new(
         client: Client,
         ctx: RequestContext,
-        recv: UnboundedReceiver<ActionContainer>,
+        recv: UnboundedReceiver<Action>,
+        queue_counter: Arc<AtomicUsize>,
         memory_cache: MemoryCache,
         media_manager: MediaManager,
     ) -> Self {
@@ -531,6 +520,9 @@ impl EventExecutor {
             client,
             ctx,
             recv,
+
+            queue_counter,
+
             memory_cache,
             media_manager,
 
@@ -542,9 +534,19 @@ impl EventExecutor {
     pub fn run(mut self) {
         tokio::spawn(async move {
             while let Some(action) = self.recv.recv().await {
-                self.exec_action(action.action).await;
+                self.update_queue_counter();
+                self.exec_action(action).await;
             }
         });
+    }
+
+    fn update_queue_counter(&self) {
+        let count = self.queue_counter
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
+        if count > 1 {
+            log::warn!("Event executor is lagging behind. Queued actions: {count}",)
+        }
     }
 
     async fn exec_action(&mut self, action: Action) {
