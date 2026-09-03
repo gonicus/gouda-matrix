@@ -818,6 +818,8 @@ impl CachedRoom {
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyTimelineEvent: {event:?}");
 
+        self.load_and_cache_event_read_markers(&event).await?;
+
         match event {
             AnyTimelineEvent::MessageLike(event) => {
                 self.process_any_message_like_event(event).await
@@ -831,8 +833,6 @@ impl CachedRoom {
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::trace!("Processing AnyMessageLikeEvent: {event:?}");
-
-        self.load_and_cache_event_read_markers(&event).await?;
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -1549,7 +1549,7 @@ impl CachedRoom {
 
     /// Loads and caches the read marker of that specific event.
     /// Only returns an error when the cache lock is poisoined.
-    async fn load_and_cache_event_read_markers(&self, event: &AnyMessageLikeEvent) -> Result<()> {
+    async fn load_and_cache_event_read_markers(&self, event: &AnyTimelineEvent) -> Result<()> {
         let read_markers = self.load_event_read_markers(event).await?;
 
         if !read_markers.is_empty() {
@@ -1563,7 +1563,7 @@ impl CachedRoom {
     /// Only returns an error when the cache lock is poisoined.
     async fn load_event_read_markers(
         &self,
-        event: &AnyMessageLikeEvent,
+        event: &AnyTimelineEvent,
     ) -> Result<HashMap<String, u64>> {
         let event_id = event.event_id();
 
@@ -1602,7 +1602,7 @@ impl CachedRoom {
     /// Loads the read receipts for the given event.
     async fn load_event_receipts(
         &self,
-        event: &AnyMessageLikeEvent,
+        event: &AnyTimelineEvent,
         thread: ReceiptThread,
     ) -> Result<HashMap<String, u64>> {
         use matrix_sdk::ruma::events::receipt::ReceiptType;
