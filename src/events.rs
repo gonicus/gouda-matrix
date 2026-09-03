@@ -1200,7 +1200,7 @@ impl EventExecutor {
             .await;
     }
 
-    async fn exec_sync_receipt_event(&self, room: Room, event: SyncReceiptEvent) {
+    async fn exec_sync_receipt_event(&self, _room: Room, event: SyncReceiptEvent) {
         log::debug!("Processing SyncReceiptEvent",);
         log::trace!("SyncReceiptEvent: {event:?}");
     }
