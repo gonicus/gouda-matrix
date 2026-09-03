@@ -147,9 +147,9 @@ impl MemoryCache {
         let room_id = room_id.as_ref();
 
         if events.is_none() {
-            log::debug!("Retrying to decrypt all events inside room {room_id:?}");
+            log::debug!("Retrying to decrypt all events inside room: {room_id:?}");
         } else {
-            log::debug!("Retrying to decrypt {events:?} inside room {room_id:?}");
+            log::debug!("Retrying to decrypt {events:?} inside room: {room_id:?}");
         }
 
         let result = self
@@ -731,7 +731,7 @@ impl CachedRoom {
         &self,
         event: DecryptedRoomEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing decrypted event");
+        log::trace!("Processing decrypted event: {event:?}");
 
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
@@ -797,7 +797,7 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing raw AnySyncTimelineEvent");
+        log::trace!("Processing raw AnySyncTimelineEvent: {event:?}");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
@@ -816,7 +816,7 @@ impl CachedRoom {
         &self,
         event: AnyTimelineEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyTimelineEvent");
+        log::trace!("Processing AnyTimelineEvent: {event:?}");
 
         match event {
             AnyTimelineEvent::MessageLike(event) => {
@@ -830,7 +830,7 @@ impl CachedRoom {
         &self,
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyMessageLikeEvent");
+        log::trace!("Processing AnyMessageLikeEvent: {event:?}");
 
         self.load_and_cache_event_read_markers(&event).await?;
 
@@ -874,6 +874,7 @@ impl CachedRoom {
         use matrix_sdk::ruma::events::room::message::Relation;
 
         log::debug!("Processing original RoomMessageEvent");
+        log::trace!("RoomMessageEvent: {original:?}");
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
@@ -916,6 +917,7 @@ impl CachedRoom {
         redacted: RedactedMessageLikeEvent<RedactedRoomMessageEventContent>,
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing redacted RoomMessageEvent");
+        log::trace!("Redacted RoomMessageEvent: {redacted:?}");
 
         let content = MessageContentRemoved { reason: None };
 
@@ -1064,6 +1066,7 @@ impl CachedRoom {
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing ReactionEvent");
+        log::trace!("ReactionEvent: {event:?}");
 
         let Some(original) = event.as_original() else {
             log::debug!("Event is redacted, nothing to do");
@@ -1093,7 +1096,8 @@ impl CachedRoom {
     }
 
     fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyStateEvent");
+        log::debug!("Processing AnyStateEvent");
+        log::trace!("AnyStateEvent: {event:?}");
 
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
@@ -1109,6 +1113,7 @@ impl CachedRoom {
         event: RoomMemberEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing RoomMemberEvent");
+        log::trace!("RoomMemberEvent: {event:?}");
 
         let Some(original) = event.as_original() else {
             log::debug!("Event is redacted, nothing to do");
@@ -1181,11 +1186,12 @@ impl CachedRoom {
             return Ok(());
         };
 
-        log::debug!("Processing successfully decrypted event: {event:?}");
+        log::debug!("Processing successfully decrypted event");
+        log::trace!("Decrypted event: {event:?}");
 
         let action = self.process_timeline_event(event).await?;
 
-        log::debug!("Received action after processing event: {action:?}");
+        log::trace!("Received action after processing event: {action:?}");
 
         if let Some(action) = action {
             self.process_successful_redecryption(action).await?;
@@ -1575,8 +1581,8 @@ impl CachedRoom {
             .inspect_err(|err| log::error!("Error loading unthreaded read receipts: {err}"))
             .unwrap_or_default();
 
-        log::debug!("Received main event receipts: {main:?}");
-        log::debug!("Received unthreaded event receipts: {unthreaded:?}");
+        log::trace!("Received main event receipts: {main:?}");
+        log::trace!("Received unthreaded event receipts: {unthreaded:?}");
 
         utils::merge_hash_map_max(&mut main, unthreaded);
 
@@ -1827,7 +1833,7 @@ impl MessagesFetcher {
         }
 
         if self.retrieved_messages != self.message_limit {
-            log::warn!("Did not receive enough messages to reach requested limit");
+            log::debug!("Did not receive enough messages to reach requested limit");
         } else {
             log::debug!("Successfully fetched requested number of messages");
         }

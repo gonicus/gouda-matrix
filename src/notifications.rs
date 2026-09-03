@@ -102,8 +102,8 @@ impl NotificationManager {
             log::error!("Unable to cache new notification settings: {err}");
         };
 
-        log::debug!("Old settings: {old:?}");
-        log::debug!("New settings: {new:?}");
+        log::trace!("Old settings: {old:?}");
+        log::trace!("New settings: {new:?}");
 
         match &old {
             Some(old) => {
@@ -113,8 +113,8 @@ impl NotificationManager {
                 }
             }
             None => {
-                self.send_global_update_event(new.global_settings).await;
                 log::debug!("Global settings have not been cached before, sending event");
+                self.send_global_update_event(new.global_settings).await;
             }
         }
 
