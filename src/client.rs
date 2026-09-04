@@ -7,6 +7,7 @@ use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{self, *};
+use matrix_sdk::Client;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
@@ -15,8 +16,7 @@ use matrix_sdk::ruma::events::poll::unstable_response::UnstablePollResponseEvent
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
-use matrix_sdk::Client;
+use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId, assign};
 use ruma_common::api::error::{FromHttpResponseError, IntoHttpError};
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::OnceCell;
@@ -43,9 +43,7 @@ const CACHE_DIR: &str = "cache";
 const AUTH_FILE: &str = "auth";
 
 macro_rules! try_lock {
-    ($lock_result:expr) => {{
-        $lock_result.map_err(|_| Error::internal("lock poisoined"))?
-    }};
+    ($lock_result:expr) => {{ $lock_result.map_err(|_| Error::internal("lock poisoined"))? }};
 }
 
 pub struct MatrixClient {
@@ -696,24 +694,23 @@ impl MatrixClientInner {
     }
 
     fn is_auth_err_matrix_http(&self, err: &matrix_sdk::HttpError) -> bool {
-        if let matrix_sdk::HttpError::IntoHttp(err) = &err {
-            if matches!(err, IntoHttpError::Authentication(_)) {
-                return true;
-            }
+        if let matrix_sdk::HttpError::IntoHttp(err) = &err
+            && matches!(err, IntoHttpError::Authentication(_))
+        {
+            return true;
         }
 
-        if let matrix_sdk::HttpError::Reqwest(err) = &err {
-            if err.status() == Some(HttpStatusCode::UNAUTHORIZED) {
-                return true;
-            }
+        if let matrix_sdk::HttpError::Reqwest(err) = &err
+            && err.status() == Some(HttpStatusCode::UNAUTHORIZED)
+        {
+            return true;
         }
 
-        if let matrix_sdk::HttpError::Api(err) = &err {
-            if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
-                if err.status_code == HttpStatusCode::UNAUTHORIZED {
-                    return true;
-                }
-            }
+        if let matrix_sdk::HttpError::Api(err) = &err
+            && let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err
+            && err.status_code == HttpStatusCode::UNAUTHORIZED
+        {
+            return true;
         }
 
         false

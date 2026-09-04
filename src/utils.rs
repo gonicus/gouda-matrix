@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::ruma::events::{AnySyncTimelineEvent, AnyTimelineEvent};
-use matrix_sdk::Room;
-use ruma_common::serde::Raw;
 use ruma_common::OwnedRoomId;
+use ruma_common::serde::Raw;
 
 use crate::error::{Error, Result};
 

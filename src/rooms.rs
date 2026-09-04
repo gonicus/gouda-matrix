@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
-use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::room::Visibility;
+use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
-use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, RoomMemberships};
-use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::UserId;
+use ruma_common::directory::PublicRoomsChunk;
 
 use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
@@ -231,12 +231,12 @@ pub fn create_room_request(
     invitees: Vec<OwnedUserId>,
     join_rule: RoomJoinRule,
 ) -> MatrixCreateRoomRequest {
+    use matrix_sdk::ruma::events::InitialStateEvent;
     use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
     use matrix_sdk::ruma::events::room::history_visibility::{
         HistoryVisibility, RoomHistoryVisibilityEventContent,
     };
     use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
-    use matrix_sdk::ruma::events::InitialStateEvent;
 
     let join_rule = join_rule.into_matrix();
     let visibility = matrix_join_rule_to_visibility(join_rule.clone());
