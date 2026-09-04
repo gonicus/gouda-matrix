@@ -1600,6 +1600,7 @@ impl MatrixClientInner {
             from_message_id,
             limit,
             thread_id,
+            send_read_markers: true,
         };
 
         let mut stream = memory_cache.fetch_messages(room, query_options).await?;
