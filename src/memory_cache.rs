@@ -15,7 +15,6 @@ use matrix_sdk::deserialized_responses::{
 };
 use matrix_sdk::paginators::thread::ThreadedEventsLoader;
 use matrix_sdk::paginators::{PaginationToken, PaginationTokens};
-use matrix_sdk::ruma::api::client::read_marker;
 use matrix_sdk::ruma::events::poll::unstable_end::{
     UnstablePollEndEvent, UnstablePollEndEventContent,
 };
