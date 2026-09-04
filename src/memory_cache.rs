@@ -1802,7 +1802,9 @@ impl MessagesFetcher {
             return;
         }
 
-        if self.send_read_markers && let Ok(read_markers) = self.get_room_read_markers() {
+        if self.send_read_markers
+            && let Ok(read_markers) = self.get_room_read_markers()
+        {
             self.current_read_markers = read_markers;
         }
 
@@ -1890,7 +1892,10 @@ impl MessagesFetcher {
                 .change_read_marker(read_markers)
                 .to_proto();
 
-            self.cache.ctx.send_event(ResponseContent::RoomChangeEvent(proto)).await;
+            self.cache
+                .ctx
+                .send_event(ResponseContent::RoomChangeEvent(proto))
+                .await;
         }
     }
 
