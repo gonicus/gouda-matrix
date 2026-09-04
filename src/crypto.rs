@@ -1,8 +1,8 @@
 use std::path::Path;
 
+use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
-use aes_gcm::Aes256Gcm;
 use argon2::Argon2;
 use tokio::io::AsyncReadExt;
 

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gouda_core::RequestContext;

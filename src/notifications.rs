@@ -4,8 +4,8 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::RoomChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{GlobalSettings, NotificationSetting, RoomSettings};
-use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::Client;
+use matrix_sdk::notification_settings::RoomNotificationMode;
 use ruma_common::RoomId;
 
 use crate::client::SessionContext;

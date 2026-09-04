@@ -5,10 +5,11 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
-    MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction,
+    Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
+    MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction, message,
 };
 use js_int::UInt;
+use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
@@ -38,7 +39,6 @@ use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEvent,
     OriginalMessageLikeEvent, RedactedMessageLikeEvent,
 };
-use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
@@ -541,10 +541,10 @@ impl CachedMessage {
     }
 
     fn build_removed(&self, mut original: Message) -> Message {
-        if let Some(message::Content::Removed(c)) = &mut original.content {
-            if let Some(redaction) = &self.redaction {
-                c.reason = redaction.content.reason.clone();
-            }
+        if let Some(message::Content::Removed(c)) = &mut original.content
+            && let Some(redaction) = &self.redaction
+        {
+            c.reason = redaction.content.reason.clone();
         }
 
         original
@@ -589,10 +589,10 @@ impl CachedMessage {
             self.poll_replacement_events.values().collect();
         replacements.sort_by_key(|f| f.origin_server_ts);
 
-        if let Some(replacement) = replacements.last() {
-            if let Err(err) = polls::replace_content(content, replacement.content.poll_start()) {
-                log::error!("Error replacing poll content: {err}");
-            }
+        if let Some(replacement) = replacements.last()
+            && let Err(err) = polls::replace_content(content, replacement.content.poll_start())
+        {
+            log::error!("Error replacing poll content: {err}");
         }
     }
 
@@ -1640,11 +1640,11 @@ impl CachedRoom {
 
         let mut guard = self.read_markers.lock()?;
 
-        if let Some(old) = guard.get(&user_id) {
-            if *old >= timestamp {
-                log::debug!("Already cached read marker is newer, no changes to do");
-                return Ok(false);
-            }
+        if let Some(old) = guard.get(&user_id)
+            && *old >= timestamp
+        {
+            log::debug!("Already cached read marker is newer, no changes to do");
+            return Ok(false);
         }
 
         guard.insert(user_id, timestamp);
