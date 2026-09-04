@@ -1,4 +1,5 @@
 use gouda_proto::chat::{self, *};
+use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk::ruma::events::poll::unstable_start::{
     NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
@@ -9,7 +10,6 @@ use matrix_sdk::ruma::events::room::message::{
     FormattedBody, MessageType, Relation, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
 };
 use matrix_sdk::ruma::events::{Mentions, OriginalMessageLikeEvent};
-use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedEventId, OwnedUserId};
 
 use crate::bridge::IntoMatrix;
@@ -253,10 +253,10 @@ impl<'a> MessageBuilder<'a> {
     async fn send_text(self, room: &Room, content: MessageContentText) -> Result<String> {
         let mut event = RoomMessageEventContent::text_markdown(content.content);
 
-        if let MessageType::Text(text) = &mut event.msgtype {
-            if text.formatted.is_none() {
-                text.formatted = Some(FormattedBody::html(text.body.clone()));
-            }
+        if let MessageType::Text(text) = &mut event.msgtype
+            && text.formatted.is_none()
+        {
+            text.formatted = Some(FormattedBody::html(text.body.clone()));
         }
 
         if let Some(thread_id) = &self.thread_id {

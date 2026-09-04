@@ -4,13 +4,13 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::status_update::StatusCode;
 use gouda_proto::chat::{
-    builder, CapabilityEvent, PresenceState, StatusUpdate, VerificationStatusEvent,
+    CapabilityEvent, PresenceState, StatusUpdate, VerificationStatusEvent, builder,
 };
+use matrix_sdk::Client;
 use matrix_sdk::authentication::matrix::MatrixSession;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::event_cache::RedecryptorReport;
 use matrix_sdk::stream::StreamExt;
-use matrix_sdk::Client;
 use ruma_common::api::error::UnknownTokenErrorData;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -273,10 +273,10 @@ impl SyncProcess {
     }
 
     fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
-        if let matrix_sdk::Error::Http(http_err) = &err {
-            if let matrix_sdk::HttpError::Reqwest(e) = &**http_err {
-                return e.is_request() || e.is_connect() || e.is_timeout();
-            }
+        if let matrix_sdk::Error::Http(http_err) = &err
+            && let matrix_sdk::HttpError::Reqwest(e) = &**http_err
+        {
+            return e.is_request() || e.is_connect() || e.is_timeout();
         }
 
         false
