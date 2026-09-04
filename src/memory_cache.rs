@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
     Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
@@ -99,6 +99,8 @@ pub struct QueryOptions {
     pub from_message_id: Option<OwnedEventId>,
     /// The ID of the thread, if only the messages of a specific thread should be fetched.
     pub thread_id: Option<OwnedEventId>,
+    /// If updated read markers should be send to the application
+    pub send_read_markers: bool,
 }
 
 #[derive(Clone)]
@@ -171,14 +173,6 @@ impl MemoryCache {
         if let Err(err) = result {
             log::error!("Error retrying decryption of all events: {err}");
         }
-    }
-
-    /// Gets all read markers of a room.
-    pub fn get_read_markers(
-        &self,
-        room_id: impl AsRef<str>,
-    ) -> Result<Option<HashMap<String, u64>>> {
-        self.inner.get_read_markers(room_id.as_ref())
     }
 
     /// Sets the read marker of a user inside a room.
@@ -293,11 +287,15 @@ impl MemoryCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            let fetcher = if let Some(thread_id) = options.thread_id {
+            let mut fetcher = if let Some(thread_id) = options.thread_id {
                 MessagesFetcher::threaded(room, tx, options.limit, from_token, thread_id)
             } else {
                 MessagesFetcher::unthreaded(room, tx, options.limit, from_token)
             };
+
+            if options.send_read_markers {
+                fetcher = fetcher.send_read_markers(true);
+            }
 
             fetcher.run().await;
         });
@@ -348,15 +346,6 @@ impl MemoryCacheInner {
         }
 
         Ok(())
-    }
-
-    pub fn get_read_markers(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
-        let Some(room) = self.get_room(room_id)? else {
-            return Ok(None);
-        };
-
-        let guard = room.read_marker.lock()?;
-        Ok(Some(guard.clone()))
     }
 
     pub fn set_read_marker(
@@ -666,9 +655,9 @@ struct CachedRoom {
     /// (reaction_id, message_id)
     reaction_id_to_message: Mutex<HashMap<String, String>>,
 
-    /// The read marker we have cached.
+    /// The read markers we have cached.
     /// (user_id, read_timestamp)
-    read_marker: Mutex<HashMap<String, u64>>,
+    read_markers: Mutex<HashMap<String, u64>>,
 }
 
 impl CachedRoom {
@@ -683,7 +672,7 @@ impl CachedRoom {
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
 
-            read_marker: Mutex::new(HashMap::new()),
+            read_markers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1648,7 +1637,7 @@ impl CachedRoom {
     fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<bool> {
         log::debug!("Caching read marker for user {user_id}: {timestamp}");
 
-        let mut guard = self.read_marker.lock()?;
+        let mut guard = self.read_markers.lock()?;
 
         if let Some(old) = guard.get(&user_id)
             && *old >= timestamp
@@ -1729,6 +1718,11 @@ struct MessagesFetcher {
 
     /// The number of chat messages we have build and send to the message receiver.
     retrieved_messages: u32,
+
+    /// If updated read markers should be send to the application.
+    send_read_markers: bool,
+    /// The currently cached read markers, used to check if they have changed.
+    current_read_markers: HashMap<String, u64>,
 }
 
 impl MessagesFetcher {
@@ -1791,12 +1785,26 @@ impl MessagesFetcher {
             chunk_size: calc_chunk_size(limit),
 
             retrieved_messages: 0,
+
+            send_read_markers: false,
+            current_read_markers: HashMap::new(),
         }
+    }
+
+    pub fn send_read_markers(mut self, send_read_markers: bool) -> Self {
+        self.send_read_markers = send_read_markers;
+        self
     }
 
     pub async fn run(mut self) {
         if self.message_limit == 0 {
             return;
+        }
+
+        if self.send_read_markers
+            && let Ok(read_markers) = self.get_room_read_markers()
+        {
+            self.current_read_markers = read_markers;
         }
 
         let result = self.fetch_until_completion().await;
@@ -1845,10 +1853,16 @@ impl MessagesFetcher {
         for event in chunk {
             let action = self.cache.process_timeline_event(event).await?;
 
+            log::trace!("Received cache action: {action:?}");
+
             // We only need to act on assembled messages, as the reactions
             // are already included.
             if let Some(CachedRoomAction::Message(message)) = action {
                 self.send_finished_message(message).await?;
+            }
+
+            if self.send_read_markers {
+                self.update_read_markers().await;
             }
 
             if self.retrieved_messages == self.message_limit {
@@ -1858,6 +1872,35 @@ impl MessagesFetcher {
         }
 
         Ok(())
+    }
+
+    async fn update_read_markers(&mut self) {
+        log::debug!("Checking if room read markers have changed");
+
+        let Ok(read_markers) = self.get_room_read_markers() else {
+            log::error!("Unable to acquire lock on room read markers");
+            return;
+        };
+
+        if read_markers != self.current_read_markers {
+            log::debug!("Room read markers have changed, sending update event to application");
+
+            self.current_read_markers = read_markers.clone();
+
+            let proto = RoomChangeEventBuilder::new(self.cache.room.room_id())
+                .change_read_marker(read_markers)
+                .to_proto();
+
+            self.cache
+                .ctx
+                .send_event(ResponseContent::RoomChangeEvent(proto))
+                .await;
+        }
+    }
+
+    fn get_room_read_markers(&self) -> Result<HashMap<String, u64>> {
+        let guard = self.cache.read_markers.lock()?;
+        Ok(guard.clone())
     }
 
     /// Sends the message to the message receiver.
