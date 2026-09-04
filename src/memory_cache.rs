@@ -14,6 +14,7 @@ use matrix_sdk::deserialized_responses::{
 };
 use matrix_sdk::paginators::thread::ThreadedEventsLoader;
 use matrix_sdk::paginators::{PaginationToken, PaginationTokens};
+use matrix_sdk::ruma::api::client::read_marker;
 use matrix_sdk::ruma::events::poll::unstable_end::{
     UnstablePollEndEvent, UnstablePollEndEventContent,
 };
@@ -173,14 +174,6 @@ impl MemoryCache {
         if let Err(err) = result {
             log::error!("Error retrying decryption of all events: {err}");
         }
-    }
-
-    /// Gets all read markers of a room.
-    pub fn get_read_markers(
-        &self,
-        room_id: impl AsRef<str>,
-    ) -> Result<Option<HashMap<String, u64>>> {
-        self.inner.get_read_markers(room_id.as_ref())
     }
 
     /// Sets the read marker of a user inside a room.
@@ -354,15 +347,6 @@ impl MemoryCacheInner {
         }
 
         Ok(())
-    }
-
-    pub fn get_read_markers(&self, room_id: &str) -> Result<Option<HashMap<String, u64>>> {
-        let Some(room) = self.get_room(room_id)? else {
-            return Ok(None);
-        };
-
-        let guard = room.read_markers.lock()?;
-        Ok(Some(guard.clone()))
     }
 
     pub fn set_read_marker(
@@ -1818,8 +1802,8 @@ impl MessagesFetcher {
             return;
         }
 
-        if self.send_read_markers {
-            self.current_read_markers = self.cache.read_markers.lock().unwrap().clone();
+        if self.send_read_markers && let Ok(read_markers) = self.get_room_read_markers() {
+            self.current_read_markers = read_markers;
         }
 
         let result = self.fetch_until_completion().await;
