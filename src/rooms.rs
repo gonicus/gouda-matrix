@@ -15,7 +15,7 @@ use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::notifications;
+use crate::{measure, notifications};
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
@@ -91,14 +91,18 @@ impl RoomsManager {
         };
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        let members = get_room_members(room).await?;
+        let members = measure!(get_room_members(room).await, "Members")?;
         let join_rule = room
             .join_rule()
             .unwrap_or(MatrixJoinRule::Invite)
             .into_chat();
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
-        let avatar_path = self.media_manager.get_room_avatar_path(room).await;
+
+        let avatar_path = measure!(
+            self.media_manager.get_room_avatar_path(room).await,
+            "Avatar path"
+        );
 
         let is_direct = if members.len() > 2 {
             false
@@ -112,6 +116,11 @@ impl RoomsManager {
             .iter()
             .map(|e| e.to_string())
             .collect::<Vec<String>>();
+
+        let read_marker = measure!(
+            get_room_read_marker(room).await.unwrap_or_default(),
+            "Read markers"
+        );
 
         Ok(Room {
             room_id: room.room_id().to_string(),
@@ -128,7 +137,7 @@ impl RoomsManager {
             room_settings: Some(get_room_settings(room).await),
             invitation_text: None,
             pinned_messages,
-            read_marker: get_room_read_marker(room).await.unwrap_or_default(),
+            read_marker,
         })
     }
 }
@@ -184,7 +193,7 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
+async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
     log::trace!("Retrieving room read marker for room: {}", room.room_id());
