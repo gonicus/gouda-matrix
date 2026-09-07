@@ -179,7 +179,7 @@ impl MemoryCache {
     /// The read marker is only updated if the specified read marker is newer than
     /// the already cached read marker of the user.
     /// Will return true if the read marker has been updated, false if the already
-    /// cached read marker is older than the specified one.
+    /// cached read marker is newer than the specified one.
     pub fn set_read_marker(
         &self,
         room: MatrixRoom,
@@ -1992,8 +1992,19 @@ fn calc_chunk_size(limit: u32) -> js_int::UInt {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use gouda_proto::chat::MessageContentText;
+    use gouda_proto::chat::{MessageContentText, PollOption, PollType};
+    use matrix_sdk::ruma::events::relation::Reference;
+    use matrix_sdk::ruma::events::poll::unstable_start::{
+        NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
+        UnstablePollStartContentBlock,
+    };
+    use matrix_sdk::ruma::events::room::redaction::{
+        RoomRedactionEventContent, RoomRedactionUnsigned,
+    };
+    use matrix_sdk::ruma::events::MessageLikeUnsigned;
+    use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId};
 
     use super::*;
 
@@ -2244,5 +2255,342 @@ mod tests {
                 content: "replaced body".to_string()
             }))
         );
+    }
+
+    #[test]
+    fn test_cached_notification_settings_with_room_settings() {
+        let mut settings = CachedNotificationSettings::default();
+        settings.room_settings.insert(
+            "!room:example.org".to_string(),
+            NotificationSetting::Mute,
+        );
+
+        assert_eq!(settings.global_settings, NotificationSetting::AllMessages);
+        assert_eq!(settings.room_settings.len(), 1);
+        assert_eq!(
+            settings.room_settings.get("!room:example.org"),
+            Some(&NotificationSetting::Mute)
+        );
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_removed() {
+        let mut cached = CachedMessage::default();
+        let message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Removed(MessageContentRemoved {
+                reason: None,
+            })),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message);
+
+        match result.content {
+            Some(message::Content::Removed(removed)) => assert!(removed.reason.is_none()),
+            other => panic!("expected removed content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_removed_with_redaction() {
+        let mut cached = CachedMessage::default();
+        cached.redaction = Some(redaction_event("$redact", "$msg1", "spam".to_string()));
+
+        let message = Message {
+            message_id: "$msg1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Removed(MessageContentRemoved {
+                reason: None,
+            })),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message);
+
+        match result.content {
+            Some(message::Content::Removed(removed)) => {
+                assert_eq!(removed.reason.as_deref(), Some("spam"))
+            }
+            other => panic!("expected removed content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_cached_message_build_from_original_poll() {
+        let mut cached = CachedMessage::default();
+        let message = Message {
+            message_id: "$poll1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Poll(MessageContentPoll {
+                r#type: PollType::Undisclosed as i32,
+                completed: false,
+                max_selections: 1,
+                question: "What?".to_string(),
+                options: vec![
+                    PollOption {
+                        id: "1".to_string(),
+                        text: "Yes".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                    PollOption {
+                        id: "2".to_string(),
+                        text: "No".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                ],
+            })),
+            ..Default::default()
+        };
+
+        // With no poll relations cached, the poll content must be preserved unchanged.
+        let result = cached.build_from_original(message);
+
+        match result.content {
+            Some(message::Content::Poll(poll)) => {
+                assert_eq!(poll.question, "What?");
+                assert_eq!(poll.options.len(), 2);
+                assert!(!poll.completed);
+            }
+            other => panic!("expected poll content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_cached_message_apply_poll_responses_and_end() {
+        let mut cached = CachedMessage::default();
+        cached.poll_response_events.insert(
+            "$resp1".to_string(),
+            make_poll_response_event(
+                "$resp1",
+                "@bob:example.org",
+                3000,
+                "$poll1",
+                &["1"],
+            ),
+        );
+        cached.poll_end_events.insert(
+            "$end1".to_string(),
+            make_poll_end_event("$end1", "@bob:example.org", 4000, "$poll1"),
+        );
+
+        let message = Message {
+            message_id: "$poll1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Poll(MessageContentPoll {
+                r#type: PollType::Undisclosed as i32,
+                completed: false,
+                max_selections: 1,
+                question: "What?".to_string(),
+                options: vec![
+                    PollOption {
+                        id: "1".to_string(),
+                        text: "Yes".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                    PollOption {
+                        id: "2".to_string(),
+                        text: "No".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                ],
+            })),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message);
+
+        match result.content {
+            Some(message::Content::Poll(poll)) => {
+                assert!(poll.completed, "poll should be completed after a poll end event");
+                let option = poll.options.iter().find(|o| o.id == "1");
+                let Some(option) = option else {
+                    panic!("expected option with id '1'");
+                };
+                assert_eq!(
+                    option.voted_user_ids,
+                    vec!["@bob:example.org".to_string()]
+                );
+            }
+            other => panic!("expected poll content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_cached_message_apply_poll_replacements() {
+        let mut cached = CachedMessage::default();
+        cached.poll_replacement_events.insert(
+            "$repl1".to_string(),
+            make_poll_start_event(
+                "$repl1",
+                "@alice:example.org",
+                3000,
+                "$poll1",
+                make_poll_content_block("New question?", &[("1", "C"), ("2", "D")]),
+            ),
+        );
+
+        let message = Message {
+            message_id: "$poll1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            timestamp: 1000,
+            sender_id: "@alice:example.org".to_string(),
+            content: Some(message::Content::Poll(MessageContentPoll {
+                r#type: PollType::Undisclosed as i32,
+                completed: false,
+                max_selections: 1,
+                question: "Old question?".to_string(),
+                options: vec![
+                    PollOption {
+                        id: "1".to_string(),
+                        text: "A".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                    PollOption {
+                        id: "2".to_string(),
+                        text: "B".to_string(),
+                        voted_user_ids: vec![],
+                    },
+                ],
+            })),
+            ..Default::default()
+        };
+
+        let result = cached.build_from_original(message);
+
+        match result.content {
+            Some(message::Content::Poll(poll)) => {
+                assert_eq!(poll.question, "New question?");
+                assert_eq!(poll.options.len(), 2);
+                assert_eq!(poll.options[0].text, "C");
+                assert_eq!(poll.options[1].text, "D");
+            }
+            other => panic!("expected poll content, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_reaction_metadata_new() {
+        let metadata = ReactionMetadata::new(
+            CachedReaction {
+                user_id: "@alice:example.org".to_string(),
+                emoji: "👍".to_string(),
+            },
+            "$reaction1".to_string(),
+            "$msg1".to_string(),
+            "!room:example.org".to_string(),
+        );
+
+        assert_eq!(metadata.reaction_id, "$reaction1");
+        assert_eq!(metadata.user_id, "@alice:example.org");
+        assert_eq!(metadata.emoji, "👍");
+        assert_eq!(metadata.message_id, "$msg1");
+        assert_eq!(metadata.room_id, "!room:example.org");
+    }
+
+    /// Builds a stable `orig.matrix.msc3381.poll.response` event for testing.
+    fn make_poll_response_event(
+        event_id: &str,
+        sender: &str,
+        origin_server_ts: u64,
+        poll_start_id: &str,
+        answers: &[&str],
+    ) -> OriginalMessageLikeEvent<UnstablePollResponseEventContent> {
+        OriginalMessageLikeEvent {
+            content: UnstablePollResponseEventContent::new(
+                answers.iter().map(|a| a.to_string()).collect(),
+                OwnedEventId::try_from(poll_start_id.to_string()).unwrap(),
+            ),
+            event_id: OwnedEventId::try_from(event_id.to_string()).unwrap(),
+            sender: OwnedUserId::try_from(sender.to_string()).unwrap(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(origin_server_ts).unwrap()),
+            room_id: OwnedRoomId::try_from("!room:example.org".to_string()).unwrap(),
+            unsigned: MessageLikeUnsigned::new(),
+        }
+    }
+
+    /// Builds a `org.matrix.msc3381.poll.start` event for testing.
+    fn make_poll_start_event(
+        event_id: &str,
+        sender: &str,
+        origin_server_ts: u64,
+        poll_start_id: &str,
+        block: UnstablePollStartContentBlock,
+    ) -> OriginalMessageLikeEvent<UnstablePollStartEventContent> {
+        OriginalMessageLikeEvent {
+            content: UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::plain_text(
+                String::new(),
+                block,
+            )),
+            event_id: OwnedEventId::try_from(event_id.to_string()).unwrap(),
+            sender: OwnedUserId::try_from(sender.to_string()).unwrap(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(origin_server_ts).unwrap()),
+            room_id: OwnedRoomId::try_from("!room:example.org".to_string()).unwrap(),
+            unsigned: MessageLikeUnsigned::new(),
+        }
+    }
+
+    /// Builds a poll start content block with the given question and answer options.
+    fn make_poll_content_block(
+        question: &str,
+        answers: &[(&str, &str)],
+    ) -> UnstablePollStartContentBlock {
+        let answers = UnstablePollAnswers::try_from(
+            answers
+                .iter()
+                .map(|(id, text)| UnstablePollAnswer::new(id.to_string(), text.to_string()))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        UnstablePollStartContentBlock::new(question, answers)
+    }
+
+    /// Builds a `org.matrix.msc3381.poll.end` event for testing.
+    fn make_poll_end_event(
+        event_id: &str,
+        sender: &str,
+        origin_server_ts: u64,
+        poll_start_id: &str,
+    ) -> OriginalMessageLikeEvent<UnstablePollEndEventContent> {
+        OriginalMessageLikeEvent {
+            content: UnstablePollEndEventContent::new(
+                "Poll results".to_string(),
+                OwnedEventId::try_from(poll_start_id.to_string()).unwrap(),
+            ),
+            event_id: OwnedEventId::try_from(event_id.to_string()).unwrap(),
+            sender: OwnedUserId::try_from(sender.to_string()).unwrap(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(origin_server_ts).unwrap()),
+            room_id: OwnedRoomId::try_from("!room:example.org".to_string()).unwrap(),
+            unsigned: MessageLikeUnsigned::new(),
+        }
+    }
+
+    /// Builds an `m.room.redaction` event for testing.
+    fn redaction_event(
+        event_id: &str,
+        redacts: &str,
+        reason: String,
+    ) -> OriginalRoomRedactionEvent {
+        OriginalRoomRedactionEvent {
+            content: RoomRedactionEventContent {
+                redacts: Some(OwnedEventId::try_from(redacts.to_string()).unwrap()),
+                reason: Some(reason),
+            },
+            redacts: Some(OwnedEventId::try_from(redacts.to_string()).unwrap()),
+            event_id: OwnedEventId::try_from(event_id.to_string()).unwrap(),
+            sender: OwnedUserId::try_from("@alice:example.org".to_string()).unwrap(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2000).unwrap()),
+            room_id: OwnedRoomId::try_from("!room:example.org".to_string()).unwrap(),
+            unsigned: RoomRedactionUnsigned::default(),
+        }
     }
 }
