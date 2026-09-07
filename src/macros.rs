@@ -46,3 +46,21 @@ macro_rules! unwrap_or_log_return_option {
         }
     };
 }
+
+#[macro_export]
+macro_rules! measure_time {
+    ($expr:expr $(,)?) => {
+        $crate::measure_time!($expr, "Measured time")
+    };
+    ($expr:expr, $msg:literal $(,)?) => {{
+        if log::log_enabled!(log::Level::Trace) {
+            let timer = std::time::Instant::now();
+            let result = $expr;
+            let elapsed = timer.elapsed();
+            log::trace!("{}: {:?}", $msg, elapsed);
+            result
+        } else {
+            $expr
+        }
+    }};
+}
