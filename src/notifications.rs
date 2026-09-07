@@ -4,8 +4,8 @@ use gouda_core::RequestContext;
 use gouda_proto::chat::builder::RoomChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{GlobalSettings, NotificationSetting, RoomSettings};
-use matrix_sdk::notification_settings::RoomNotificationMode;
 use matrix_sdk::Client;
+use matrix_sdk::notification_settings::RoomNotificationMode;
 use ruma_common::RoomId;
 
 use crate::client::SessionContext;
@@ -102,8 +102,8 @@ impl NotificationManager {
             log::error!("Unable to cache new notification settings: {err}");
         };
 
-        log::debug!("Old settings: {old:?}");
-        log::debug!("New settings: {new:?}");
+        log::trace!("Old settings: {old:?}");
+        log::trace!("New settings: {new:?}");
 
         match &old {
             Some(old) => {
@@ -113,8 +113,8 @@ impl NotificationManager {
                 }
             }
             None => {
-                self.send_global_update_event(new.global_settings).await;
                 log::debug!("Global settings have not been cached before, sending event");
+                self.send_global_update_event(new.global_settings).await;
             }
         }
 

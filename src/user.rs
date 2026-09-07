@@ -125,14 +125,14 @@ pub async fn fetch_avatar_uri(
         .fetch_profile_field_of(user_id, ProfileFieldName::AvatarUrl)
         .await;
 
-    if let Err(err) = &result {
-        if is_profile_field_expected_error(err) {
-            log::debug!(
-                "Retrieving the user's avatar URI resulted in the expected error if the \
+    if let Err(err) = &result
+        && is_profile_field_expected_error(err)
+    {
+        log::debug!(
+            "Retrieving the user's avatar URI resulted in the expected error if the \
                 avatar was removed or not found"
-            );
-            return Ok(None);
-        }
+        );
+        return Ok(None);
     }
 
     let result = result?;

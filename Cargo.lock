@@ -1448,8 +1448,8 @@ dependencies = [
 
 [[package]]
 name = "gouda_core"
-version = "0.10.0"
-source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.10.0#89aa7b6f744bd20a74a06b2c5f9fce2204563cc6"
+version = "0.12.0"
+source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.12.0#971d038862bc083ab4edf5ef267759f34fecf721"
 dependencies = [
  "async-trait",
  "gouda_proto",
@@ -1462,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "gouda_matrix"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1495,8 +1495,8 @@ dependencies = [
 
 [[package]]
 name = "gouda_proto"
-version = "0.10.0"
-source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.10.0#89aa7b6f744bd20a74a06b2c5f9fce2204563cc6"
+version = "0.12.0"
+source = "git+https://github.com/gonicus/gouda-core-rs.git?tag=v0.12.0#971d038862bc083ab4edf5ef267759f34fecf721"
 dependencies = [
  "prost",
  "prost-build",
