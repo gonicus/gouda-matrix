@@ -1,4 +1,5 @@
 use gouda_proto::chat::{self, MessageContentPoll};
+use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk::ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use matrix_sdk::ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
@@ -6,7 +7,6 @@ use matrix_sdk::ruma::events::poll::unstable_start::{
     UnstablePollStartContentBlock, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::{AnyMessageLikeEvent, AnyTimelineEvent};
-use matrix_sdk::Room;
 use ruma_common::{EventId, OwnedUserId};
 
 use crate::bridge::{IntoChat, TryIntoChat};

@@ -4,9 +4,9 @@ use std::sync::Arc;
 use clap::Parser;
 use gouda_core::{Runner, RunnerError};
 use gouda_matrix::MatrixClient;
+use interprocess::local_socket::GenericFilePath;
 use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream};
-use interprocess::local_socket::GenericFilePath;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
@@ -123,7 +123,6 @@ async fn connect_socket(
 
 fn log_build_infos() {
     log::info!("Version: {}", env!("CARGO_PKG_VERSION"));
-
     log::debug!("BUILD_TIMESTAMP: {}", env!("VERGEN_BUILD_TIMESTAMP"));
     log::debug!("CARGO_DEBUG: {}", env!("VERGEN_CARGO_DEBUG"));
     log::debug!("CARGO_OPT_LEVEL: {}", env!("VERGEN_CARGO_OPT_LEVEL"));

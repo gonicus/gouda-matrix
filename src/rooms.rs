@@ -2,20 +2,20 @@ use std::collections::HashMap;
 
 use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
-use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::room::Visibility;
+use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
 use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
-use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::{Client, RoomMemberships};
-use ruma_common::directory::PublicRoomsChunk;
 use ruma_common::UserId;
+use ruma_common::directory::PublicRoomsChunk;
 
 use crate::bridge::{IntoChat, IntoMatrix};
 use crate::client::SessionContext;
 use crate::error::{Error, Result};
 use crate::media::MediaManager;
-use crate::notifications;
+use crate::{measure, notifications};
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
@@ -91,14 +91,18 @@ impl RoomsManager {
         };
 
         let unread_count = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
-        let members = get_room_members(room).await?;
+        let members = measure!(get_room_members(room).await, "Members")?;
         let join_rule = room
             .join_rule()
             .unwrap_or(MatrixJoinRule::Invite)
             .into_chat();
         let latest_message_timestamp: Option<u64> =
             room.latest_event_timestamp().map(|f| f.0.into());
-        let avatar_path = self.media_manager.get_room_avatar_path(room).await;
+
+        let avatar_path = measure!(
+            self.media_manager.get_room_avatar_path(room).await,
+            "Avatar path"
+        );
 
         let is_direct = if members.len() > 2 {
             false
@@ -112,6 +116,11 @@ impl RoomsManager {
             .iter()
             .map(|e| e.to_string())
             .collect::<Vec<String>>();
+
+        let read_marker = measure!(
+            get_room_read_marker(room).await.unwrap_or_default(),
+            "Read markers"
+        );
 
         Ok(Room {
             room_id: room.room_id().to_string(),
@@ -128,7 +137,7 @@ impl RoomsManager {
             room_settings: Some(get_room_settings(room).await),
             invitation_text: None,
             pinned_messages,
-            read_marker: get_room_read_marker(room).await.unwrap_or_default(),
+            read_marker,
         })
     }
 }
@@ -184,19 +193,33 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-pub async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, String>> {
+async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
+    log::trace!("Retrieving room read marker for room: {}", room.room_id());
+
     for member in room.members(RoomMemberships::all()).await? {
+        log::trace!("Loading receipt for user: {}", member.user_id());
+
         let receipt = room
             .load_user_receipt(ReceiptType::Read, &ReceiptThread::Main, member.user_id())
             .await?;
 
-        let Some(receipt) = receipt else {
+        let Some((_, receipt)) = receipt else {
+            log::trace!("User does not have a receipt");
             continue;
         };
 
-        result.insert(member.user_id().to_string(), receipt.0.to_string());
+        log::trace!("Loaded user receipt: {receipt:?}");
+
+        let Some(ts) = receipt.ts else {
+            log::trace!("Receipt does not have a timestamp");
+            continue;
+        };
+
+        log::trace!("Received user receipt timestamp: {}", ts.0);
+
+        result.insert(member.user_id().to_string(), ts.0.into());
     }
 
     Ok(result)
@@ -217,12 +240,12 @@ pub fn create_room_request(
     invitees: Vec<OwnedUserId>,
     join_rule: RoomJoinRule,
 ) -> MatrixCreateRoomRequest {
+    use matrix_sdk::ruma::events::InitialStateEvent;
     use matrix_sdk::ruma::events::room::encryption::RoomEncryptionEventContent;
     use matrix_sdk::ruma::events::room::history_visibility::{
         HistoryVisibility, RoomHistoryVisibilityEventContent,
     };
     use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
-    use matrix_sdk::ruma::events::InitialStateEvent;
 
     let join_rule = join_rule.into_matrix();
     let visibility = matrix_join_rule_to_visibility(join_rule.clone());

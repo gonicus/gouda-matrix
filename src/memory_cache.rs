@@ -2,15 +2,19 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use gouda_core::RequestContext;
-use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{
-    message, Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
-    MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction,
+    Error as ChatError, Message, MessageContentMembershipChange, MessageContentPoll,
+    MessageContentRemoved, MessageRemoveEvent, NotificationSetting, Reaction, message,
 };
+use js_int::UInt;
+use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk::deserialized_responses::{
     DecryptedRoomEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
 };
+use matrix_sdk::paginators::thread::ThreadedEventsLoader;
+use matrix_sdk::paginators::{PaginationToken, PaginationTokens};
 use matrix_sdk::ruma::events::poll::unstable_end::{
     UnstablePollEndEvent, UnstablePollEndEventContent,
 };
@@ -21,6 +25,7 @@ use matrix_sdk::ruma::events::poll::unstable_start::{
     UnstablePollStartEvent, UnstablePollStartEventContent,
 };
 use matrix_sdk::ruma::events::reaction::{OriginalSyncReactionEvent, ReactionEvent};
+use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::encrypted::{
     OriginalSyncRoomEncryptedEvent, RoomEncryptedEvent,
 };
@@ -33,7 +38,6 @@ use matrix_sdk::ruma::events::{
     AnyMessageLikeEvent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEvent,
     OriginalMessageLikeEvent, RedactedMessageLikeEvent,
 };
-use matrix_sdk::Room as MatrixRoom;
 use ruma_common::api::Direction;
 use ruma_common::serde::Raw;
 use ruma_common::{EventId, OwnedEventId};
@@ -43,7 +47,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::bridge::TryIntoChat;
 use crate::error::chat_err;
 use crate::media::MediaManager;
-use crate::{messages, polls};
+use crate::{messages, polls, utils};
 
 /// The capacity of the channel for receiving retrieved and assembled messages.
 const MESSAGES_CHANNEL_CAPACITY: usize = 10;
@@ -68,6 +72,9 @@ pub enum MemoryCacheError {
 
     #[error("matrix sdk error: {0}")]
     MatrixError(#[from] matrix_sdk::Error),
+
+    #[error("matrix sdk paginator error: {0}")]
+    PaginatorError(#[from] matrix_sdk::paginators::PaginatorError),
 }
 
 impl From<MemoryCacheError> for ChatError {
@@ -90,6 +97,10 @@ pub struct QueryOptions {
     pub limit: u32,
     /// The ID of the message from where to begin fetching messages.
     pub from_message_id: Option<OwnedEventId>,
+    /// The ID of the thread, if only the messages of a specific thread should be fetched.
+    pub thread_id: Option<OwnedEventId>,
+    /// If updated read markers should be send to the application
+    pub send_read_markers: bool,
 }
 
 #[derive(Clone)]
@@ -138,9 +149,9 @@ impl MemoryCache {
         let room_id = room_id.as_ref();
 
         if events.is_none() {
-            log::debug!("Retrying to decrypt all events inside room {room_id:?}");
+            log::debug!("Retrying to decrypt all events inside room: {room_id:?}");
         } else {
-            log::debug!("Retrying to decrypt {events:?} inside room {room_id:?}");
+            log::debug!("Retrying to decrypt {events:?} inside room: {room_id:?}");
         }
 
         let result = self
@@ -162,6 +173,21 @@ impl MemoryCache {
         if let Err(err) = result {
             log::error!("Error retrying decryption of all events: {err}");
         }
+    }
+
+    /// Sets the read marker of a user inside a room.
+    /// The read marker is only updated if the specified read marker is newer than
+    /// the already cached read marker of the user.
+    /// Will return true if the read marker has been updated, false if the already
+    /// cached read marker is older than the specified one.
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: impl Into<String>,
+        read_marker: u64,
+    ) -> Result<bool> {
+        self.inner
+            .set_read_marker(room, user_id.into(), read_marker)
     }
 
     /// Caches a reaction to a message inside the specified room.
@@ -261,9 +287,17 @@ impl MemoryCacheInner {
         let (tx, rx) = tokio::sync::mpsc::channel(MESSAGES_CHANNEL_CAPACITY);
 
         tokio::spawn(async move {
-            MessagesFetcher::new(room, tx, options.limit, from_token)
-                .run()
-                .await;
+            let mut fetcher = if let Some(thread_id) = options.thread_id {
+                MessagesFetcher::threaded(room, tx, options.limit, from_token, thread_id)
+            } else {
+                MessagesFetcher::unthreaded(room, tx, options.limit, from_token)
+            };
+
+            if options.send_read_markers {
+                fetcher = fetcher.send_read_markers(true);
+            }
+
+            fetcher.run().await;
         });
 
         Ok(ReceiverStream::new(rx))
@@ -312,6 +346,16 @@ impl MemoryCacheInner {
         }
 
         Ok(())
+    }
+
+    pub fn set_read_marker(
+        &self,
+        room: MatrixRoom,
+        user_id: String,
+        read_marker: u64,
+    ) -> Result<bool> {
+        let room = self.get_or_create_room(room)?;
+        room.cache_read_marker(user_id, read_marker)
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
@@ -496,10 +540,10 @@ impl CachedMessage {
     }
 
     fn build_removed(&self, mut original: Message) -> Message {
-        if let Some(message::Content::Removed(c)) = &mut original.content {
-            if let Some(redaction) = &self.redaction {
-                c.reason = redaction.content.reason.clone();
-            }
+        if let Some(message::Content::Removed(c)) = &mut original.content
+            && let Some(redaction) = &self.redaction
+        {
+            c.reason = redaction.content.reason.clone();
         }
 
         original
@@ -544,10 +588,10 @@ impl CachedMessage {
             self.poll_replacement_events.values().collect();
         replacements.sort_by_key(|f| f.origin_server_ts);
 
-        if let Some(replacement) = replacements.last() {
-            if let Err(err) = polls::replace_content(content, replacement.content.poll_start()) {
-                log::error!("Error replacing poll content: {err}");
-            }
+        if let Some(replacement) = replacements.last()
+            && let Err(err) = polls::replace_content(content, replacement.content.poll_start())
+        {
+            log::error!("Error replacing poll content: {err}");
         }
     }
 
@@ -610,6 +654,10 @@ struct CachedRoom {
     /// Maps a reaction ID to a message ID.
     /// (reaction_id, message_id)
     reaction_id_to_message: Mutex<HashMap<String, String>>,
+
+    /// The read markers we have cached.
+    /// (user_id, read_timestamp)
+    read_markers: Mutex<HashMap<String, u64>>,
 }
 
 impl CachedRoom {
@@ -623,6 +671,8 @@ impl CachedRoom {
             encrypted_events: Mutex::new(HashMap::new()),
 
             reaction_id_to_message: Mutex::new(HashMap::new()),
+
+            read_markers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -670,7 +720,7 @@ impl CachedRoom {
         &self,
         event: DecryptedRoomEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing decrypted event");
+        log::trace!("Processing decrypted event: {event:?}");
 
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
@@ -736,7 +786,7 @@ impl CachedRoom {
         &self,
         event: Raw<AnySyncTimelineEvent>,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing raw AnySyncTimelineEvent");
+        log::trace!("Processing raw AnySyncTimelineEvent: {event:?}");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
@@ -755,7 +805,9 @@ impl CachedRoom {
         &self,
         event: AnyTimelineEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyTimelineEvent");
+        log::trace!("Processing AnyTimelineEvent: {event:?}");
+
+        self.load_and_cache_event_read_markers(&event).await?;
 
         match event {
             AnyTimelineEvent::MessageLike(event) => {
@@ -769,7 +821,7 @@ impl CachedRoom {
         &self,
         event: AnyMessageLikeEvent,
     ) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyMessageLikeEvent");
+        log::trace!("Processing AnyMessageLikeEvent: {event:?}");
 
         match event {
             AnyMessageLikeEvent::RoomMessage(event) => self.process_room_message(event).await,
@@ -811,6 +863,7 @@ impl CachedRoom {
         use matrix_sdk::ruma::events::room::message::Relation;
 
         log::debug!("Processing original RoomMessageEvent");
+        log::trace!("RoomMessageEvent: {original:?}");
 
         // Replacement events are stashed until we reach the original event.
         if let Some(Relation::Replacement(relation)) = original.content.relates_to.clone() {
@@ -843,7 +896,7 @@ impl CachedRoom {
             return Ok(None);
         }
 
-        self.build_from_message_event(&original)
+        self.assemble_message_from_event_content(&original)
             .await
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
@@ -853,6 +906,7 @@ impl CachedRoom {
         redacted: RedactedMessageLikeEvent<RedactedRoomMessageEventContent>,
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing redacted RoomMessageEvent");
+        log::trace!("Redacted RoomMessageEvent: {redacted:?}");
 
         let content = MessageContentRemoved { reason: None };
 
@@ -866,7 +920,7 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        let message = self.build_from_message(message)?;
+        let message = self.assemble_message(message)?;
 
         Ok(Some(CachedRoomAction::Message(message)))
     }
@@ -913,7 +967,7 @@ impl CachedRoom {
             ..Default::default()
         };
 
-        let message = self.build_from_message(message)?;
+        let message = self.assemble_message(message)?;
 
         Ok(Some(CachedRoomAction::Message(message)))
     }
@@ -965,7 +1019,7 @@ impl CachedRoom {
 
         log::debug!("Build original poll message: {message:?}");
 
-        self.build_from_message(message)
+        self.assemble_message(message)
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
@@ -1001,6 +1055,7 @@ impl CachedRoom {
 
     fn process_reaction_event(&self, event: ReactionEvent) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing ReactionEvent");
+        log::trace!("ReactionEvent: {event:?}");
 
         let Some(original) = event.as_original() else {
             log::debug!("Event is redacted, nothing to do");
@@ -1030,7 +1085,8 @@ impl CachedRoom {
     }
 
     fn process_any_state_event(&self, event: AnyStateEvent) -> Result<Option<CachedRoomAction>> {
-        log::trace!("Processing AnyStateEvent");
+        log::debug!("Processing AnyStateEvent");
+        log::trace!("AnyStateEvent: {event:?}");
 
         match event {
             AnyStateEvent::RoomMember(event) => self.process_room_member_event(event),
@@ -1046,6 +1102,7 @@ impl CachedRoom {
         event: RoomMemberEvent,
     ) -> Result<Option<CachedRoomAction>> {
         log::debug!("Processing RoomMemberEvent");
+        log::trace!("RoomMemberEvent: {event:?}");
 
         let Some(original) = event.as_original() else {
             log::debug!("Event is redacted, nothing to do");
@@ -1073,7 +1130,7 @@ impl CachedRoom {
 
         log::debug!("Build original membership change message: {message:?}");
 
-        self.build_from_message(message)
+        self.assemble_message(message)
             .map(|msg| Some(CachedRoomAction::Message(msg)))
     }
 
@@ -1118,11 +1175,12 @@ impl CachedRoom {
             return Ok(());
         };
 
-        log::debug!("Processing successfully decrypted event: {event:?}");
+        log::debug!("Processing successfully decrypted event");
+        log::trace!("Decrypted event: {event:?}");
 
         let action = self.process_timeline_event(event).await?;
 
-        log::debug!("Received action after processing event: {action:?}");
+        log::trace!("Received action after processing event: {action:?}");
 
         if let Some(action) = action {
             self.process_successful_redecryption(action).await?;
@@ -1222,19 +1280,19 @@ impl CachedRoom {
     /// Converts the given event to the original message object and
     /// builds the final message with the cached relations.
     /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
-    async fn build_from_message_event(
+    async fn assemble_message_from_event_content(
         &self,
         event: &OriginalMessageLikeEvent<RoomMessageEventContent>,
     ) -> Result<Message> {
         let msg = messages::message_from_event(&self.media_manager, &self.room, event).await;
-        self.build_from_message(msg)
+        self.assemble_message(msg)
     }
 
     /// Caches the given original message and assembles the final message object
     /// with the cached related events. Sends assembled message to the message receiver.
     /// Only returns an error when the cache lock is poisoned or the message receiver dropped.
-    fn build_from_message(&self, message: Message) -> Result<Message> {
-        let message = self.cache_and_build_message(message)?;
+    fn assemble_message(&self, original: Message) -> Result<Message> {
+        let message = self.cache_and_build_message(original)?;
         Ok(message)
     }
 
@@ -1246,7 +1304,7 @@ impl CachedRoom {
         replacement_id: String,
         replacement: CachedReplacement,
     ) -> Result<()> {
-        log::info!("Caching replacement {replacement_id} of message {original_message_id} with {replacement:?}");
+        log::debug!("Caching replacement of message {original_message_id}: {replacement:?}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
@@ -1261,7 +1319,7 @@ impl CachedRoom {
         redaction: OriginalRoomRedactionEvent,
         redacted_message_id: String,
     ) -> Result<()> {
-        log::info!("Caching redaction for message {redacted_message_id}");
+        log::debug!("Caching redaction of message {redacted_message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(redacted_message_id).or_default();
@@ -1278,7 +1336,7 @@ impl CachedRoom {
         reaction_id: String,
         reaction: CachedReaction,
     ) -> Result<()> {
-        log::info!("Caching reaction {reaction_id} of message {message_id} with {reaction:?}");
+        log::debug!("Caching reaction of message {message_id}: {reaction:?}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1297,7 +1355,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollStartEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll start event of message {message_id}");
+        log::debug!("Caching poll start event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1315,7 +1373,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollResponseEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll response event of message {message_id}");
+        log::debug!("Caching poll response event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1333,7 +1391,7 @@ impl CachedRoom {
         message_id: String,
         event: OriginalMessageLikeEvent<UnstablePollEndEventContent>,
     ) -> Result<()> {
-        log::info!("Caching poll end event of message {message_id}");
+        log::debug!("Caching poll end event of message {message_id}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(message_id.clone()).or_default();
@@ -1477,50 +1535,276 @@ impl CachedRoom {
         guard.remove(event_id);
         Ok(())
     }
+
+    /// Loads and caches the read marker of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_and_cache_event_read_markers(&self, event: &AnyTimelineEvent) -> Result<()> {
+        let read_markers = self.load_event_read_markers(event).await?;
+
+        if !read_markers.is_empty() {
+            self.cache_read_markers(read_markers)?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads the read markers of that specific event.
+    /// Only returns an error when the cache lock is poisoined.
+    async fn load_event_read_markers(
+        &self,
+        event: &AnyTimelineEvent,
+    ) -> Result<HashMap<String, u64>> {
+        let event_id = event.event_id();
+
+        log::debug!("Loading read markers for event: {event_id}");
+
+        let mut main = self
+            .load_event_receipts(event, ReceiptThread::Main)
+            .await
+            .inspect_err(|err| log::error!("Error loading main read receipts: {err}"))
+            .unwrap_or_default();
+
+        let unthreaded = self
+            .load_event_receipts(event, ReceiptThread::Unthreaded)
+            .await
+            .inspect_err(|err| log::error!("Error loading unthreaded read receipts: {err}"))
+            .unwrap_or_default();
+
+        log::trace!("Received main event receipts: {main:?}");
+        log::trace!("Received unthreaded event receipts: {unthreaded:?}");
+
+        utils::merge_hash_map_max(&mut main, unthreaded);
+
+        // The sender of the event is automatically included in the read markers.
+        let mut result = HashMap::from([(
+            event.sender().to_string(),
+            event.origin_server_ts().0.into(),
+        )]);
+
+        utils::merge_hash_map_max(&mut result, main);
+
+        log::debug!("Received event read marker: {result:?}");
+
+        Ok(result)
+    }
+
+    /// Loads the read receipts for the given event.
+    async fn load_event_receipts(
+        &self,
+        event: &AnyTimelineEvent,
+        thread: ReceiptThread,
+    ) -> Result<HashMap<String, u64>> {
+        use matrix_sdk::ruma::events::receipt::ReceiptType;
+
+        let event_id = event.event_id();
+
+        log::debug!("Loading read receipts for event {event_id} inside thread: {thread:?}");
+
+        let receipts = self
+            .room
+            .load_event_receipts(ReceiptType::Read, thread, event_id)
+            .await?;
+
+        log::debug!("Received read receipts: {receipts:?}");
+
+        let mut result = HashMap::new();
+
+        for (user_id, _) in receipts {
+            result.insert(user_id.to_string(), event.origin_server_ts().0.into());
+        }
+
+        Ok(result)
+    }
+
+    /// Caches the given read markers.
+    /// Will only update the read marker of a user, if the read marker is newer than the one
+    /// already cached.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_markers(&self, read_marker: HashMap<String, u64>) -> Result<()> {
+        for (user_id, timestamp) in read_marker {
+            self.cache_read_marker(user_id, timestamp)?;
+        }
+
+        Ok(())
+    }
+
+    /// Caches the given read marker.
+    /// Will only update the read marker if the specified read marker is newer than the one
+    /// already cached for the user.
+    /// Returns true if the read marker has been updated, false if the already cached
+    /// read marker is newer than the specified one.
+    /// Only returns an error when the cache lock is poisoined.
+    fn cache_read_marker(&self, user_id: String, timestamp: u64) -> Result<bool> {
+        log::debug!("Caching read marker for user {user_id}: {timestamp}");
+
+        let mut guard = self.read_markers.lock()?;
+
+        if let Some(old) = guard.get(&user_id)
+            && *old >= timestamp
+        {
+            log::debug!("Already cached read marker is newer, no changes to do");
+            return Ok(false);
+        }
+
+        guard.insert(user_id, timestamp);
+
+        Ok(true)
+    }
+}
+
+enum ChunkLoader {
+    Unthreaded(UnthreadedLoader),
+    Threaded(ThreadedLoader),
+}
+
+impl ChunkLoader {
+    pub async fn fetch(&mut self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        match self {
+            Self::Unthreaded(loader) => loader.fetch(num_events).await,
+            Self::Threaded(loader) => loader.fetch(num_events).await,
+        }
+    }
+}
+
+struct UnthreadedLoader {
+    room: matrix_sdk::Room,
+    from_token: Option<String>,
+}
+
+impl UnthreadedLoader {
+    pub async fn fetch(&mut self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        log::trace!("Fetching {num_events} unthreaded events");
+
+        let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
+        options.from = self.from_token.clone();
+        options.limit = num_events;
+
+        let matrix_sdk::room::Messages { end, chunk, .. } = self.room.messages(options).await?;
+
+        let reached_end = end.is_none();
+        self.from_token = end;
+
+        Ok((chunk, reached_end))
+    }
+}
+
+struct ThreadedLoader {
+    loader: ThreadedEventsLoader<matrix_sdk::Room>,
+}
+
+impl ThreadedLoader {
+    pub async fn fetch(&self, num_events: UInt) -> Result<(Vec<TimelineEvent>, bool)> {
+        log::trace!("Fetching {num_events} threaded events");
+
+        let result = self.loader.paginate_backwards(num_events).await?;
+        Ok((result.events, result.hit_end_of_timeline))
+    }
 }
 
 /// Fetches multiple messages of a room.
 struct MessagesFetcher {
     /// The room to use to fetch messages.
     cache: Arc<CachedRoom>,
+    /// Event loader.
+    loader: ChunkLoader,
 
     /// Where to send finished messages.
     sender: Sender<Result<Message>>,
     /// How many messages should be fetched.
     message_limit: u32,
 
-    /// The pagination token for the next chunk.
-    from_token: Option<String>,
     /// How many events are fetched with each request.
     chunk_size: js_int::UInt,
 
     /// The number of chat messages we have build and send to the message receiver.
     retrieved_messages: u32,
+
+    /// If updated read markers should be send to the application.
+    send_read_markers: bool,
+    /// The currently cached read markers, used to check if they have changed.
+    current_read_markers: HashMap<String, u64>,
 }
 
 impl MessagesFetcher {
-    pub fn new(
+    pub fn unthreaded(
         cache: Arc<CachedRoom>,
         sender: Sender<Result<Message>>,
         limit: u32,
         from_token: Option<String>,
     ) -> Self {
+        let loader = UnthreadedLoader {
+            room: cache.room.clone(),
+            from_token,
+        };
+
+        let loader = ChunkLoader::Unthreaded(loader);
+
+        Self::new(cache, sender, limit, loader)
+    }
+
+    pub fn threaded(
+        cache: Arc<CachedRoom>,
+        sender: Sender<Result<Message>>,
+        limit: u32,
+        from_token: Option<String>,
+        thread_id: OwnedEventId,
+    ) -> Self {
+        let token = if let Some(token) = from_token {
+            PaginationToken::HasMore(token)
+        } else {
+            PaginationToken::None
+        };
+
+        let tokens = PaginationTokens {
+            previous: token,
+            next: PaginationToken::None,
+        };
+
+        let loader = ThreadedLoader {
+            loader: ThreadedEventsLoader::new(cache.room.clone(), thread_id, tokens),
+        };
+
+        let loader = ChunkLoader::Threaded(loader);
+
+        Self::new(cache, sender, limit, loader)
+    }
+
+    fn new(
+        cache: Arc<CachedRoom>,
+        sender: Sender<Result<Message>>,
+        limit: u32,
+        loader: ChunkLoader,
+    ) -> Self {
         Self {
             cache,
+            loader,
 
             sender,
             message_limit: limit,
 
-            from_token,
             chunk_size: calc_chunk_size(limit),
 
             retrieved_messages: 0,
+
+            send_read_markers: false,
+            current_read_markers: HashMap::new(),
         }
+    }
+
+    pub fn send_read_markers(mut self, send_read_markers: bool) -> Self {
+        self.send_read_markers = send_read_markers;
+        self
     }
 
     pub async fn run(mut self) {
         if self.message_limit == 0 {
             return;
+        }
+
+        if self.send_read_markers
+            && let Ok(read_markers) = self.get_room_read_markers()
+        {
+            self.current_read_markers = read_markers;
         }
 
         let result = self.fetch_until_completion().await;
@@ -1544,25 +1828,20 @@ impl MessagesFetcher {
         while self.retrieved_messages < self.message_limit {
             log::debug!("Fetching next chunk of events");
 
-            let options = self.build_messages_options();
+            let (chunk, reached_end) = self.loader.fetch(self.chunk_size).await?;
 
-            let matrix_sdk::room::Messages { end, chunk, .. } =
-                self.cache.room.messages(options).await?;
-
-            log::debug!("Processing chunk");
+            log::trace!("Processing chunk");
 
             self.process_event_chunk(chunk).await?;
 
-            if let Some(next_token) = end {
-                self.from_token = Some(next_token);
-            } else {
+            if reached_end {
                 log::debug!("No more events left to fetch");
                 break;
             }
         }
 
         if self.retrieved_messages != self.message_limit {
-            log::warn!("Did not receive enough messages to reach requested limit");
+            log::debug!("Did not receive enough messages to reach requested limit");
         } else {
             log::debug!("Successfully fetched requested number of messages");
         }
@@ -1570,21 +1849,20 @@ impl MessagesFetcher {
         Ok(())
     }
 
-    fn build_messages_options(&self) -> matrix_sdk::room::MessagesOptions {
-        let mut options = matrix_sdk::room::MessagesOptions::new(Direction::Backward);
-        options.from = self.from_token.clone();
-        options.limit = self.chunk_size;
-        options
-    }
-
     async fn process_event_chunk(&mut self, chunk: Vec<TimelineEvent>) -> Result<()> {
         for event in chunk {
             let action = self.cache.process_timeline_event(event).await?;
+
+            log::trace!("Received cache action: {action:?}");
 
             // We only need to act on assembled messages, as the reactions
             // are already included.
             if let Some(CachedRoomAction::Message(message)) = action {
                 self.send_finished_message(message).await?;
+            }
+
+            if self.send_read_markers {
+                self.update_read_markers().await;
             }
 
             if self.retrieved_messages == self.message_limit {
@@ -1594,6 +1872,35 @@ impl MessagesFetcher {
         }
 
         Ok(())
+    }
+
+    async fn update_read_markers(&mut self) {
+        log::debug!("Checking if room read markers have changed");
+
+        let Ok(read_markers) = self.get_room_read_markers() else {
+            log::error!("Unable to acquire lock on room read markers");
+            return;
+        };
+
+        if read_markers != self.current_read_markers {
+            log::debug!("Room read markers have changed, sending update event to application");
+
+            self.current_read_markers = read_markers.clone();
+
+            let proto = RoomChangeEventBuilder::new(self.cache.room.room_id())
+                .change_read_marker(read_markers)
+                .to_proto();
+
+            self.cache
+                .ctx
+                .send_event(ResponseContent::RoomChangeEvent(proto))
+                .await;
+        }
+    }
+
+    fn get_room_read_markers(&self) -> Result<HashMap<String, u64>> {
+        let guard = self.cache.read_markers.lock()?;
+        Ok(guard.clone())
     }
 
     /// Sends the message to the message receiver.

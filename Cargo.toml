@@ -1,12 +1,12 @@
 [package]
 name = "gouda_matrix"
-version = "0.6.0"
-edition = "2021"
+version = "0.7.0"
+edition = "2024"
 publish = false
 
 [dependencies]
-gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.10.0" }
-gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.10.0" }
+gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.12.0" }
+gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.12.0" }
 
 prost = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }

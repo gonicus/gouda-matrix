@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
@@ -8,6 +7,7 @@ use gouda_core::{Client as ClientAbstraction, RequestContext};
 use gouda_proto::chat::builder::MessageChangeEventBuilder;
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{self, *};
+use matrix_sdk::Client;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::reqwest::StatusCode as HttpStatusCode;
 use matrix_sdk::room::edit::EditedContent;
@@ -16,8 +16,7 @@ use matrix_sdk::ruma::events::poll::unstable_response::UnstablePollResponseEvent
 use matrix_sdk::ruma::events::reaction::ReactionEventContent;
 use matrix_sdk::ruma::events::relation::Annotation;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-use matrix_sdk::ruma::{assign, OwnedUserId, RoomId, UserId};
-use matrix_sdk::Client;
+use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId, assign};
 use ruma_common::api::error::{FromHttpResponseError, IntoHttpError};
 use ruma_common::{EventId, OwnedEventId};
 use tokio::sync::OnceCell;
@@ -33,7 +32,7 @@ use crate::rooms::RoomsManager;
 use crate::session::Session;
 use crate::user::UserManager;
 use crate::verification::{self, VerificationManager};
-use crate::{messages, notifications, polls, rooms, user};
+use crate::{measure, messages, notifications, polls, rooms, user};
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_USER_FETCHES: usize = 50;
@@ -44,9 +43,7 @@ const CACHE_DIR: &str = "cache";
 const AUTH_FILE: &str = "auth";
 
 macro_rules! try_lock {
-    ($lock_result:expr) => {{
-        $lock_result.map_err(|_| Error::internal("lock poisoined"))?
-    }};
+    ($lock_result:expr) => {{ $lock_result.map_err(|_| Error::internal("lock poisoined"))? }};
 }
 
 pub struct MatrixClient {
@@ -86,7 +83,7 @@ impl ClientAbstraction for MatrixClient {
             return Err(Error::AlreadyInitialized.into());
         }
 
-        let (client, result) = MatrixClientInner::new(ctx, request).await?;
+        let (client, result) = measure!(MatrixClientInner::new(ctx, request).await?, "initialize");
 
         if let Err(err) = self.inner.set(client) {
             log::error!("Error when initializting client: {err}");
@@ -102,24 +99,30 @@ impl ClientAbstraction for MatrixClient {
             return;
         };
 
-        inner.on_response(response).await;
+        measure!(inner.on_response(response).await, "on_response");
     }
 
     async fn get_login_flows(&self, ctx: RequestContext) -> gouda_core::Result<LoginFlowsResponse> {
-        self.inner()?
-            .get_login_flows(ctx)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_login_flows(ctx)
+                .await
+                .map_err(|err| err.into()),
+            "get_login_flows"
+        )
     }
 
     async fn get_identity_providers(
         &self,
         ctx: RequestContext,
     ) -> gouda_core::Result<IdentityProvidersResponse> {
-        self.inner()?
-            .get_identity_providers(ctx)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_identity_providers(ctx)
+                .await
+                .map_err(|err| err.into()),
+            "get_identity_providers"
+        )
     }
 
     async fn login_username_password(
@@ -127,10 +130,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: LoginUsernamePasswordRequest,
     ) -> gouda_core::Result<StatusUpdate> {
-        self.inner()?
-            .login_username_password(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .login_username_password(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "login_username_password"
+        )
     }
 
     async fn login_sso(
@@ -138,10 +144,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: LoginSsoRequest,
     ) -> gouda_core::Result<LoginSsoResponse> {
-        self.inner()?
-            .login_sso(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .login_sso(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "login_sso"
+        )
     }
 
     async fn recovery_key_verification(
@@ -149,10 +158,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RecoveryKeyVerificationRequest,
     ) -> gouda_core::Result<VerificationEndEvent> {
-        self.inner()?
-            .recovery_key_verification(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .recovery_key_verification(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "recovery_key_verification"
+        )
     }
 
     async fn cross_signing_start(
@@ -160,10 +172,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: CrossSigningStartRequest,
     ) -> gouda_core::Result<CrossSigningStartResponse> {
-        self.inner()?
-            .cross_signing_start(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .cross_signing_start(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "cross_signing_start"
+        )
     }
 
     async fn cross_signing_select_method(
@@ -171,10 +186,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: CrossSigningMethodSelectedRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .cross_signing_select_method(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .cross_signing_select_method(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "cross_signing_select_method"
+        )
     }
 
     async fn cross_signing_confirm(
@@ -182,10 +200,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: CrossSigningConfirmRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .cross_signing_confirm(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .cross_signing_confirm(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "cross_signing_confirm"
+        )
     }
 
     async fn abort_verification(
@@ -193,10 +214,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: VerificationAbortRequest,
     ) -> gouda_core::Result<VerificationEndEvent> {
-        self.inner()?
-            .abort_verification(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .abort_verification(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "abort_verification"
+        )
     }
 
     async fn get_global_settings(
@@ -204,10 +228,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: GlobalSettingsRequest,
     ) -> gouda_core::Result<GlobalSettings> {
-        self.inner()?
-            .get_global_settings(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_global_settings(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_global_settings"
+        )
     }
 
     async fn get_user(
@@ -215,10 +242,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: UserRequest,
     ) -> gouda_core::Result<User> {
-        self.inner()?
-            .get_user(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_user(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_user"
+        )
     }
 
     async fn search_users(
@@ -226,17 +256,23 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: UserSearchRequest,
     ) -> gouda_core::Result<UserSearchResponse> {
-        self.inner()?
-            .search_users(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .search_users(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "search_users"
+        )
     }
 
     async fn set_status(&self, ctx: RequestContext, request: UserStatus) -> gouda_core::Result<()> {
-        self.inner()?
-            .set_status(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .set_status(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "set_status"
+        )
     }
 
     async fn get_public_rooms(
@@ -244,10 +280,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: PublicRoomListRequest,
     ) -> gouda_core::Result<PublicRoomListResponse> {
-        self.inner()?
-            .get_public_rooms(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_public_rooms(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_public_rooms"
+        )
     }
 
     async fn invite(
@@ -255,10 +294,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: InvitationRequest,
     ) -> gouda_core::Result<RoomChangeEvent> {
-        self.inner()?
-            .invite(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .invite(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "invite"
+        )
     }
 
     async fn invitation_reply(
@@ -266,10 +308,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: InvitedReply,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .invitation_reply(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .invitation_reply(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "invitation_reply"
+        )
     }
 
     async fn get_rooms(
@@ -277,10 +322,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomListRequest,
     ) -> gouda_core::Result<RoomListResponse> {
-        self.inner()?
-            .get_rooms(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_rooms(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_rooms"
+        )
     }
 
     async fn create_group_room(
@@ -288,10 +336,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomCreateGroupRequest,
     ) -> gouda_core::Result<Room> {
-        self.inner()?
-            .create_group_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .create_group_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "create_group_room"
+        )
     }
 
     async fn create_direct_room(
@@ -299,10 +350,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomCreateDirectRequest,
     ) -> gouda_core::Result<Room> {
-        self.inner()?
-            .create_direct_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .create_direct_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "create_direct_room"
+        )
     }
 
     async fn change_room(
@@ -310,10 +364,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomChangeRequest,
     ) -> gouda_core::Result<RoomChangeEvent> {
-        self.inner()?
-            .change_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .change_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "change_room"
+        )
     }
 
     async fn leave_room(
@@ -321,10 +378,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomLeaveRequest,
     ) -> gouda_core::Result<RoomLeftEvent> {
-        self.inner()?
-            .leave_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .leave_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "leave_room"
+        )
     }
 
     async fn join_room(
@@ -332,10 +392,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomJoinRequest,
     ) -> gouda_core::Result<Room> {
-        self.inner()?
-            .join_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .join_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "join_room"
+        )
     }
 
     async fn knock_room(
@@ -343,10 +406,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomKnockRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .knock_room(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .knock_room(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "knock_room"
+        )
     }
 
     async fn get_room_messages(
@@ -354,10 +420,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .get_room_messages(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_room_messages(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_room_messages"
+        )
     }
 
     async fn mark_as_read(
@@ -365,10 +434,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomMarkAsReadRequest,
     ) -> gouda_core::Result<RoomChangeEvent> {
-        self.inner()?
-            .mark_as_read(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .mark_as_read(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "mark_as_read"
+        )
     }
 
     async fn activate_typing_notice(
@@ -376,10 +448,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomTypingRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .activate_typing_notice(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .activate_typing_notice(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "activate_typing_notice"
+        )
     }
 
     async fn pin_unpin_message(
@@ -387,10 +462,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: RoomPinRequest,
     ) -> gouda_core::Result<RoomChangeEvent> {
-        self.inner()?
-            .pin_unpin_message(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .pin_unpin_message(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "pin_unpin_message"
+        )
     }
 
     async fn send_message(
@@ -398,10 +476,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: MessageSendRequest,
     ) -> gouda_core::Result<MessageSendResponse> {
-        self.inner()?
-            .send_message(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .send_message(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "send_message"
+        )
     }
 
     async fn remove_message(
@@ -409,10 +490,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: MessageRemoveRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .remove_message(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .remove_message(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "remove_message"
+        )
     }
 
     async fn change_message(
@@ -420,10 +504,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: MessageChangeRequest,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .change_message(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .change_message(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "change_message"
+        )
     }
 
     async fn create_reaction(
@@ -431,10 +518,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: Reaction,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .create_reaction(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .create_reaction(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "create_reaction"
+        )
     }
 
     async fn remove_reaction(
@@ -442,10 +532,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: Reaction,
     ) -> gouda_core::Result<()> {
-        self.inner()?
-            .remove_reaction(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .remove_reaction(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "remove_reaction"
+        )
     }
 
     async fn get_message(
@@ -453,10 +546,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: MessageRequest,
     ) -> gouda_core::Result<Message> {
-        self.inner()?
-            .get_message(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .get_message(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "get_message"
+        )
     }
 
     async fn answer_poll(
@@ -464,10 +560,13 @@ impl ClientAbstraction for MatrixClient {
         ctx: RequestContext,
         request: PollAnswerRequest,
     ) -> gouda_core::Result<MessageChangeEvent> {
-        self.inner()?
-            .answer_poll(ctx, request)
-            .await
-            .map_err(|err| err.into())
+        measure!(
+            self.inner()?
+                .answer_poll(ctx, request)
+                .await
+                .map_err(|err| err.into()),
+            "answer_poll"
+        )
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -697,24 +796,23 @@ impl MatrixClientInner {
     }
 
     fn is_auth_err_matrix_http(&self, err: &matrix_sdk::HttpError) -> bool {
-        if let matrix_sdk::HttpError::IntoHttp(err) = &err {
-            if matches!(err, IntoHttpError::Authentication(_)) {
-                return true;
-            }
+        if let matrix_sdk::HttpError::IntoHttp(err) = &err
+            && matches!(err, IntoHttpError::Authentication(_))
+        {
+            return true;
         }
 
-        if let matrix_sdk::HttpError::Reqwest(err) = &err {
-            if err.status() == Some(HttpStatusCode::UNAUTHORIZED) {
-                return true;
-            }
+        if let matrix_sdk::HttpError::Reqwest(err) = &err
+            && err.status() == Some(HttpStatusCode::UNAUTHORIZED)
+        {
+            return true;
         }
 
-        if let matrix_sdk::HttpError::Api(err) = &err {
-            if let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err {
-                if err.status_code == HttpStatusCode::UNAUTHORIZED {
-                    return true;
-                }
-            }
+        if let matrix_sdk::HttpError::Api(err) = &err
+            && let FromHttpResponseError::Server(UiaaResponse::MatrixError(err)) = &**err
+            && err.status_code == HttpStatusCode::UNAUTHORIZED
+        {
+            return true;
         }
 
         false
@@ -834,7 +932,7 @@ impl MatrixClientInner {
             return;
         };
 
-        session.event_manager.process_response(&content);
+        session.event_manager.process_response(&content).await;
         session.proto_cache.cache_response_content(content);
     }
 
@@ -1569,28 +1667,38 @@ impl MatrixClientInner {
         ctx: RequestContext,
         request: RoomMessagesRequest,
     ) -> Result<()> {
-        let room = self.get_matrix_room(request.room_id.as_str()).await?;
+        let RoomMessagesRequest {
+            room_id,
+            order,
+            from_message_id,
+            limit,
+            thread_id,
+        } = request;
+
+        let room = self.get_matrix_room(room_id.as_str()).await?;
 
         let session = self.session()?;
         let SessionContext { memory_cache, .. } = session.as_ref();
 
-        if request.order == Some(MessagesOrder::Forward.into()) {
-            return Err(Error::internal(
-                "MessagesOrder::Forward is currently not supported",
-            ));
+        if order == Some(MessagesOrder::Forward.into()) {
+            return Err(Error::internal("MessagesOrder::Forward is not supported"));
         }
 
-        let limit = request.limit.unwrap_or(10);
+        let limit = limit.unwrap_or(10);
 
-        let from_message_id = request
-            .from_message_id
-            .as_ref()
-            .map(|v| OwnedEventId::from_str(v).map_err(|_| Error::InvalidMessageId))
+        let from_message_id = from_message_id
+            .map(|v| v.try_into().map_err(|_| Error::InvalidMessageId))
+            .transpose()?;
+
+        let thread_id = thread_id
+            .map(|v| v.try_into().map_err(|_| Error::InvalidThreadId))
             .transpose()?;
 
         let query_options = memory_cache::QueryOptions {
             from_message_id,
             limit,
+            thread_id,
+            send_read_markers: true,
         };
 
         let mut stream = memory_cache.fetch_messages(room, query_options).await?;
