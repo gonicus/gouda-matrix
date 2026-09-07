@@ -99,7 +99,7 @@ impl ClientAbstraction for MatrixClient {
             return;
         };
 
-        measure!(inner.on_response(response).await);
+        measure!(inner.on_response(response).await, "on_response");
     }
 
     async fn get_login_flows(&self, ctx: RequestContext) -> gouda_core::Result<LoginFlowsResponse> {
