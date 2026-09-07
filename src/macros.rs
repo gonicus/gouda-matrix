@@ -48,7 +48,7 @@ macro_rules! unwrap_or_log_return_option {
 }
 
 #[macro_export]
-macro_rules! measure_time {
+macro_rules! measure {
     ($expr:expr $(,)?) => {
         $crate::measure_time!($expr, "Measured time")
     };
