@@ -1014,6 +1014,7 @@ impl CachedRoom {
             sender_id: event.sender.to_string(),
             content: Some(message::Content::Poll(original)),
             is_encrypted: false,
+            timestamp: event.origin_server_ts.0.into(),
             ..Default::default()
         };
 
