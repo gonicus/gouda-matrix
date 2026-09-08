@@ -1735,11 +1735,7 @@ impl MatrixClientInner {
 
         room.send_multiple_receipts(receipts).await?;
 
-        let proto = builder::RoomChangeEventBuilder::new(request.room_id.clone())
-            .change_unread_count(0)
-            .to_proto();
-
-        Ok(proto)
+        Ok(RoomChangeEvent::default())
     }
 
     async fn activate_typing_notice(
