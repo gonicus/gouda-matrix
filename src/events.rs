@@ -1303,7 +1303,7 @@ impl EventExecutor {
             };
 
             let AnyEphemeralRoomEventContent::Typing(event) = event.content() else {
-                break;
+                continue;
             };
 
             result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
@@ -1326,7 +1326,7 @@ impl EventExecutor {
             };
 
             let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
-                break;
+                continue;
             };
 
             log::trace!("Received receipt event content: {event:?}");
