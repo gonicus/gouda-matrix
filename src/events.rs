@@ -895,12 +895,10 @@ impl EventExecutor {
     async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
         // Check if our user's membership has changed and if we need to handle this
         // change differently than a membership change for other users.
-        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string()) {
-            self.send_room_created_event_if_needed(&room).await;
-
-            if self.process_own_membership_change(&room, &event).await {
-                return;
-            }
+        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string())
+            && self.process_own_membership_change(&room, &event).await
+        {
+            return;
         }
 
         if let MembershipChange::ProfileChanged {
@@ -972,6 +970,9 @@ impl EventExecutor {
             MembershipChange::Banned | MembershipChange::KickedAndBanned => {
                 self.process_own_leave_change(room, event, RoomLeaveReason::Banned)
                     .await;
+            }
+            MembershipChange::Joined => {
+                self.send_room_created_event_if_needed(room).await;
             }
             _ => {
                 log::debug!("Treating it like any other membership change");

@@ -118,7 +118,7 @@ impl RoomsManager {
             .collect::<Vec<String>>();
 
         let read_marker = measure!(
-            get_room_read_marker(room).await.unwrap_or_default(),
+            get_room_read_markers(room).await.unwrap_or_default(),
             "Read markers"
         );
 
@@ -193,17 +193,22 @@ async fn get_room_settings(room: &matrix_sdk::Room) -> RoomSettings {
     }
 }
 
-async fn get_room_read_marker(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
+async fn get_room_read_markers(room: &matrix_sdk::Room) -> Result<HashMap<String, u64>> {
     let mut result = HashMap::new();
 
-    log::trace!("Retrieving room read marker for room: {}", room.room_id());
+    log::trace!("Retrieving room read markers for room: {}", room.room_id());
 
     for member in room.members(RoomMemberships::all()).await? {
         log::trace!("Loading receipt for user: {}", member.user_id());
 
-        let receipt = room
+        let receipt_result = room
             .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
-            .await?;
+            .await
+            .inspect_err(|err| log::error!("Error loading user receipt: {err}"));
+
+        let Ok(receipt) = receipt_result else {
+            continue;
+        };
 
         let Some((_, receipt)) = receipt else {
             log::trace!("User does not have a receipt");

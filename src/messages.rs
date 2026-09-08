@@ -253,6 +253,8 @@ impl<'a> MessageBuilder<'a> {
     async fn send_text(self, room: &Room, content: MessageContentText) -> Result<String> {
         let mut event = RoomMessageEventContent::text_markdown(content.content);
 
+        // This is currently used to get all mentions rendered correctly on
+        // other clients. This is a bit hacky and should be improved in the future.
         if let MessageType::Text(text) = &mut event.msgtype
             && text.formatted.is_none()
         {
