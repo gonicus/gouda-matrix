@@ -199,7 +199,7 @@ impl MemoryCache {
 
     /// Marks the room as read.
     pub fn mark_room_as_read(&self, room: MatrixRoom) -> Result<()> {
-        self.inner.mark_room_as_read(room, utils::get_unix_timestamp_secs())
+        self.inner.mark_room_as_read(room, utils::get_unix_timestamp_millis())
     }
 
     /// Marks the room as unread.
@@ -208,7 +208,7 @@ impl MemoryCache {
     }
 
     /// Gets the timestamp when the room was marked as read.
-    pub fn room_mark_as_read_ts(&self, room_id: impl AsRef<str>) -> Result<Option<u64>> {
+    pub fn room_mark_as_read_ts(&self, room_id: impl AsRef<str>) -> Result<Option<u128>> {
         self.inner.room_mark_as_read_ts(room_id.as_ref())
     }
 
@@ -376,7 +376,7 @@ impl MemoryCacheInner {
     pub fn mark_room_as_read(
         &self,
         room: MatrixRoom,
-        ts: u64,
+        ts: u128,
     ) -> Result<()> {
         let room = self.get_or_create_room(room)?;
         let mut guard = room.marked_as_read_ts.lock()?;
@@ -398,7 +398,7 @@ impl MemoryCacheInner {
         Ok(())
     }
 
-    pub fn room_mark_as_read_ts(&self, room_id: &str) -> Result<Option<u64>> {
+    pub fn room_mark_as_read_ts(&self, room_id: &str) -> Result<Option<u128>> {
         let Some(room) = self.get_room(room_id)? else {
             return Ok(None);
         };
@@ -707,7 +707,7 @@ struct CachedRoom {
     /// (user_id, read_timestamp)
     read_markers: Mutex<HashMap<String, u64>>,
     /// The timestamp when the user last marked the room as read.
-    marked_as_read_ts: Mutex<Option<u64>>,
+    marked_as_read_ts: Mutex<Option<u128>>,
 }
 
 impl CachedRoom {
