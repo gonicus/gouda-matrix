@@ -10,11 +10,19 @@ use ruma_common::serde::Raw;
 use crate::error::{Error, Result};
 
 /// Gets the current unix timestamp in seconds.
-pub fn get_unix_timestamp_seconds() -> u64 {
+pub fn get_unix_timestamp_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+/// Gets the current unix timestamp in milliseconds.
+pub fn get_unix_timestamp_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
 
 /// Merges two HashMaps, keeping the greater value from both.

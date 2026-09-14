@@ -197,6 +197,21 @@ impl MemoryCache {
         }
     }
 
+    /// Marks the room as read.
+    pub fn mark_room_as_read(&self, room: MatrixRoom) -> Result<()> {
+        self.inner.mark_room_as_read(room, utils::get_unix_timestamp_secs())
+    }
+
+    /// Marks the room as unread.
+    pub fn mark_room_as_unread(&self, room_id: impl AsRef<str>) -> Result<()> {
+        self.inner.mark_room_as_unread(room_id.as_ref())
+    }
+
+    /// Gets the timestamp when the room was marked as read.
+    pub fn room_mark_as_read_ts(&self, room_id: impl AsRef<str>) -> Result<Option<u64>> {
+        self.inner.room_mark_as_read_ts(room_id.as_ref())
+    }
+
     /// Removes a previously cached reaction by it's ID.
     /// Returns metadata of the removed reaction.
     pub fn remove_reaction_by_id(
@@ -356,6 +371,39 @@ impl MemoryCacheInner {
     ) -> Result<bool> {
         let room = self.get_or_create_room(room)?;
         room.cache_read_marker(user_id, read_marker)
+    }
+
+    pub fn mark_room_as_read(
+        &self,
+        room: MatrixRoom,
+        ts: u64,
+    ) -> Result<()> {
+        let room = self.get_or_create_room(room)?;
+        let mut guard = room.marked_as_read_ts.lock()?;
+        *guard = Some(ts);
+        Ok(())
+    }
+
+    pub fn mark_room_as_unread(
+        &self,
+        room_id: &str
+    ) -> Result<()> {
+        let Some(room) = self.get_room(room_id)? else {
+            return Ok(());
+        };
+
+        let mut guard = room.marked_as_read_ts.lock()?;
+        *guard = None;
+
+        Ok(())
+    }
+
+    pub fn room_mark_as_read_ts(&self, room_id: &str) -> Result<Option<u64>> {
+        let Some(room) = self.get_room(room_id)? else {
+            return Ok(None);
+        };
+
+        Ok(room.marked_as_read_ts.lock()?.clone())
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
@@ -658,6 +706,8 @@ struct CachedRoom {
     /// The read markers we have cached.
     /// (user_id, read_timestamp)
     read_markers: Mutex<HashMap<String, u64>>,
+    /// The timestamp when the user last marked the room as read.
+    marked_as_read_ts: Mutex<Option<u64>>,
 }
 
 impl CachedRoom {
@@ -673,6 +723,7 @@ impl CachedRoom {
             reaction_id_to_message: Mutex::new(HashMap::new()),
 
             read_markers: Mutex::new(HashMap::new()),
+            marked_as_read_ts: Mutex::new(None),
         }
     }
 
