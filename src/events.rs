@@ -1176,11 +1176,10 @@ impl EventExecutor {
             return;
         };
 
-        if event_ts as u128 > ts {
-            if let Err(err) = self.memory_cache.mark_room_as_unread(room.room_id()) {
+        if event_ts as u128 > ts
+            && let Err(err) = self.memory_cache.mark_room_as_unread(room.room_id()) {
                 log::error!("Unable marking room as unread: {err}");
             }
-        }
     }
 
     async fn process_replacement_message(
@@ -1523,11 +1522,10 @@ impl EventExecutor {
 
         log::debug!("Received new unread count of room: {new}");
 
-        if let Ok(Some(ts)) = self.memory_cache.room_mark_as_read_ts(room_id) {
-            if utils::get_unix_timestamp_millis() < ts + ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT {
+        if let Ok(Some(ts)) = self.memory_cache.room_mark_as_read_ts(room_id)
+            && utils::get_unix_timestamp_millis() < ts + ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT {
                 return;
             }
-        }
 
         let proto = RoomChangeEventBuilder::new(room_id.to_string())
             .change_unread_count(new)

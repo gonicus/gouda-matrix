@@ -403,7 +403,7 @@ impl MemoryCacheInner {
             return Ok(None);
         };
 
-        Ok(room.marked_as_read_ts.lock()?.clone())
+        Ok(*room.marked_as_read_ts.lock()?)
     }
 
     pub fn cache_reaction(&self, room: MatrixRoom, event: OriginalSyncReactionEvent) -> Result<()> {
