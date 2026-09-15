@@ -65,7 +65,7 @@ const MAX_QUEUED_ROOM_CHANGES: usize = 15;
 
 /// After marking a room as read, how many milliseconds do we not send unread count events?
 /// This is done to prevent unread count flickering.
-const ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT: u128 = 1000;
+const ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT: u128 = 2000;
 
 macro_rules! impl_room_event_handler {
     ($event:ident, $handler_name:ident, $processor_name:ident) => {
