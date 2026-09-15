@@ -199,7 +199,8 @@ impl MemoryCache {
 
     /// Marks the room as read.
     pub fn mark_room_as_read(&self, room: MatrixRoom) -> Result<()> {
-        self.inner.mark_room_as_read(room, utils::get_unix_timestamp_millis())
+        self.inner
+            .mark_room_as_read(room, utils::get_unix_timestamp_millis())
     }
 
     /// Marks the room as unread.
@@ -373,21 +374,14 @@ impl MemoryCacheInner {
         room.cache_read_marker(user_id, read_marker)
     }
 
-    pub fn mark_room_as_read(
-        &self,
-        room: MatrixRoom,
-        ts: u128,
-    ) -> Result<()> {
+    pub fn mark_room_as_read(&self, room: MatrixRoom, ts: u128) -> Result<()> {
         let room = self.get_or_create_room(room)?;
         let mut guard = room.marked_as_read_ts.lock()?;
         *guard = Some(ts);
         Ok(())
     }
 
-    pub fn mark_room_as_unread(
-        &self,
-        room_id: &str
-    ) -> Result<()> {
+    pub fn mark_room_as_unread(&self, room_id: &str) -> Result<()> {
         let Some(room) = self.get_room(room_id)? else {
             return Ok(());
         };
