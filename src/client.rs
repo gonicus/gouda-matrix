@@ -1722,6 +1722,9 @@ impl MatrixClientInner {
     ) -> Result<RoomChangeEvent> {
         use matrix_sdk::room::Receipts;
 
+        let session = self.session()?;
+        let SessionContext { memory_cache, .. } = &*session;
+
         let room = self.get_matrix_room(&request.room_id).await?;
 
         let Some(event_id) = room.latest_event().event_id() else {
@@ -1735,11 +1738,11 @@ impl MatrixClientInner {
 
         room.send_multiple_receipts(receipts).await?;
 
-        let proto = builder::RoomChangeEventBuilder::new(request.room_id.clone())
-            .change_unread_count(0)
-            .to_proto();
+        if let Err(err) = memory_cache.mark_room_as_read(room) {
+            log::error!("Error caching room mark as read ts: {err}");
+        }
 
-        Ok(proto)
+        Ok(RoomChangeEvent::default())
     }
 
     async fn activate_typing_notice(
