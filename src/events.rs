@@ -13,7 +13,10 @@ use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::fully_read::FullyReadEvent;
 use matrix_sdk::ruma::events::poll::unstable_end::OriginalSyncUnstablePollEndEvent;
 use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollResponseEvent;
-use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
+use matrix_sdk::ruma::events::poll::unstable_start::{
+    NewUnstablePollStartEventContent, OriginalSyncUnstablePollStartEvent,
+    ReplacementUnstablePollStartEventContent,
+};
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::receipt::{Receipts, SyncReceiptEvent};
@@ -1427,16 +1430,33 @@ impl EventExecutor {
         room: Room,
         event: OriginalSyncUnstablePollStartEvent,
     ) {
-        let result = polls::assemble_poll_start(event.content.poll_start())
+        use matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent;
+
+        match &event.content {
+            UnstablePollStartEventContent::New(content) => {
+                self.exec_new_unstable_poll_start_event(room, &event, content)
+                    .await;
+            }
+            UnstablePollStartEventContent::Replacement(content) => {
+                self.exec_replacement_unstable_poll_start_event(room, content)
+                    .await;
+            }
+            _ => log::error!("Received unknown UnstablePollStartEventContent"),
+        }
+    }
+
+    async fn exec_new_unstable_poll_start_event(
+        &self,
+        room: Room,
+        event: &OriginalSyncUnstablePollStartEvent,
+        content: &NewUnstablePollStartEventContent,
+    ) {
+        let result = polls::assemble_poll_start(&content.poll_start)
             .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
 
-        let Ok(mut content) = result else {
+        let Ok(content) = result else {
             return;
         };
-
-        if let Err(err) = polls::replace_content(&mut content, event.content.poll_start()) {
-            log::error!("Error replacing poll content: {err}");
-        }
 
         let message = Message {
             message_id: event.event_id.to_string(),
@@ -1449,6 +1469,36 @@ impl EventExecutor {
 
         self.ctx
             .send_event(ResponseContent::MessageReceivedEvent(message))
+            .await;
+    }
+
+    async fn exec_replacement_unstable_poll_start_event(
+        &self,
+        room: Room,
+        content: &ReplacementUnstablePollStartEventContent,
+    ) {
+        let room_id = room.room_id().to_string();
+
+        let original = polls::assemble_poll(room, &content.relates_to.event_id)
+            .await
+            .inspect_err(|err| log::error!("Unable to assemble poll: {err}"));
+
+        let Ok(mut original) = original else {
+            return;
+        };
+
+        if let Some(new) = &content.poll_start {
+            let _ = polls::replace_content(&mut original, new)
+                .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
+        }
+
+        let proto =
+            MessageChangeEventBuilder::new(room_id, content.relates_to.event_id.to_string())
+                .change_content(message_change_event::Content::Poll(original))
+                .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(proto))
             .await;
     }
 
