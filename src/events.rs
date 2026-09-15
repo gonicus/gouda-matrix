@@ -13,7 +13,10 @@ use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::events::fully_read::FullyReadEvent;
 use matrix_sdk::ruma::events::poll::unstable_end::OriginalSyncUnstablePollEndEvent;
 use matrix_sdk::ruma::events::poll::unstable_response::OriginalSyncUnstablePollResponseEvent;
-use matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent;
+use matrix_sdk::ruma::events::poll::unstable_start::{
+    NewUnstablePollStartEventContent, OriginalSyncUnstablePollStartEvent,
+    ReplacementUnstablePollStartEventContent,
+};
 use matrix_sdk::ruma::events::presence::PresenceEvent;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
 use matrix_sdk::ruma::events::receipt::{Receipts, SyncReceiptEvent};
@@ -62,6 +65,10 @@ const HISTORICAL_EVENT_TIMEOUT: u64 = 5;
 
 /// How many room change events should be queued per room?
 const MAX_QUEUED_ROOM_CHANGES: usize = 15;
+
+/// After marking a room as read, how many milliseconds do we not send unread count events?
+/// This is done to prevent unread count flickering.
+const ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT: u128 = 2000;
 
 macro_rules! impl_room_event_handler {
     ($event:ident, $handler_name:ident, $processor_name:ident) => {
@@ -895,12 +902,10 @@ impl EventExecutor {
     async fn exec_room_member_event(&mut self, room: Room, event: OriginalSyncRoomMemberEvent) {
         // Check if our user's membership has changed and if we need to handle this
         // change differently than a membership change for other users.
-        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string()) {
-            self.send_room_created_event_if_needed(&room).await;
-
-            if self.process_own_membership_change(&room, &event).await {
-                return;
-            }
+        if Some(event.state_key.to_string()) == self.client.user_id().map(|f| f.to_string())
+            && self.process_own_membership_change(&room, &event).await
+        {
+            return;
         }
 
         if let MembershipChange::ProfileChanged {
@@ -972,6 +977,9 @@ impl EventExecutor {
             MembershipChange::Banned | MembershipChange::KickedAndBanned => {
                 self.process_own_leave_change(room, event, RoomLeaveReason::Banned)
                     .await;
+            }
+            MembershipChange::Joined => {
+                self.send_room_created_event_if_needed(room).await;
             }
             _ => {
                 log::debug!("Treating it like any other membership change");
@@ -1152,9 +1160,30 @@ impl EventExecutor {
         let event = event.into_full_event(room.room_id().to_owned());
         let message = messages::message_from_event(&self.media_manager, &room, &event).await;
 
+        self.maybe_mark_room_as_unread(&room, message.timestamp);
+
         self.ctx
             .send_event(ResponseContent::MessageReceivedEvent(message))
             .await;
+    }
+
+    /// Marks the room as unread, if the new event timestamp is newer than the already
+    /// cached marked as read timestamp of the room.
+    fn maybe_mark_room_as_unread(&self, room: &Room, event_ts: u64) {
+        let Ok(ts) = self.memory_cache.room_mark_as_read_ts(room.room_id()) else {
+            log::error!("Unable to retrieve room mark as read timestamp");
+            return;
+        };
+
+        let Some(ts) = ts else {
+            return;
+        };
+
+        if event_ts as u128 > ts
+            && let Err(err) = self.memory_cache.mark_room_as_unread(room.room_id())
+        {
+            log::error!("Unable marking room as unread: {err}");
+        }
     }
 
     async fn process_replacement_message(
@@ -1303,7 +1332,7 @@ impl EventExecutor {
             };
 
             let AnyEphemeralRoomEventContent::Typing(event) = event.content() else {
-                break;
+                continue;
             };
 
             result = Some(event.user_ids.iter().map(OwnedUserId::to_string).collect());
@@ -1326,7 +1355,7 @@ impl EventExecutor {
             };
 
             let AnyEphemeralRoomEventContent::Receipt(event) = event.content() else {
-                break;
+                continue;
             };
 
             log::trace!("Received receipt event content: {event:?}");
@@ -1401,16 +1430,33 @@ impl EventExecutor {
         room: Room,
         event: OriginalSyncUnstablePollStartEvent,
     ) {
-        let result = polls::assemble_poll_start(event.content.poll_start())
+        use matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent;
+
+        match &event.content {
+            UnstablePollStartEventContent::New(content) => {
+                self.exec_new_unstable_poll_start_event(room, &event, content)
+                    .await;
+            }
+            UnstablePollStartEventContent::Replacement(content) => {
+                self.exec_replacement_unstable_poll_start_event(room, content)
+                    .await;
+            }
+            _ => log::error!("Received unknown UnstablePollStartEventContent"),
+        }
+    }
+
+    async fn exec_new_unstable_poll_start_event(
+        &self,
+        room: Room,
+        event: &OriginalSyncUnstablePollStartEvent,
+        content: &NewUnstablePollStartEventContent,
+    ) {
+        let result = polls::assemble_poll_start(&content.poll_start)
             .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
 
-        let Ok(mut content) = result else {
+        let Ok(content) = result else {
             return;
         };
-
-        if let Err(err) = polls::replace_content(&mut content, event.content.poll_start()) {
-            log::error!("Error replacing poll content: {err}");
-        }
 
         let message = Message {
             message_id: event.event_id.to_string(),
@@ -1423,6 +1469,36 @@ impl EventExecutor {
 
         self.ctx
             .send_event(ResponseContent::MessageReceivedEvent(message))
+            .await;
+    }
+
+    async fn exec_replacement_unstable_poll_start_event(
+        &self,
+        room: Room,
+        content: &ReplacementUnstablePollStartEventContent,
+    ) {
+        let room_id = room.room_id().to_string();
+
+        let original = polls::assemble_poll(room, &content.relates_to.event_id)
+            .await
+            .inspect_err(|err| log::error!("Unable to assemble poll: {err}"));
+
+        let Ok(mut original) = original else {
+            return;
+        };
+
+        if let Some(new) = &content.poll_start {
+            let _ = polls::replace_content(&mut original, new)
+                .inspect_err(|err| log::error!("Unable to assemble poll start content: {err}"));
+        }
+
+        let proto =
+            MessageChangeEventBuilder::new(room_id, content.relates_to.event_id.to_string())
+                .change_content(message_change_event::Content::Poll(original))
+                .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::MessageChangeEvent(proto))
             .await;
     }
 
@@ -1496,6 +1572,12 @@ impl EventExecutor {
         let new = u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX);
 
         log::debug!("Received new unread count of room: {new}");
+
+        if let Ok(Some(ts)) = self.memory_cache.room_mark_as_read_ts(room_id)
+            && utils::get_unix_timestamp_millis() < ts + ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT
+        {
+            return;
+        }
 
         let proto = RoomChangeEventBuilder::new(room_id.to_string())
             .change_unread_count(new)
