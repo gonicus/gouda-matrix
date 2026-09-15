@@ -444,7 +444,7 @@ where
 
         let info = AssetInfo {
             file: asset_file_name.clone(),
-            download_ts: utils::get_unix_timestamp_seconds(),
+            download_ts: utils::get_unix_timestamp_secs(),
             upstream_url: upload.upstream_url,
         };
 
@@ -544,7 +544,7 @@ where
 
         let info = AssetInfo {
             file: data_file_name.clone(),
-            download_ts: utils::get_unix_timestamp_seconds(),
+            download_ts: utils::get_unix_timestamp_secs(),
             upstream_url: download.upstream_url,
         };
 
@@ -1311,7 +1311,7 @@ mod tests {
 
         let info = AssetInfo {
             file: asset_file_name,
-            download_ts: utils::get_unix_timestamp_seconds(),
+            download_ts: utils::get_unix_timestamp_secs(),
             upstream_url: upstream_url.into(),
         };
 
@@ -1329,7 +1329,7 @@ mod tests {
         assert_eq!(&info.upstream_url, upstream_url);
 
         // Make sure the download timestamp was within the allowed seconds and not in the future.
-        let now = utils::get_unix_timestamp_seconds();
+        let now = utils::get_unix_timestamp_secs();
 
         assert!(
             info.download_ts <= now,

@@ -1722,6 +1722,9 @@ impl MatrixClientInner {
     ) -> Result<RoomChangeEvent> {
         use matrix_sdk::room::Receipts;
 
+        let session = self.session()?;
+        let SessionContext { memory_cache, .. } = &*session;
+
         let room = self.get_matrix_room(&request.room_id).await?;
 
         let Some(event_id) = room.latest_event().event_id() else {
@@ -1734,6 +1737,10 @@ impl MatrixClientInner {
             .public_read_receipt(event_id);
 
         room.send_multiple_receipts(receipts).await?;
+
+        if let Err(err) = memory_cache.mark_room_as_read(room) {
+            log::error!("Error caching room mark as read ts: {err}");
+        }
 
         Ok(RoomChangeEvent::default())
     }
