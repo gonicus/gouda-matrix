@@ -596,11 +596,13 @@ impl SessionContext {
         data_root_dir: PathBuf,
         encryption_secret: String,
         database_secret: &str,
+        verify_ssl: bool,
     ) -> Result<Self> {
         let client = build_client(
             &homeserver_url,
             &get_session_dir(&data_root_dir),
             database_secret,
+            verify_ssl,
         )
         .await?;
 
@@ -655,6 +657,8 @@ struct MatrixClientInner {
     encryption_secret: String,
     /// The passphrase used to encrypt the database.
     database_secret: String,
+    /// If certificates should be verified.
+    verify_certificates: bool,
 }
 
 impl MatrixClientInner {
@@ -671,6 +675,7 @@ impl MatrixClientInner {
             data_root_dir.clone(),
             request.encryption_secret.clone(),
             &request.persistent_storage_secret,
+            request.verify_certificates,
         )
         .await?;
 
@@ -682,6 +687,7 @@ impl MatrixClientInner {
             data_root_dir,
             encryption_secret: request.encryption_secret,
             database_secret: request.persistent_storage_secret,
+            verify_certificates: request.verify_certificates,
 
             cached_idps: Mutex::new(None),
             verification_requests: Mutex::new(Vec::new()),
@@ -711,6 +717,7 @@ impl MatrixClientInner {
             self.data_root_dir.clone(),
             self.encryption_secret.clone(),
             &self.database_secret,
+            self.verify_certificates,
         )
         .await?;
 
@@ -2042,19 +2049,23 @@ pub async fn build_client(
     homeserver: &Url,
     session_dir: &Path,
     session_db_passphrase: &str,
+    verify_ssl: bool,
 ) -> Result<Client> {
-    let client = Client::builder()
+    let mut builder = Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(session_dir, Some(session_db_passphrase))
         .with_encryption_settings(EncryptionSettings {
             auto_enable_cross_signing: true,
             auto_enable_backups: true,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
-        })
-        .build()
-        .await?;
+        });
 
-    Ok(client)
+    if !verify_ssl {
+        log::info!("SSL verification has been disabled");
+        builder = builder.disable_ssl_verification();
+    }
+
+    Ok(builder.build().await?)
 }
 
 /// Removes the given directory, if it exists.
