@@ -622,6 +622,7 @@ impl CachedMessage {
 
         if let Some(replacement) = replacements.last() {
             msg.content = Some(replacement.new_content.clone());
+            msg.edited = true;
         }
     }
 
