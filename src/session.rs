@@ -434,7 +434,7 @@ impl SyncProcess {
             .await;
     }
 
-    async fn get_media_size_limit(&self) -> u64 {
+    async fn get_media_size_limit(&self) -> Option<u64> {
         use matrix_sdk::ruma::api::client::authenticated_media::get_media_config;
         let request = get_media_config::v1::Request::new();
 
@@ -444,7 +444,7 @@ impl SyncProcess {
             .await
             .map(|f| f.upload_size.into())
             .inspect_err(|err| log::error!("Error receiving media config: {err}"))
-            .unwrap_or(0)
+            .ok()
     }
 
     async fn send_verification_status_event(&self) -> Result<()> {
