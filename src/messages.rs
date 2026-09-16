@@ -161,6 +161,7 @@ pub async fn message_from_event(
         mentioned_user_ids,
         room_mentioned,
         thread_id: get_thread_id(event),
+        edited: false,
     }
 }
 
