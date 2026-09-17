@@ -1733,7 +1733,7 @@ impl MatrixClientInner {
         let SessionContext { memory_cache, .. } = &*session;
 
         let room = self.get_matrix_room(&request.room_id).await?;
-        let room_id = room.room_id.to_owned();
+        let room_id = room.room_id().to_owned();
 
         let Some(event_id) = room.latest_event().event_id() else {
             log::warn!("Room does not contain any events");
