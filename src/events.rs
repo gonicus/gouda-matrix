@@ -1587,6 +1587,7 @@ impl EventExecutor {
         if let Ok(Some(ts)) = self.memory_cache.room_mark_as_read_ts(room_id)
             && utils::get_unix_timestamp_millis() < ts + ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT
         {
+            log::debug!("Not updating unread count because of mark as read timeout");
             return;
         }
 
