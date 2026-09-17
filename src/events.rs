@@ -1211,6 +1211,7 @@ impl EventExecutor {
         let proto = builder::MessageChangeEventBuilder::new(room.room_id(), original_message_id)
             .change_content(content)
             .change_mentioned_user_ids(mentions)
+            .change_edited(true)
             .to_proto();
 
         self.ctx
