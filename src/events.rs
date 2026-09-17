@@ -68,7 +68,7 @@ const MAX_QUEUED_ROOM_CHANGES: usize = 15;
 
 /// After marking a room as read, how many milliseconds do we not send unread count events?
 /// This is done to prevent unread count flickering.
-const ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT: u128 = 2000;
+const ROOM_MARK_AS_READ_UNREAD_COUNT_TIMEOUT: u128 = 3000;
 
 macro_rules! impl_room_event_handler {
     ($event:ident, $handler_name:ident, $processor_name:ident) => {
@@ -1170,18 +1170,28 @@ impl EventExecutor {
     /// Marks the room as unread, if the new event timestamp is newer than the already
     /// cached marked as read timestamp of the room.
     fn maybe_mark_room_as_unread(&self, room: &Room, event_ts: u64) {
+        log::trace!("Marking room as unread, if {event_ts} is newever than cached timestamp");
+
         let Ok(ts) = self.memory_cache.room_mark_as_read_ts(room.room_id()) else {
             log::error!("Unable to retrieve room mark as read timestamp");
             return;
         };
 
         let Some(ts) = ts else {
+            log::trace!("Room does not have a read timestamp cached");
             return;
         };
 
-        if event_ts as u128 > ts
-            && let Err(err) = self.memory_cache.mark_room_as_unread(room.room_id())
-        {
+        log::trace!("New event timestamp: {event_ts}, cached timestamp: {ts}");
+
+        if event_ts as u128 <= ts {
+            log::trace!("New event timestamp is not newer than cached read timestamp");
+            return;
+        }
+
+        log::debug!("Marking room as unread");
+
+        if let Err(err) = self.memory_cache.mark_room_as_unread(room.room_id()) {
             log::error!("Unable marking room as unread: {err}");
         }
     }
