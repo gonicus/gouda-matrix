@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.15.0" }
-gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.15.0" }
+gouda_core = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.16.0" }
+gouda_proto = { git = "https://github.com/gonicus/gouda-core-rs.git", tag = "v0.16.0" }
 
 prost = "0.14"
 interprocess = { version = "2.2", default-features = false, features = ["tokio"] }
@@ -27,20 +27,12 @@ async-trait = "0.1"
 url = "2.5.7"
 
 js_int = "0.2.2"
-#matrix-sdk = { version = "0.18.0", features = [
-#  "sso-login", "markdown", "bundled-sqlite"
-#] }
-#matrix-sdk-crypto = { version = "0.18.0", default-features = false }
-#ruma-common = "0.19"
 
-matrix-sdk = {
-  git = "https://github.com/matrix-org/matrix-rust-sdk",
-  branch = "main",
-  features = ["sso-login", "markdown", "bundled-sqlite", "unstable-msc4426"]
-}
-
-matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", branch = "main" }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "db24422e03aea7c7974230098fe9aeb5481cddc6" }
+matrix-sdk = { version = "0.19.0", features = [
+ "sso-login", "markdown", "bundled-sqlite"
+] }
+matrix-sdk-crypto = { version = "0.19.0", default-features = false }
+ruma-common = "0.20"
 
 mime = "0.3"
 mime_guess = "2.0"
