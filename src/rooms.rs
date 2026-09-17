@@ -202,7 +202,7 @@ async fn get_room_read_markers(room: &matrix_sdk::Room) -> Result<HashMap<String
         log::trace!("Loading receipt for user: {}", member.user_id());
 
         let receipt_result = room
-            .load_user_receipt(ReceiptType::Read, ReceiptThread::Main, member.user_id())
+            .load_user_receipt(ReceiptType::Read, &ReceiptThread::Main, member.user_id())
             .await
             .inspect_err(|err| log::error!("Error loading user receipt: {err}"));
 
