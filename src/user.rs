@@ -159,8 +159,13 @@ fn is_profile_field_expected_error(err: &matrix_sdk::Error) -> bool {
 
 pub async fn fetch_status(client: &Client, user_id: &UserId) -> Result<UserStatus> {
     Ok(UserStatus {
-        state: fetch_user_presence(client, user_id).await.unwrap_or(PresenceState::Unknown).into(),
-        status_message: fetch_user_status_message(client, user_id).await.unwrap_or_default(),
+        state: fetch_user_presence(client, user_id)
+            .await
+            .unwrap_or(PresenceState::Unknown)
+            .into(),
+        status_message: fetch_user_status_message(client, user_id)
+            .await
+            .unwrap_or_default(),
     })
 }
 
