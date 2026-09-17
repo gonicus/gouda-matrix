@@ -1649,7 +1649,7 @@ impl CachedRoom {
 
         let receipts = self
             .room
-            .load_event_receipts(ReceiptType::Read, thread, event_id)
+            .load_event_receipts(ReceiptType::Read, &thread, event_id)
             .await?;
 
         log::debug!("Received read receipts: {receipts:?}");
