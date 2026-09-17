@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use async_trait::async_trait;
 use futures_util::stream::{self, StreamExt};
 use gouda_core::{Client as ClientAbstraction, RequestContext};
-use gouda_proto::chat::builder::MessageChangeEventBuilder;
+use gouda_proto::chat::builder::{MessageChangeEventBuilder, RoomChangeEventBuilder};
 use gouda_proto::chat::response_container::Content as ResponseContent;
 use gouda_proto::chat::{self, *};
 use matrix_sdk::Client;
@@ -1733,6 +1733,7 @@ impl MatrixClientInner {
         let SessionContext { memory_cache, .. } = &*session;
 
         let room = self.get_matrix_room(&request.room_id).await?;
+        let room_id = room.room_id.to_owned();
 
         let Some(event_id) = room.latest_event().event_id() else {
             log::warn!("Room does not contain any events");
@@ -1749,7 +1750,11 @@ impl MatrixClientInner {
             log::error!("Error caching room mark as read ts: {err}");
         }
 
-        Ok(RoomChangeEvent::default())
+        let proto = RoomChangeEventBuilder::new(room_id)
+            .change_unread_count(0)
+            .to_proto();
+
+        Ok(proto)
     }
 
     async fn activate_typing_notice(
