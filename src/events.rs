@@ -401,14 +401,11 @@ impl EventManager {
             .await;
     }
 
-    async fn process_conference_state_event(
-        &self,
-        room: Room,
-        event: SyncConferenceStateEvent,
-    ) {
+    async fn process_conference_state_event(&self, room: Room, event: SyncConferenceStateEvent) {
         log::debug!("Received SyncConferenceStateEvent");
         log::trace!("SyncConferenceStateEvent: {event:?}");
-        self.send_action(Action::ConferenceStateEvent { room, event }).await;
+        self.send_action(Action::ConferenceStateEvent { room, event })
+            .await;
     }
 
     async fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
@@ -1587,11 +1584,7 @@ impl EventExecutor {
             .await;
     }
 
-    async fn exec_conference_state_event(
-        &self,
-        room: Room,
-        event: SyncConferenceStateEvent,
-    ) {
+    async fn exec_conference_state_event(&self, room: Room, event: SyncConferenceStateEvent) {
         todo!()
     }
 

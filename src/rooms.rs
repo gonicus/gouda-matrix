@@ -6,9 +6,9 @@ use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
-use matrix_sdk::ruma::events::{EmptyStateKey, OriginalSyncStateEvent, SyncStateEvent};
 use matrix_sdk::ruma::events::macros::EventContent;
 use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
+use matrix_sdk::ruma::events::{EmptyStateKey, OriginalSyncStateEvent, SyncStateEvent};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::{Client, RoomMemberships};
 use ruma_common::UserId;
@@ -275,7 +275,9 @@ async fn remove_conference_url(room: &matrix_sdk::Room) -> Result<()> {
     Ok(())
 }
 
-async fn get_conference_state_event(room: &matrix_sdk::Room) -> Result<Option<OriginalSyncStateEvent<ConferenceStateEventContent>>> {
+async fn get_conference_state_event(
+    room: &matrix_sdk::Room,
+) -> Result<Option<OriginalSyncStateEvent<ConferenceStateEventContent>>> {
     let result = room
         .get_state_event_static::<ConferenceStateEventContent>()
         .await?
