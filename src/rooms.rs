@@ -2,9 +2,12 @@ use std::collections::HashMap;
 
 use futures_util::stream::{self, StreamExt};
 use gouda_proto::chat::*;
+use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::api::client::room::create_room::v3::Request as MatrixCreateRoomRequest;
+use matrix_sdk::ruma::events::{EmptyStateKey, OriginalSyncStateEvent, SyncStateEvent};
+use matrix_sdk::ruma::events::macros::EventContent;
 use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::room::JoinRule as MatrixJoinRule;
 use matrix_sdk::{Client, RoomMemberships};
@@ -19,6 +22,18 @@ use crate::{measure, notifications};
 
 /// How many rooms to fetch at most at the same time.
 const MAX_CONCURRENT_ROOM_FETCHES: usize = 50;
+
+const CONFERENCE_STATE_EVENT_TYPE: &str = "de.gonicus.conference";
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(
+    type = "de.gonicus.conference",
+    kind = State,
+    state_key_type = EmptyStateKey,
+)]
+pub struct ConferenceStateEventContent {
+    pub url: String,
+}
 
 #[derive(Clone)]
 pub struct RoomsManager {
@@ -171,6 +186,9 @@ pub async fn get_room_permissions(
     let can_pin_messages =
         room_power_levels.user_can_send_state(user_id, StateEventType::RoomPinnedEvents);
 
+    let can_edit_conference =
+        room_power_levels.user_can_send_state(user_id, CONFERENCE_STATE_EVENT_TYPE.into());
+
     Ok(RoomPermissions {
         can_edit,
         can_invite: room_power_levels.user_can_invite(user_id),
@@ -228,6 +246,52 @@ async fn get_room_read_markers(room: &matrix_sdk::Room) -> Result<HashMap<String
     }
 
     Ok(result)
+}
+
+async fn get_conference_url(room: &matrix_sdk::Room) -> Result<Option<String>> {
+    let result = get_conference_state_event(room).await?;
+    Ok(result.map(|e| e.content.url))
+}
+
+async fn set_conference_url(room: &matrix_sdk::Room, conference_url: String) -> Result<()> {
+    let event = ConferenceStateEventContent {
+        url: conference_url,
+    };
+
+    room.send_state_event(event).await?;
+
+    Ok(())
+}
+
+async fn remove_conference_url(room: &matrix_sdk::Room) -> Result<()> {
+    let result = get_conference_state_event(room).await?;
+
+    let Some(event_id) = result.map(|e| e.event_id) else {
+        return Ok(());
+    };
+
+    room.redact(&event_id, None, None).await?;
+
+    Ok(())
+}
+
+async fn get_conference_state_event(room: &matrix_sdk::Room) -> Result<Option<OriginalSyncStateEvent<ConferenceStateEventContent>>> {
+    let result = room
+        .get_state_event_static::<ConferenceStateEventContent>()
+        .await?
+        .map(|event| event.deserialize())
+        .transpose()
+        .inspect_err(|err| log::error!("Error deserializing conference state event: {err}"));
+
+    let Ok(Some(SyncOrStrippedState::Sync(event))) = result else {
+        return Ok(None);
+    };
+
+    let SyncStateEvent::Original(original) = event else {
+        return Ok(None);
+    };
+
+    Ok(Some(original))
 }
 
 fn matrix_join_rule_to_visibility(join_rule: MatrixJoinRule) -> Visibility {
