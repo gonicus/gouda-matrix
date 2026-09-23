@@ -137,6 +137,8 @@ impl RoomsManager {
             "Read markers"
         );
 
+        let conference_url = get_conference_url(room).await.unwrap_or_default();
+
         Ok(Room {
             room_id: room.room_id().to_string(),
             display_name,
@@ -153,6 +155,7 @@ impl RoomsManager {
             invitation_text: None,
             pinned_messages,
             read_marker,
+            conference_url,
         })
     }
 }
@@ -186,7 +189,7 @@ pub async fn get_room_permissions(
     let can_pin_messages =
         room_power_levels.user_can_send_state(user_id, StateEventType::RoomPinnedEvents);
 
-    let can_edit_conference =
+    let can_edit_conference_url =
         room_power_levels.user_can_send_state(user_id, CONFERENCE_STATE_EVENT_TYPE.into());
 
     Ok(RoomPermissions {
@@ -196,6 +199,7 @@ pub async fn get_room_permissions(
         can_ban: room_power_levels.user_can_ban(user_id),
         can_mention_room: room_power_levels.user_can_trigger_room_notification(user_id),
         can_pin_messages,
+        can_edit_conference_url,
     })
 }
 
@@ -253,7 +257,7 @@ async fn get_conference_url(room: &matrix_sdk::Room) -> Result<Option<String>> {
     Ok(result.map(|e| e.content.url))
 }
 
-async fn set_conference_url(room: &matrix_sdk::Room, conference_url: String) -> Result<()> {
+pub async fn set_conference_url(room: &matrix_sdk::Room, conference_url: String) -> Result<()> {
     let event = ConferenceStateEventContent {
         url: conference_url,
     };

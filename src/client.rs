@@ -1587,6 +1587,7 @@ impl MatrixClientInner {
             join_rule,
             avatar_path,
             is_favorite,
+            conference_url,
         } = request;
 
         let session = self.session()?;
@@ -1625,6 +1626,11 @@ impl MatrixClientInner {
         if let Some(is_favourite) = is_favorite {
             room.set_is_favourite(is_favourite, None).await?;
             response = response.change_is_favourite(is_favourite);
+        }
+
+        if let Some(conference_url) = conference_url {
+            rooms::set_conference_url(&room, conference_url.clone()).await?;
+            response = response.change_conference_url(conference_url);
         }
 
         Ok(response.to_proto())
