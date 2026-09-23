@@ -425,6 +425,7 @@ impl EventManager {
     }
 }
 
+#[derive(Debug)]
 enum Action {
     RoomDiscovered {
         room_id: String,
@@ -618,6 +619,8 @@ impl EventExecutor {
     }
 
     async fn exec_action(&mut self, action: Action) {
+        log::trace!("Executing action: {action:?}");
+
         match action {
             Action::RoomDiscovered { room_id } => self.exec_queued_room_changes(room_id).await,
             Action::AnyMessageLikeEvent { room, event } => {
