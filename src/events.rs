@@ -36,7 +36,7 @@ use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
     AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
-    AnySyncTimelineEvent, AnyTimelineEvent,
+    AnySyncTimelineEvent, AnyTimelineEvent, SyncStateEvent,
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
@@ -49,7 +49,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::bridge::{IntoChat, TryIntoChat};
 use crate::media::MediaManager;
 use crate::memory_cache::{MemoryCache, ReactionMetadata};
-use crate::rooms::RoomsManager;
+use crate::rooms::{RoomsManager, SyncConferenceStateEvent};
 use crate::{messages, polls, rooms, unwrap_or_log_return, utils};
 
 /// How many events are queued at most at the same time.
@@ -175,6 +175,7 @@ impl EventManager {
         client.add_event_handler(unstable_poll_start_event_handler);
         client.add_event_handler(unstable_poll_response_event_handler);
         client.add_event_handler(unstable_poll_end_event_handler);
+        client.add_event_handler(conference_state_event_handler);
 
         self.clone()
             .subscribe_to_event_cache_generic_updates(client.clone());
@@ -400,6 +401,13 @@ impl EventManager {
             .await;
     }
 
+    async fn process_conference_state_event(&self, room: Room, event: SyncConferenceStateEvent) {
+        log::debug!("Received SyncConferenceStateEvent");
+        log::trace!("SyncConferenceStateEvent: {event:?}");
+        self.send_action(Action::ConferenceStateEvent { room, event })
+            .await;
+    }
+
     async fn process_joined_room_update(&self, room_id: OwnedRoomId, update: JoinedRoomUpdate) {
         log::debug!("Received JoinedRoomUpdate for room: {room_id:?}");
         log::trace!("JoinedRoomUpdate: {update:?}");
@@ -497,6 +505,10 @@ enum Action {
     UnstablePollEndEvent {
         room: Room,
         event: OriginalSyncUnstablePollEndEvent,
+    },
+    ConferenceStateEvent {
+        room: Room,
+        event: SyncConferenceStateEvent,
     },
 }
 
@@ -660,6 +672,9 @@ impl EventExecutor {
             }
             Action::UnstablePollEndEvent { room, event } => {
                 self.exec_unstable_poll_end_event(room, event).await
+            }
+            Action::ConferenceStateEvent { room, event } => {
+                self.exec_conference_state_event(room, event).await
             }
         }
     }
@@ -1572,6 +1587,21 @@ impl EventExecutor {
             .await;
     }
 
+    async fn exec_conference_state_event(&self, room: Room, event: SyncConferenceStateEvent) {
+        let conference_url = match event {
+            SyncStateEvent::Original(original) => original.content.url,
+            SyncStateEvent::Redacted(_) => String::new(),
+        };
+
+        let proto = RoomChangeEventBuilder::new(room.room_id())
+            .change_conference_url(conference_url)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
+    }
+
     async fn update_room_unread_count_by_id(&mut self, room_id: &RoomId) {
         let Some(room) = self.client.get_room(room_id) else {
             log::warn!("Unable to find matrix room to update unread count");
@@ -1743,4 +1773,10 @@ impl_room_event_handler!(
     OriginalSyncUnstablePollEndEvent,
     unstable_poll_end_event_handler,
     process_unstable_poll_end_event
+);
+
+impl_room_event_handler!(
+    SyncConferenceStateEvent,
+    conference_state_event_handler,
+    process_conference_state_event
 );
