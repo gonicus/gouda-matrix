@@ -36,7 +36,7 @@ use matrix_sdk::ruma::events::room::redaction::OriginalSyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::tag::{TagEvent, TagName};
 use matrix_sdk::ruma::events::{
     AnyEphemeralRoomEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
-    AnySyncTimelineEvent, AnyTimelineEvent,
+    AnySyncTimelineEvent, AnyTimelineEvent, SyncStateEvent,
 };
 use matrix_sdk::sync::JoinedRoomUpdate;
 use matrix_sdk::{Client, Room, RoomState};
@@ -1588,7 +1588,18 @@ impl EventExecutor {
     }
 
     async fn exec_conference_state_event(&self, room: Room, event: SyncConferenceStateEvent) {
-        todo!()
+        let conference_url = match event {
+            SyncStateEvent::Original(original) => original.content.url,
+            SyncStateEvent::Redacted(_) => String::new(),
+        };
+
+        let proto = RoomChangeEventBuilder::new(room.room_id())
+            .change_conference_url(conference_url)
+            .to_proto();
+
+        self.ctx
+            .send_event(ResponseContent::RoomChangeEvent(proto))
+            .await;
     }
 
     async fn update_room_unread_count_by_id(&mut self, room_id: &RoomId) {
