@@ -258,6 +258,10 @@ async fn get_conference_url(room: &matrix_sdk::Room) -> Result<Option<String>> {
 }
 
 pub async fn set_conference_url(room: &matrix_sdk::Room, conference_url: String) -> Result<()> {
+    if conference_url.is_empty() {
+        return remove_conference_url(room).await;
+    }
+
     let event = ConferenceStateEventContent {
         url: conference_url,
     };
