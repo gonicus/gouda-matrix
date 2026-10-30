@@ -2078,7 +2078,7 @@ pub async fn build_client(
 }
 
 /// Typing notices are best-effort, so connection errors are not reported to the application
-/// on every /typing request to the homeserver. The snyc-loop already reports connection errors.
+/// on every /typing request to the homeserver. The sync-loop already reports connection errors.
 fn ignore_typing_notice_connection_error(result: matrix_sdk::Result<()>) -> Result<()> {
     match result {
         Err(err) if error::is_connection_error(&err) => {
