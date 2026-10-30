@@ -275,6 +275,16 @@ pub fn convert_matrix_sdk_error(err: &matrix_sdk::Error) -> ChatError {
     }
 }
 
+pub fn is_connection_error(err: &matrix_sdk::Error) -> bool {
+    if let matrix_sdk::Error::Http(http_err) = &err
+        && let matrix_sdk::HttpError::Reqwest(e) = &**http_err
+    {
+        return e.is_request() || e.is_connect() || e.is_timeout();
+    }
+
+    false
+}
+
 fn convert_client_build_error(err: Box<matrix_sdk::ClientBuildError>) -> ChatError {
     use matrix_sdk::ClientBuildError;
 

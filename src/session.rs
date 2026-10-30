@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use crate::bridge::TryIntoMatrix;
 use crate::client::SessionContext;
 use crate::crypto;
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use crate::notifications::NotificationManager;
 
 /// How long to wait before attempting the next sync if the previous sync failed
@@ -251,7 +251,7 @@ impl SyncProcess {
 
         log::warn!("Error during sync: {err}");
 
-        if self.is_connection_error(&err) {
+        if error::is_connection_error(&err) {
             return self.handle_connection_error().await;
         }
 
@@ -270,16 +270,6 @@ impl SyncProcess {
         self.request_ctx
             .send_event(ResponseContent::StatusUpdate(event))
             .await;
-    }
-
-    fn is_connection_error(&self, err: &matrix_sdk::Error) -> bool {
-        if let matrix_sdk::Error::Http(http_err) = &err
-            && let matrix_sdk::HttpError::Reqwest(e) = &**http_err
-        {
-            return e.is_request() || e.is_connect() || e.is_timeout();
-        }
-
-        false
     }
 
     async fn handle_connection_error(&mut self) -> Result<()> {
