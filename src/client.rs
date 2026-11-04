@@ -1771,9 +1771,7 @@ impl MatrixClientInner {
         let RoomTypingRequest { room_id } = request;
 
         let room = self.get_matrix_room(&room_id).await?;
-        room.typing_notice(true).await?;
-
-        Ok(())
+        ignore_typing_notice_connection_error(room.typing_notice(true).await)
     }
 
     async fn pin_unpin_message(
@@ -2079,6 +2077,18 @@ pub async fn build_client(
     Ok(builder.build().await?)
 }
 
+/// Typing notices are best-effort, so connection errors are not reported to the application
+/// on every /typing request to the homeserver. The sync-loop already reports connection errors.
+fn ignore_typing_notice_connection_error(result: matrix_sdk::Result<()>) -> Result<()> {
+    match result {
+        Err(err) if error::is_connection_error(&err) => {
+            log::debug!("Ignoring connection error for typing notice: {err}");
+            Ok(())
+        }
+        result => Ok(result?),
+    }
+}
+
 /// Removes the given directory, if it exists.
 /// Returns Ok when the directory does not exist.
 fn remove_directory(path: impl AsRef<Path>) -> Result<()> {
@@ -2110,4 +2120,55 @@ fn get_media_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
 /// Gets the path to the cache directory, starting from the given data root directory.
 fn get_cache_dir(data_root_dir: impl AsRef<Path>) -> PathBuf {
     data_root_dir.as_ref().join(CACHE_DIR)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use matrix_sdk::reqwest;
+
+    use super::*;
+
+    /// Creates a connection error by sending a request to a closed local port.
+    async fn connection_error() -> matrix_sdk::Error {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let err = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{port}"))
+            .send()
+            .await
+            .unwrap_err();
+
+        matrix_sdk::HttpError::Reqwest(err).into()
+    }
+
+    #[tokio::test]
+    async fn test_typing_notice_ignores_connection_error() {
+        let err = connection_error().await;
+        assert!(error::is_connection_error(&err));
+
+        let result = ignore_typing_notice_connection_error(Err(err));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_typing_notice_keeps_other_errors() {
+        let result =
+            ignore_typing_notice_connection_error(Err(matrix_sdk::Error::AuthenticationRequired));
+
+        assert!(matches!(
+            result,
+            Err(Error::MatrixSdkError(
+                matrix_sdk::Error::AuthenticationRequired
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_typing_notice_keeps_ok() {
+        assert!(ignore_typing_notice_connection_error(Ok(())).is_ok());
+    }
 }
