@@ -18,29 +18,7 @@ const LOG_LEVEL_DEFAULT: &str = "WARN";
 const LOG_FILE_DEFAULT: &str = "gouda_client.log";
 
 /// The log level for all other crates.
-const LOG_LEVEL_OTHERS: LogLevel = LogLevel::Error;
-
-/// Custom log level to not include trace in production builds.
-#[derive(Copy, Clone, Debug, clap::ValueEnum)]
-enum LogLevel {
-    Off,
-    Error,
-    Warn,
-    Info,
-    Debug,
-}
-
-impl From<LogLevel> for LevelFilter {
-    fn from(value: LogLevel) -> Self {
-        match value {
-            LogLevel::Off => Self::Off,
-            LogLevel::Error => Self::Error,
-            LogLevel::Warn => Self::Warn,
-            LogLevel::Info => Self::Info,
-            LogLevel::Debug => Self::Debug,
-        }
-    }
-}
+const LOG_LEVEL_OTHERS: LevelFilter = LevelFilter::Error;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -53,9 +31,9 @@ struct Args {
     #[arg(
         long,
         default_value = LOG_LEVEL_DEFAULT,
-        help="The log level to use. Must be OFF, ERROR, WARN, INFO or DEBUG",
+        help="The log level to use. Must be OFF, ERROR, WARN, INFO, DEBUG or TRACE",
     )]
-    pub log_level: LogLevel,
+    pub log_level: LevelFilter,
 
     #[arg(long, default_value = LOG_FILE_DEFAULT, help="The file where logs are written")]
     pub log_file_path: PathBuf,
@@ -109,7 +87,7 @@ fn setup_logging(args: &Args) {
         .logger(setup_custom_logger(args, "gouda_core"))
         .logger(setup_custom_logger(args, "gouda_matrix_adapter"))
         .logger(setup_custom_logger(args, "gouda_matrix"))
-        .build(Root::builder().appender("file").build(LOG_LEVEL_OTHERS.into()));
+        .build(Root::builder().appender("file").build(LOG_LEVEL_OTHERS));
 
     // Ignore any errors in the logging configuration. We don't want the
     // client to fail to start if, for example, we can't open the log file.
@@ -122,7 +100,7 @@ fn setup_custom_logger(args: &Args, name: &str) -> Logger {
     Logger::builder()
         .appender("file")
         .additive(false)
-        .build(name, args.log_level.into())
+        .build(name, args.log_level)
 }
 
 async fn connect_socket(
