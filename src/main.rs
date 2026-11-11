@@ -31,7 +31,7 @@ struct Args {
     #[arg(
         long,
         default_value = LOG_LEVEL_DEFAULT,
-        help="The log level to use. Must be OFF, ERROR, WARN, INFO, DEBUG or TRACE",
+        help="The log level to use. Must be OFF, ERROR, WARN, INFO or DEBUG",
     )]
     pub log_level: LevelFilter,
 
