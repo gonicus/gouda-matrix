@@ -151,7 +151,8 @@ impl MemoryCache {
         if events.is_none() {
             log::debug!("Retrying to decrypt all events inside room: {room_id:?}");
         } else {
-            log::debug!("Retrying to decrypt {events:?} inside room: {room_id:?}");
+            log::debug!("Retrying to decrypt events inside room: {room_id:?}");
+            log::trace!("Retrying to decrypt events {events:?} inside room: {room_id:?}");
         }
 
         let result = self
@@ -160,7 +161,8 @@ impl MemoryCache {
             .await;
 
         if let Err(err) = result {
-            log::error!("Error retrying decryption of events: {err}");
+            log::error!("Error retrying decryption of events");
+            log::trace!("Error retrying decryption of events: {err}");
         }
     }
 
@@ -171,7 +173,8 @@ impl MemoryCache {
         let result = self.inner.retry_all_encrypted_events().await;
 
         if let Err(err) = result {
-            log::error!("Error retrying decryption of all events: {err}");
+            log::error!("Error retrying decryption of all events");
+            log::trace!("Error retrying decryption of all events: {err}");
         }
     }
 
@@ -337,7 +340,8 @@ impl MemoryCacheInner {
 
         tokio::spawn(async move {
             if let Err(err) = room.retry_decryption(events).await {
-                log::error!("Error retrying decryption of room events: {err}");
+                log::error!("Error retrying decryption of room events");
+                log::trace!("Error retying decryption of room events: {err}");
             }
         });
 
@@ -356,7 +360,8 @@ impl MemoryCacheInner {
 
             tokio::spawn(async move {
                 if let Err(err) = room.retry_decryption(None).await {
-                    log::error!("Unable to retry decryption of events: {err}");
+                    log::error!("Unable to retry decryption of events");
+                    log::trace!("Error retying decryption of room events: {err}");
                 }
             });
         }
@@ -634,7 +639,8 @@ impl CachedMessage {
         if let Some(replacement) = replacements.last()
             && let Err(err) = polls::replace_content(content, replacement.content.poll_start())
         {
-            log::error!("Error replacing poll content: {err}");
+            log::error!("Error replacing poll content");
+            log::trace!("Error replacing poll content: {err}");
         }
     }
 
@@ -730,7 +736,7 @@ impl CachedRoom {
     /// Retries the decryption of the specified events.
     /// If none, all encrypted events are retried.
     pub async fn retry_decryption(&self, events: Option<BTreeSet<OwnedEventId>>) -> Result<()> {
-        log::debug!(
+        log::trace!(
             "Retrying decryption of events {events:?} from room {:?}",
             self.room.room_id()
         );
@@ -771,7 +777,8 @@ impl CachedRoom {
         let deserialized = match event.event.deserialize() {
             Ok(event) => event,
             Err(err) => {
-                log::warn!("Unable to deserialize event {event:?}: {err}");
+                log::warn!("Unable to deserialize event");
+                log::trace!("Unable to deserialize event {event:?}: {err}");
                 return Ok(None);
             }
         };
@@ -786,12 +793,14 @@ impl CachedRoom {
         event: Raw<AnySyncTimelineEvent>,
         utd_info: UnableToDecryptInfo,
     ) -> Result<Option<CachedRoomAction>> {
-        log::warn!("Unable to decrypt event {event:?}: {utd_info:?}");
+        log::warn!("Unable to decrypt event");
+        log::trace!("Unable to decrypt event {event:?}: {utd_info:?}");
 
         let deserialized = match event.deserialize() {
             Ok(event) => event,
             Err(err) => {
-                log::warn!("Unable to deserialize decrypted event {event:?}: {err}");
+                log::warn!("Unable to deserialize decrypted event");
+                log::trace!("Unable to deserialize decrypted event {event:?}: {err}");
                 return Ok(None);
             }
         };
@@ -802,7 +811,8 @@ impl CachedRoom {
             match serde_json::from_str(&json_str) {
                 Ok(raw) => raw,
                 Err(e) => {
-                    log::warn!("Failed to parse encrypted event: {e}");
+                    log::warn!("Failed to parse encrypted event");
+                    log::trace!("Failed to parse encrypted event: {e}");
                     return Ok(None);
                 }
             };
@@ -837,7 +847,8 @@ impl CachedRoom {
         let deserialized = match event.deserialize() {
             Ok(event) => event,
             Err(err) => {
-                log::warn!("Unable to deserialize event {event:?}: {err}");
+                log::warn!("Unable to deserialize event");
+                log::trace!("Unable to deserialize event {event:?}: {err}");
                 return Ok(None);
             }
         };
@@ -1202,18 +1213,20 @@ impl CachedRoom {
 
     /// Retries to decrypt and process the given event.
     async fn retry_cached_encrypted_event(&self, event: CachedEncryptedEvent) -> Result<()> {
-        log::debug!("Retrying decryption of event: {event:?}");
+        log::trace!("Retrying decryption of event: {event:?}");
 
         let event = match self.room.decrypt_event(&event.event, None).await {
             Ok(event) => event,
             Err(err) => {
-                log::warn!("Error retrying decryption for event {event:?}: {err}");
+                log::warn!("Error retrying decryption for event");
+                log::trace!("Error retrying decryption for event {event:?}: {err}");
                 return Ok(());
             }
         };
 
         if let TimelineEventKind::UnableToDecrypt { utd_info, .. } = &event.kind {
-            log::debug!("Unable to retry decryption of event {event:?}: {utd_info:?}");
+            log::debug!("Unable to retry decryption of event");
+            log::trace!("Unable to retry decryption of event {event:?}: {utd_info:?}");
             return Ok(());
         }
 
@@ -1254,6 +1267,7 @@ impl CachedRoom {
     /// Sends a message update event to the application with the now encrypted content.
     async fn process_successful_redecrypted_message(&self, message: Message) -> Result<()> {
         log::debug!("Processing successful redecryption of message: {message:?}");
+        log::trace!("Processing successful redecryption of message: {message:?}");
 
         let Some(content) = message.content else {
             log::debug!("Redacting previously send message as decrypted message has no content");
@@ -1351,7 +1365,8 @@ impl CachedRoom {
         replacement_id: String,
         replacement: CachedReplacement,
     ) -> Result<()> {
-        log::debug!("Caching replacement of message {original_message_id}: {replacement:?}");
+        log::debug!("Caching replacement of message {original_message_id}");
+        log::trace!("Caching replacement of message {original_message_id}: {replacement:?}");
 
         let mut guard = self.messages.lock()?;
         let message = guard.entry(original_message_id).or_default();
@@ -1556,7 +1571,8 @@ impl CachedRoom {
     /// with the cached related events.
     /// Only returns an error when the cache lock is poisoned.
     fn cache_and_build_message(&self, original: Message) -> Result<Message> {
-        log::debug!("Caching and assembling original message: {original:?}");
+        log::debug!("Caching and assembling original message");
+        log::trace!("Caching and assembling original message: {original:?}");
 
         let mut guard = self.messages.lock()?;
         let cached_message = guard.entry(original.message_id.clone()).or_default();
@@ -1608,13 +1624,19 @@ impl CachedRoom {
         let mut main = self
             .load_event_receipts(event, ReceiptThread::Main)
             .await
-            .inspect_err(|err| log::error!("Error loading main read receipts: {err}"))
+            .inspect_err(|err| {
+                log::error!("Error loading main read receipts");
+                log::trace!("Error loading main read receipts: {err}");
+            })
             .unwrap_or_default();
 
         let unthreaded = self
             .load_event_receipts(event, ReceiptThread::Unthreaded)
             .await
-            .inspect_err(|err| log::error!("Error loading unthreaded read receipts: {err}"))
+            .inspect_err(|err| {
+                log::error!("Error loading unthreaded read receipts");
+                log::trace!("Error loading unthreaded read receipts: {err}");
+            })
             .unwrap_or_default();
 
         log::trace!("Received main event receipts: {main:?}");
@@ -1652,7 +1674,7 @@ impl CachedRoom {
             .load_event_receipts(ReceiptType::Read, &thread, event_id)
             .await?;
 
-        log::debug!("Received read receipts: {receipts:?}");
+        log::trace!("Received read receipts: {receipts:?}");
 
         let mut result = HashMap::new();
 
@@ -1857,7 +1879,8 @@ impl MessagesFetcher {
         let result = self.fetch_until_completion().await;
 
         if let Err(err) = result {
-            log::error!("Received error when fetching messages: {err}");
+            log::error!("Received error when fetching messages");
+            log::debug!("Received error when fetching messages: {err}");
 
             if let Err(err) = self.sender.send(Err(err)).await {
                 log::error!("Error sending original error to message receiver: {err}");
@@ -1989,7 +2012,7 @@ impl MessageFetcher {
             .load_or_fetch_event_with_relations(&self.event_id, None, None)
             .await?;
 
-        log::debug!("Received relations: {relations:?}");
+        log::trace!("Received relations: {relations:?}");
 
         // First, cache all relations of the message.
         for relation in relations {
@@ -2012,7 +2035,8 @@ impl MessageFetcher {
             return Err(MemoryCacheError::UnableToAssembleMessage);
         };
 
-        log::debug!("Successfully build message: {message:?}");
+        log::debug!("Successfully build message");
+        log::trace!("Successfully build message: {message:?}");
 
         Ok(message)
     }
